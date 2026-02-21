@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DatabaseService } from "../../common/database/database.service";
-import { OpaService } from "../../common/policy/opa.service";
-import { AuditService } from "../audit/audit.service";
+import type { DatabaseService } from "../../common/database/database.service";
+import type { OpaService } from "../../common/policy/opa.service";
+import type { AuditService } from "../audit/audit.service";
 import { ConsentField } from "./dto/consent-field.enum";
 import { ConsentService } from "./consent.service";
 
