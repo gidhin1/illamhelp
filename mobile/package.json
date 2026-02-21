@@ -1,0 +1,12 @@
+{
+  "name": "@illamhelp/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "React Native workspace placeholder for IllamHelp mobile app",
+  "scripts": {
+    "lint": "echo \"Mobile workspace scaffolded. RN app setup is next.\"",
+    "typecheck": "echo \"Mobile workspace scaffolded. RN app setup is next.\"",
+    "test": "echo \"Mobile workspace scaffolded. RN app setup is next.\"",
+    "build": "echo \"Mobile workspace scaffolded. RN app setup is next.\""
+  }
+}

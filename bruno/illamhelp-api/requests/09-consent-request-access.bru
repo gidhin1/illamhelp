@@ -1,0 +1,48 @@
+meta {
+  name: Consent Request Access
+  type: http
+  seq: 9
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/consent/request-access
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "ownerUserId": "{{providerUserId}}",
+    "connectionId": "{{connectionId}}",
+    "requestedFields": ["phone", "email"],
+    "purpose": "booking coordination"
+  }
+}
+
+tests {
+  test("consent request access returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("consent request access returns pending record", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.status).to.equal("pending");
+    expect(res.body.ownerUserId).to.equal(bru.getEnvVar("providerUserId"));
+  });
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setVar("requestId", res.body.id);
+    bru.setEnvVar("requestId", res.body.id);
+  }
+  bru.runner.setNextRequest("Consent Requests List");
+}

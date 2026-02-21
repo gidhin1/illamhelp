@@ -1,0 +1,30 @@
+meta {
+  name: Health
+  type: http
+  seq: 1
+  tags: [
+    e2e
+    smoke
+  ]
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+tests {
+  test("health returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("health payload has ok status", function () {
+    expect(res.body.status).to.equal("ok");
+    expect(res.body.timestamp).to.be.a("string");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Auth Me (Seeker)");
+}

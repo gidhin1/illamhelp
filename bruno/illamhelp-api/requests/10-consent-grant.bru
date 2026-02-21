@@ -1,0 +1,45 @@
+meta {
+  name: Consent Grant
+  type: http
+  seq: 11
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/consent/{{requestId}}/grant
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "grantedFields": ["phone"],
+    "purpose": "booking coordination"
+  }
+}
+
+tests {
+  test("consent grant returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("consent grant returns active grant", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.status).to.equal("active");
+  });
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setVar("grantId", res.body.id);
+    bru.setEnvVar("grantId", res.body.id);
+  }
+  bru.runner.setNextRequest("Consent Grants List");
+}

@@ -1,0 +1,32 @@
+meta {
+  name: Jobs List
+  type: http
+  seq: 5
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/jobs
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("jobs list returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("jobs list returns array", function () {
+    expect(res.body).to.be.an("array");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Connections Request");
+}

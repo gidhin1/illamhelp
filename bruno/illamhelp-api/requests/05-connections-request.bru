@@ -1,0 +1,44 @@
+meta {
+  name: Connections Request
+  type: http
+  seq: 6
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/connections/request
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "targetUserId": "{{providerUserId}}"
+  }
+}
+
+tests {
+  test("connection request returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("connection request returns a connection id", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.status).to.be.oneOf(["pending", "accepted"]);
+  });
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setVar("connectionId", res.body.id);
+    bru.setEnvVar("connectionId", res.body.id);
+  }
+  bru.runner.setNextRequest("Connections Accept");
+}
