@@ -1,4 +1,4 @@
-import { UserType } from "./user-type.enum";
+import type { UserType } from "./user-type.enum";
 
 export type AppRole = "seeker" | "provider" | "admin" | "support";
 

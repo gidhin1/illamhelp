@@ -1,8 +1,8 @@
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthService } from "./auth.service";
-import { AuthUserService } from "./auth-user.service";
+import type { AuthUserService } from "./auth-user.service";
 
 const DEFAULT_SUB = "11111111-1111-4111-8111-111111111111";
 

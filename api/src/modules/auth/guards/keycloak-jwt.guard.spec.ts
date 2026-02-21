@@ -1,9 +1,10 @@
-import { ExecutionContext, UnauthorizedException } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ExecutionContext } from "@nestjs/common";
+import { UnauthorizedException } from "@nestjs/common";
+import type { ConfigService } from "@nestjs/config";
 import { Reflector } from "@nestjs/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AuthUserService } from "../auth-user.service";
+import type { AuthUserService } from "../auth-user.service";
 import { KeycloakJwtGuard } from "./keycloak-jwt.guard";
 
 const { jwtVerifyMock } = vi.hoisted(() => ({

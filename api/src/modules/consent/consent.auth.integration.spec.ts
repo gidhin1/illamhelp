@@ -1,20 +1,20 @@
 import { randomUUID } from "node:crypto";
 
+import type { ExecutionContext } from "@nestjs/common";
 import {
-  ExecutionContext,
   UnauthorizedException,
   BadRequestException
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import type { ConfigService } from "@nestjs/config";
 import { Reflector } from "@nestjs/core";
-import { QueryResult, QueryResultRow } from "pg";
+import type { QueryResult, QueryResultRow } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DatabaseService } from "../../common/database/database.service";
-import { OpaService } from "../../common/policy/opa.service";
+import type { DatabaseService } from "../../common/database/database.service";
+import type { OpaService } from "../../common/policy/opa.service";
 import { AuditService } from "../audit/audit.service";
 import { AuthUserService } from "../auth/auth-user.service";
-import { AuthenticatedUser } from "../auth/interfaces/authenticated-user.interface";
+import type { AuthenticatedUser } from "../auth/interfaces/authenticated-user.interface";
 import { KeycloakJwtGuard } from "../auth/guards/keycloak-jwt.guard";
 import { ConsentField } from "./dto/consent-field.enum";
 import { ConsentService } from "./consent.service";

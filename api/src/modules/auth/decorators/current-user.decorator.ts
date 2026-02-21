@@ -1,11 +1,13 @@
-import {
-  UnauthorizedException,
-  createParamDecorator,
+import type {
   ExecutionContext
 } from "@nestjs/common";
-import { FastifyRequest } from "fastify";
+import {
+  UnauthorizedException,
+  createParamDecorator
+} from "@nestjs/common";
+import type { FastifyRequest } from "fastify";
 
-import { AuthenticatedUser } from "../interfaces/authenticated-user.interface";
+import type { AuthenticatedUser } from "../interfaces/authenticated-user.interface";
 
 interface RequestWithUser extends FastifyRequest {
   user?: AuthenticatedUser;
