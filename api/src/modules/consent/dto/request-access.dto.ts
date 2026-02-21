@@ -1,3 +1,4 @@
+import { ApiProperty } from "@nestjs/swagger";
 import {
   ArrayNotEmpty,
   IsArray,
@@ -11,17 +12,35 @@ import {
 import { ConsentField } from "./consent-field.enum";
 
 export class RequestAccessDto {
+  @ApiProperty({
+    example: "1d21af8d-2700-4fbb-926f-163d4f963f73",
+    format: "uuid"
+  })
   @IsUUID()
   ownerUserId!: string;
 
+  @ApiProperty({
+    example: "2b0e7ceb-45c8-43cc-ad03-b5b6e1fb32df",
+    format: "uuid"
+  })
   @IsUUID()
   connectionId!: string;
 
+  @ApiProperty({
+    enum: ConsentField,
+    isArray: true,
+    example: [ConsentField.PHONE, ConsentField.EMAIL]
+  })
   @IsArray()
   @ArrayNotEmpty()
   @IsEnum(ConsentField, { each: true })
   requestedFields!: ConsentField[];
 
+  @ApiProperty({
+    example: "Share contact details to discuss maid service requirements.",
+    minLength: 3,
+    maxLength: 200
+  })
   @IsString()
   @MinLength(3)
   @MaxLength(200)

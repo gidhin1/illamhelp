@@ -43,6 +43,7 @@ This baseline is designed around free/open-source tools and security-first archi
    - Build: `pnpm --filter @illamhelp/api build`
    - Start compiled app: `pnpm --filter @illamhelp/api start`
 9. Apply DB migrations: `make migrate`
+10. Swagger docs (enabled by default in non-production): `http://localhost:4000/api/docs`
 
 If local backend state gets stuck or persists unexpectedly, do a full backend wipe:
 
@@ -66,3 +67,4 @@ make migrate
 - All other API routes require a Keycloak bearer token.
 - Actor identity is taken from JWT `sub`; protected endpoints do not trust actor IDs from request bodies.
 - Auth startup preflight is enabled by default and validates/repairs Keycloak client config at boot (`AUTH_STARTUP_CHECK_ENABLED=false` to disable).
+- Swagger UI is enabled by default in local/dev (`SWAGGER_ENABLED=true`, `SWAGGER_PATH=api/docs`).
