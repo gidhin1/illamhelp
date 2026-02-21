@@ -1,0 +1,40 @@
+meta {
+  name: Consent Can View (After Revoke)
+  type: http
+  seq: 15
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/consent/can-view
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "ownerUserId": "{{providerUserId}}",
+    "field": "phone"
+  }
+}
+
+tests {
+  test("consent can-view after revoke returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("consent can-view after revoke is denied", function () {
+    expect(res.body.allowed).to.equal(false);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest(null);
+}

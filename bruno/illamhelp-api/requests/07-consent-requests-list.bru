@@ -1,0 +1,35 @@
+meta {
+  name: Consent Requests List
+  type: http
+  seq: 10
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/consent/requests
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+}
+
+tests {
+  test("consent requests list returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("consent requests list contains latest request", function () {
+    expect(res.body).to.be.an("array");
+    const expectedId = bru.getVar("requestId") || bru.getEnvVar("requestId");
+    const found = res.body.find((item) => item.id === expectedId);
+    expect(found).to.not.equal(undefined);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Consent Grant");
+}

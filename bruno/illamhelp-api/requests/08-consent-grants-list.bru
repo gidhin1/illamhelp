@@ -1,0 +1,36 @@
+meta {
+  name: Consent Grants List
+  type: http
+  seq: 12
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/consent/grants
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+}
+
+tests {
+  test("consent grants list returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("consent grants list contains latest grant", function () {
+    expect(res.body).to.be.an("array");
+    const expectedId = bru.getVar("grantId") || bru.getEnvVar("grantId");
+    const found = res.body.find((item) => item.id === expectedId);
+    expect(found).to.not.equal(undefined);
+    expect(found.status).to.be.oneOf(["active", "revoked"]);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Consent Can View (Before Revoke)");
+}

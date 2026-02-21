@@ -1,0 +1,131 @@
+# Bruno Collection
+
+Collection path:
+
+- `bruno/illamhelp-api`
+
+## Automated E2E Run (Recommended)
+
+The collection is now scripted for full automation:
+
+- CLI run executes the full `requests/` folder recursively.
+- The run is filtered by `e2e` tag by default.
+- Runtime IDs (`seekerUserId`, `providerUserId`, `connectionId`, `requestId`, `grantId`) are captured automatically.
+- Assertions are embedded in each request using Bruno `tests`.
+
+### Prerequisites
+
+1. API is running.
+2. Bruno CLI is installed:
+   `npm install -g @usebruno/cli`
+
+### Run
+
+From project root:
+
+```bash
+bash ./scripts/run-bruno-e2e.sh
+```
+
+By default, the script generates random seeker/provider users and tokens each run.
+
+If you want fixed users, provide credentials:
+
+```bash
+export SEEKER_USERNAME='<seeker-username>'
+export SEEKER_PASSWORD='<seeker-password>'
+export PROVIDER_USERNAME='<provider-username>'
+export PROVIDER_PASSWORD='<provider-password>'
+make bruno-e2e
+```
+
+Or:
+
+```bash
+make bruno-e2e
+```
+
+If you already have tokens, you can pass them directly:
+
+```bash
+export SEEKER_ACCESS_TOKEN='<seeker-jwt>'
+export PROVIDER_ACCESS_TOKEN='<provider-jwt>'
+BRUNO_PREFER_GENERATED_USERS=false \
+make bruno-e2e
+```
+
+Optional overrides:
+
+```bash
+BRUNO_ENV=local BRUNO_TAGS=e2e make bruno-e2e
+```
+
+To print export commands for the generated tokens:
+
+```bash
+BRUNO_PRINT_EXPORTS=true make bruno-e2e
+```
+
+To only login and print token export commands (without running tests):
+
+```bash
+BRUNO_LOGIN_ONLY=true BRUNO_PRINT_EXPORTS=true make bruno-e2e
+```
+
+## Assertions Covered
+
+The automated flow validates:
+
+1. Health endpoint is reachable.
+2. Seeker and provider tokens are valid (`/auth/me` subject checks).
+3. Job creation succeeds.
+4. Connection request and accept succeed.
+5. Connection list contains the created/accepted connection.
+6. Consent access request is created and listed.
+7. Consent grant is created and listed.
+8. `can-view` is `true` before revoke.
+9. Consent revoke succeeds.
+10. `can-view` is `false` after revoke.
+
+## Manual Bruno App Run (Optional)
+
+1. Open Bruno.
+2. `Open Collection`.
+3. Select `/Users/gidhin1/Documents/claude_proj/illamhelp/bruno/illamhelp-api`.
+4. Choose environment `local`.
+5. Set:
+   - `seekerAccessToken`
+   - `providerAccessToken`
+6. Run request: `01-health`
+
+The scripted chain will execute the remaining flow automatically.
+
+## Register/Login APIs
+
+New auth endpoints are available:
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+
+Bruno requests:
+
+- `Auth Register`
+- `Auth Login`
+
+No usernames/passwords are stored in the collection files.  
+Set login/registration values at runtime in your local environment only.
+
+Required runtime vars for `Auth Register`:
+
+- `registerUsername`
+- `registerEmail`
+- `registerPassword`
+- `registerFirstName`
+- `registerLastName` (optional)
+- `registerPhone` (optional)
+- `registerUserType` (`seeker` | `provider` | `both`)
+
+Required runtime vars for `Auth Login`:
+
+- `loginUsername`
+- `loginPassword`

@@ -1,0 +1,42 @@
+meta {
+  name: Auth Register
+  type: http
+  seq: 16
+  tags: [
+    auth
+  ]
+}
+
+post {
+  url: {{baseUrl}}/auth/register
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{registerUsername}}",
+    "email": "{{registerEmail}}",
+    "password": "{{registerPassword}}",
+    "firstName": "{{registerFirstName}}",
+    "lastName": "{{registerLastName}}",
+    "phone": "{{registerPhone}}",
+    "userType": "{{registerUserType}}"
+  }
+}
+
+tests {
+  test("auth register returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("auth register returns token and user info", function () {
+    expect(res.body.userId).to.be.a("string");
+    expect(res.body.accessToken).to.be.a("string");
+    expect(res.body.userType).to.be.oneOf(["seeker", "provider", "both"]);
+  });
+}

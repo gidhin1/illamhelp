@@ -1,0 +1,40 @@
+meta {
+  name: Consent Revoke
+  type: http
+  seq: 14
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/consent/{{grantId}}/revoke
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "reason": "No longer needed"
+  }
+}
+
+tests {
+  test("consent revoke returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("consent revoke returns revoked status", function () {
+    expect(res.body.id).to.equal(bru.getVar("grantId") || bru.getEnvVar("grantId"));
+    expect(res.body.status).to.equal("revoked");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Consent Can View (After Revoke)");
+}

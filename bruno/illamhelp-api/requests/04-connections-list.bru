@@ -1,0 +1,35 @@
+meta {
+  name: Connections List
+  type: http
+  seq: 8
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/connections
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("connections list returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("connections list contains current connection", function () {
+    expect(res.body).to.be.an("array");
+    const expectedId = bru.getVar("connectionId") || bru.getEnvVar("connectionId");
+    const found = res.body.find((item) => item.id === expectedId);
+    expect(found).to.not.equal(undefined);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Consent Request Access");
+}

@@ -1,0 +1,61 @@
+meta {
+  name: Auth Login
+  type: http
+  seq: 17
+  tags: [
+    auth
+  ]
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "username": "{{loginUsername}}",
+    "password": "{{loginPassword}}"
+  }
+}
+
+tests {
+  test("auth login returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("auth login returns session details", function () {
+    expect(res.body.userId).to.be.a("string");
+    expect(res.body.accessToken).to.be.a("string");
+    expect(res.body.userType).to.be.oneOf(["seeker", "provider", "both"]);
+    expect(res.body.roles).to.be.an("array");
+  });
+}
+
+script:post-response {
+  const userType = res.body.userType;
+  const userId = res.body.userId;
+  const accessToken = res.body.accessToken;
+
+  if (userType === "provider") {
+    bru.setEnvVar("providerUserId", userId);
+    bru.setEnvVar("providerAccessToken", accessToken);
+    return;
+  }
+
+  if (userType === "both") {
+    bru.setEnvVar("seekerUserId", userId);
+    bru.setEnvVar("providerUserId", userId);
+    bru.setEnvVar("seekerAccessToken", accessToken);
+    bru.setEnvVar("providerAccessToken", accessToken);
+    return;
+  }
+
+  bru.setEnvVar("seekerUserId", userId);
+  bru.setEnvVar("seekerAccessToken", accessToken);
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Connections Accept
+  type: http
+  seq: 7
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/connections/{{connectionId}}/accept
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+}
+
+tests {
+  test("connection accept returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("connection status is accepted", function () {
+    expect(res.body.id).to.equal(bru.getVar("connectionId") || bru.getEnvVar("connectionId"));
+    expect(res.body.status).to.equal("accepted");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Connections List");
+}
