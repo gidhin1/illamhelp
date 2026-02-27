@@ -152,6 +152,18 @@ Run both suites:
 make ui-test
 ```
 
+## Run CI Workflow Locally
+
+Run the same GitHub CI workflow file (`.github/workflows/ci.yml`) on your machine using `act`:
+
+```bash
+make ci-local
+```
+
+Prerequisites:
+- Docker must be running.
+- `act` must be installed: https://github.com/nektos/act
+
 Notes:
 - `make ui-test-web`, `make ui-test-mobile-ios`, `make ui-test-mobile-android`, `make ui-test-mobile`, and `make ui-test` auto-run startup preflight plus backend prerequisites (`make preflight` + `make up-core` + `make migrate`) first.
 - Web tests stay on Playwright.

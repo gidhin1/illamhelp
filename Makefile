@@ -24,6 +24,7 @@ KNOWN_CONTAINERS := \
 .PHONY: dev dev-web dev-mobile dev-mobile-clear dev-mobile-reset dev-mobile-android dev-mobile-ios dev-mobile-web health
 .PHONY: backend backend-start
 .PHONY: mobile-native-init ui-install ui-test-web ui-test-mobile ui-test-mobile-ios ui-test-mobile-android ui-test
+.PHONY: ci-local
 .PHONY: clean clean-build
 
 init-env:
@@ -181,6 +182,13 @@ ui-test-mobile-android: preflight up-core migrate
 
 ui-test: preflight up-core migrate
 	pnpm run test:ui
+
+ci-local:
+	@command -v act >/dev/null 2>&1 || { \
+		echo "'act' is required. Install it first (https://github.com/nektos/act)."; \
+		exit 1; \
+	}
+	act push -W .github/workflows/ci.yml
 
 clean: clean-build
 
