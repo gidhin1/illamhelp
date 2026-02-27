@@ -58,6 +58,7 @@ flowchart LR
 - MinIO: media and verification documents with separate `quarantine` and `approved` buckets
 - Audit Log Store: immutable security and compliance events
 - PII fields in PostgreSQL with encryption-at-rest and access-event logging
+- Internal Event Outbox: protobuf payload storage for async publication to JetStream
 
 ## Security Architecture
 
@@ -75,6 +76,7 @@ flowchart LR
 - Public media serving allowed only from `approved` bucket objects
 - PII response filtering via consent policy evaluator on every read endpoint
 - Revocation event fanout to cache invalidation and active session policy refresh
+- Internal async contracts use protobuf payloads; public client APIs remain JSON
 
 ## PII and Contact Sharing Flow
 

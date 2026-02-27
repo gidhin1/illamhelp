@@ -173,10 +173,10 @@ describe("AuthService startup and client bootstrap", () => {
       password: "Passw0rd!"
     });
 
-    expect(result.userType).toBe("provider");
+    expect(result.userType).toBe("both");
     expect(result.userId).toBe(DEFAULT_SUB);
     expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(DEFAULT_SUB, [
-      "provider"
+      "both"
     ]);
 
     const firstTokenAttempt = fetchMock.mock.calls[3];

@@ -32,7 +32,7 @@ interface RequestWithUser extends FastifyRequest {
   user?: AuthenticatedUser;
 }
 
-const APP_ROLES: AppRole[] = ["seeker", "provider", "admin", "support"];
+const APP_ROLES: AppRole[] = ["both", "seeker", "provider", "admin", "support"];
 
 @Injectable()
 export class KeycloakJwtGuard implements CanActivate {
@@ -73,7 +73,7 @@ export class KeycloakJwtGuard implements CanActivate {
       this.assertClientMatch(payload);
       this.assertTokenSubject(payload.sub);
 
-      const roles = this.extractRoles(payload);
+      const roles = this.normalizeAppRoles(this.extractRoles(payload));
       const user: AuthenticatedUser = {
         userId: payload.sub as string,
         roles,
@@ -139,16 +139,27 @@ export class KeycloakJwtGuard implements CanActivate {
     return mappedRoles.length > 0 ? mappedRoles : ["seeker"];
   }
 
+  private normalizeAppRoles(roles: AppRole[]): AppRole[] {
+    const uniqueRoles = [...new Set(roles)];
+    const privilegedRoles = uniqueRoles.filter(
+      (role): role is AppRole => role === "admin" || role === "support"
+    );
+
+    if (privilegedRoles.length > 0) {
+      return privilegedRoles;
+    }
+
+    return ["both"];
+  }
+
   private resolveUserType(roles: AppRole[]): UserType {
+    const hasBoth = roles.includes("both");
     const hasSeeker = roles.includes("seeker");
     const hasProvider = roles.includes("provider");
 
-    if (hasSeeker && hasProvider) {
+    if (hasBoth || hasSeeker || hasProvider) {
       return UserType.BOTH;
     }
-    if (hasProvider) {
-      return UserType.PROVIDER;
-    }
-    return UserType.SEEKER;
+    return UserType.BOTH;
   }
 }

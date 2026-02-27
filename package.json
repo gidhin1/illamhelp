@@ -5,11 +5,37 @@
   "packageManager": "pnpm@10.7.0",
   "scripts": {
     "dev:api": "pnpm --filter @illamhelp/api dev",
+    "dev:web": "pnpm --filter @illamhelp/web dev",
+    "dev:mobile": "pnpm --filter @illamhelp/mobile start",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:ui:web": "playwright test -c tests/playwright/playwright.web.config.ts",
+    "test:ui:mobile": "pnpm --filter @illamhelp/mobile e2e:detox",
+    "test:ui:mobile:ios": "pnpm --filter @illamhelp/mobile e2e:detox:ios",
+    "test:ui:mobile:android": "pnpm --filter @illamhelp/mobile e2e:detox:android",
+    "test:ui": "pnpm run test:ui:web && pnpm run test:ui:mobile",
+    "test:ui:install": "playwright install chromium",
     "infra:up": "docker compose --project-name illamhelp --env-file .env -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose --project-name illamhelp --env-file .env -f infra/docker-compose.yml down -v --remove-orphans"
+  },
+  "pnpm": {
+    "overrides": {
+      "@expo/cli>minimatch": "3.1.4",
+      "@expo/fingerprint>minimatch": "3.1.4",
+      "@expo/metro-config>minimatch": "3.1.4",
+      "minimatch@3.1.2": "3.1.4",
+      "glob@6>minimatch": "3.1.4",
+      "glob@7>minimatch": "3.1.4",
+      "glob@10>minimatch": "9.0.7",
+      "glob@11>minimatch": "10.2.3",
+      "glob@13>minimatch": "10.2.3",
+      "@expo/cli>tar": "7.5.8",
+      "cacache>tar": "7.5.8"
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
   }
 }

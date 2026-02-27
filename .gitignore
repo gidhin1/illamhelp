@@ -9,6 +9,20 @@ coverage/
 .next/
 android/
 ios/
+mobile/.expo/
+mobile/.expo-shared/
+mobile/android/
+mobile/ios/
+mobile/artifacts/
+mobile/artifacts/detox/
+mobile/e2e/artifacts/
+mobile/e2e/reports/
+mobile/.detox/
+test-results/
+tests/playwright/reports/
+playwright-report/
+blob-report/
+reports/
 
 # env
 .env
@@ -19,8 +33,11 @@ ios/
 *.log
 npm-debug.log*
 pnpm-debug.log*
+.eslintcache
 
 # os/editor
 .DS_Store
 .idea/
 .vscode/
+*.swp
+*.swo

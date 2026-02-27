@@ -12,7 +12,7 @@ Validated on: `2026-02-21`
 
 | Layer | Technology | Version Posture | Why |
 |---|---|---|---|
-| Mobile App | React Native + TypeScript | React Native `0.83.x` | Mature cross-platform stack, strong ecosystem, full control without paid lock-in |
+| Mobile App | Expo (React Native) + TypeScript | Expo SDK `52` (React Native `0.76.x`) | Stable cross-platform stack with fast iteration and free tooling |
 | Admin Web | Next.js | `16.x` stable | Fast dashboard development with SSR/ISR and strong tooling |
 | API | NestJS + Fastify | NestJS `11.x` | Modular enterprise backend architecture with performance-oriented adapter |
 | Runtime | Node.js | `24.x LTS` | Long support window and current performance/security baseline |
@@ -63,7 +63,7 @@ These integrations should remain adapter-based so providers can be swapped witho
 
 ## Source References (Official)
 
-- React Native 0.83 release notes: https://reactnative.dev/blog/2025/10/08/react-native-0.83
+- Expo SDK 52 release notes: https://blog.expo.dev/expo-sdk-52-3e9b1caa6e83
 - Next.js 16 release: https://nextjs.org/blog/next-16
 - Node.js release schedule/LTS table: https://nodejs.org/en/about/previous-releases
 - PostgreSQL 18.2 release notes: https://www.postgresql.org/docs/release/18.2/

@@ -52,9 +52,9 @@ make up
 ## 5) Start API
 
 ```bash
-pnpm install
+make deps
 make migrate
-pnpm dev:api
+make api-dev
 ```
 
 If data persists after `make down`, run a hard reset:
@@ -68,7 +68,7 @@ make migrate
 Health check:
 
 ```bash
-curl http://localhost:4000/api/v1/health
+make health
 ```
 
 ## Apple Silicon Notes

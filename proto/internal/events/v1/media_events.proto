@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package illamhelp.internal.events.v1;
+
+message MediaUploadTicketIssuedEvent {
+  string event_id = 1;
+  string occurred_at = 2;
+  string actor_user_id = 3;
+  string media_id = 4;
+  string bucket_name = 5;
+  string object_key = 6;
+  string kind = 7;
+  string content_type = 8;
+  uint64 file_size_bytes = 9;
+  string checksum_sha256 = 10;
+}
+
+message MediaUploadCompletedEvent {
+  string event_id = 1;
+  string occurred_at = 2;
+  string actor_user_id = 3;
+  string media_id = 4;
+  string etag = 5;
+  bool verified_by_head = 6;
+}

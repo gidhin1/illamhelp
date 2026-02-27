@@ -1,6 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+on_error() {
+  local exit_code=$?
+  local line_no="${BASH_LINENO[0]:-unknown}"
+  local failed_command="${BASH_COMMAND:-unknown}"
+  echo "ERROR: run-bruno-e2e.sh failed (line ${line_no}): ${failed_command}" >&2
+  exit "${exit_code}"
+}
+trap on_error ERR
+
 ROOT_DIR="$(
   cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1
   pwd
@@ -69,18 +78,16 @@ json_escape_register_payload() {
   local username="$1"
   local email="$2"
   local password="$3"
-  local user_type="$4"
   node -e '
-    const [username, email, password, userType] = process.argv.slice(1);
+    const [username, email, password] = process.argv.slice(1);
     process.stdout.write(JSON.stringify({
       username,
       email,
       password,
       firstName: "Auto",
-      lastName: "Runner",
-      userType
+      lastName: "Runner"
     }));
-  ' "${username}" "${email}" "${password}" "${user_type}"
+  ' "${username}" "${email}" "${password}"
 }
 
 login_for_token() {
@@ -130,7 +137,6 @@ register_for_token() {
   local username="$2"
   local email="$3"
   local password="$4"
-  local user_type="$5"
 
   if [[ -z "${username}" || -z "${email}" || -z "${password}" ]]; then
     echo "ERROR: Missing ${label} registration fields."
@@ -138,7 +144,7 @@ register_for_token() {
   fi
 
   local payload
-  payload="$(json_escape_register_payload "${username}" "${email}" "${password}" "${user_type}")"
+  payload="$(json_escape_register_payload "${username}" "${email}" "${password}")"
 
   local raw_response
   raw_response="$(
@@ -171,6 +177,12 @@ register_for_token() {
 if ! command -v bru >/dev/null 2>&1; then
   echo "ERROR: Bruno CLI is not installed."
   echo "Install with: npm install -g @usebruno/cli"
+  exit 1
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: Node.js is required for token parsing and payload generation."
+  echo "Install Node.js and retry."
   exit 1
 fi
 
@@ -258,8 +270,7 @@ if [[ -z "${SEEKER_TOKEN}" ]]; then
         "SEEKER" \
         "${SEEKER_USERNAME}" \
         "${SEEKER_EMAIL}" \
-        "${SEEKER_PASSWORD}" \
-        "seeker"
+        "${SEEKER_PASSWORD}"
     )"
   else
     echo "ERROR: Provide both SEEKER_USERNAME and SEEKER_PASSWORD, or neither."
@@ -280,8 +291,7 @@ if [[ -z "${PROVIDER_TOKEN}" ]]; then
         "PROVIDER" \
         "${PROVIDER_USERNAME}" \
         "${PROVIDER_EMAIL}" \
-        "${PROVIDER_PASSWORD}" \
-        "provider"
+        "${PROVIDER_PASSWORD}"
     )"
   else
     echo "ERROR: Provide both PROVIDER_USERNAME and PROVIDER_PASSWORD, or neither."
