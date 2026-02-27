@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Sora } from "next/font/google";
+import type { ReactNode } from "react";
 
 import { SessionProvider } from "@/components/session/SessionProvider";
 
@@ -22,7 +23,7 @@ export const metadata: Metadata = {
   description: "Find trusted home services with privacy-first connections"
 };
 
-export default function RootLayout({ children }: { children: any }): JSX.Element {
+export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
   return (
     <html lang="en" className={`${sora.variable} ${fraunces.variable}`}>
       <body>

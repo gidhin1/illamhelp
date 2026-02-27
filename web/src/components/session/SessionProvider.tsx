@@ -6,7 +6,8 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState
+  useState,
+  type ReactNode
 } from "react";
 
 import {
@@ -32,7 +33,7 @@ const SessionContext = createContext<SessionContextValue | undefined>(undefined)
 export function SessionProvider({
   children
 }: {
-  children: any;
+  children: ReactNode;
 }): JSX.Element {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
@@ -119,8 +120,7 @@ export function SessionProvider({
     [accessToken, user, loading, error, applyAuthSession, refreshUser, signOut]
   );
 
-  const Provider = SessionContext.Provider as any;
-  return <Provider value={value}>{children}</Provider>;
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
 export function useSession(): SessionContextValue {

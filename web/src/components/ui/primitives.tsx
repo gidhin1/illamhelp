@@ -1,5 +1,13 @@
 "use client";
 
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes
+} from "react";
+
 export function SectionHeader({
   eyebrow,
   title,
@@ -9,7 +17,7 @@ export function SectionHeader({
   eyebrow?: string;
   title: string;
   subtitle?: string;
-  actions?: any;
+  actions?: ReactNode;
 }): JSX.Element {
   return (
     <div className="section-header">
@@ -28,7 +36,7 @@ export function Card({
   soft,
   className
 }: {
-  children: any;
+  children: ReactNode;
   soft?: boolean;
   className?: string;
 }): JSX.Element {
@@ -40,13 +48,9 @@ export function Button({
   variant = "primary",
   ...props
 }: {
-  children: any;
+  children: ReactNode;
   variant?: "primary" | "secondary" | "ghost";
-  className?: string;
-  type?: "button" | "submit" | "reset";
-  disabled?: boolean;
-  onClick?: (event: any) => void;
-}): JSX.Element {
+} & ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
   const className = [
     "button",
     variant === "secondary" ? "secondary" : "",
@@ -72,7 +76,7 @@ export function Field({
   label: string;
   hint?: string;
   error?: string | null;
-  children: any;
+  children: ReactNode;
 }): JSX.Element {
   return (
     <label className="stack field" style={{ gap: "8px" }}>
@@ -84,22 +88,19 @@ export function Field({
   );
 }
 
-interface BaseTextInputProps {
-  className?: string;
-  value?: any;
-  onChange?: (event: any) => void;
-  [key: string]: any;
-}
+type TextInputProps = InputHTMLAttributes<HTMLInputElement>;
+type TextAreaProps = TextareaHTMLAttributes<HTMLTextAreaElement>;
+type SelectInputProps = SelectHTMLAttributes<HTMLSelectElement>;
 
-export function TextInput(props: BaseTextInputProps): JSX.Element {
+export function TextInput(props: TextInputProps): JSX.Element {
   return <input {...props} className={["input", props.className ?? ""].join(" ")} />;
 }
 
-export function TextArea(props: BaseTextInputProps): JSX.Element {
+export function TextArea(props: TextAreaProps): JSX.Element {
   return <textarea {...props} className={["input textarea", props.className ?? ""].join(" ")} />;
 }
 
-export function SelectInput(props: BaseTextInputProps): JSX.Element {
+export function SelectInput(props: SelectInputProps): JSX.Element {
   return <select {...props} className={["input", props.className ?? ""].join(" ")} />;
 }
 
@@ -108,7 +109,7 @@ export function Banner({
   children
 }: {
   tone: "info" | "success" | "error";
-  children: any;
+  children: ReactNode;
 }): JSX.Element {
   return <div className={`banner ${tone}`}>{children}</div>;
 }

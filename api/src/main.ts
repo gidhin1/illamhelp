@@ -1,3 +1,4 @@
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
@@ -20,6 +21,17 @@ function parsePositiveInt(value: string, fallback: number): number {
     return fallback;
   }
   return Math.trunc(parsed);
+}
+
+function getSingleHeaderValue(
+  headers: Record<string, string | string[] | undefined>,
+  key: string
+): string | undefined {
+  const value = headers[key];
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
 }
 
 async function bootstrap(): Promise<void> {
@@ -72,14 +84,17 @@ async function bootstrap(): Promise<void> {
     allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin"],
     credentials: false
   });
+  const fastify = app.getHttpAdapter().getInstance();
 
   if (strictOriginCheckEnabled && corsOrigins.length > 0) {
     const allowedOrigins = new Set(corsOrigins);
-    app
-      .getHttpAdapter()
-      .getInstance()
-      .addHook("onRequest", (request: any, reply: any, done: () => void) => {
-        const originHeader = request.headers?.origin;
+    fastify.addHook(
+      "onRequest",
+      async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+        const originHeader = getSingleHeaderValue(
+          request.headers as Record<string, string | string[] | undefined>,
+          "origin"
+        );
 
         if (typeof originHeader === "string" && !allowedOrigins.has(originHeader)) {
           reply.status(403).send({
@@ -87,17 +102,14 @@ async function bootstrap(): Promise<void> {
             error: "Forbidden",
             message: "Origin is not allowed"
           });
-          return;
         }
-
-        done();
-      });
+      }
+    );
   }
 
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .addHook("onRequest", (request: any, reply: any, done: () => void) => {
+  fastify.addHook(
+    "onRequest",
+    async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       const url = request.url ?? "";
       const method = request.method ?? "";
       const isAuthEndpoint =
@@ -105,7 +117,6 @@ async function bootstrap(): Promise<void> {
         (url.startsWith("/api/v1/auth/login") || url.startsWith("/api/v1/auth/register"));
 
       if (!isAuthEndpoint) {
-        done();
         return;
       }
 
@@ -122,7 +133,6 @@ async function bootstrap(): Promise<void> {
             }
           }
         }
-        done();
         return;
       }
 
@@ -136,13 +146,16 @@ async function bootstrap(): Promise<void> {
       }
 
       bucket.count += 1;
-      done();
-    });
+    }
+  );
 
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .addHook("onSend", (request: any, reply: any, payload: any, done: (err: Error | null, value?: any) => void) => {
+  fastify.addHook(
+    "onSend",
+    async (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      payload: unknown
+    ): Promise<unknown> => {
       reply.header("X-Content-Type-Options", "nosniff");
       reply.header("X-Frame-Options", "DENY");
       reply.header("Referrer-Policy", "no-referrer");
@@ -151,8 +164,9 @@ async function bootstrap(): Promise<void> {
       if (enableHsts && request.protocol === "https") {
         reply.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
       }
-      done(null, payload);
-    });
+      return payload;
+    }
+  );
 
   const swaggerEnabled =
     configService.get<string>(

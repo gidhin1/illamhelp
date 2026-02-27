@@ -67,6 +67,9 @@ export interface ProfileRecord {
 
 @Injectable()
 export class ProfilesService {
+  private static readonly GCM_IV_LENGTH_BYTES = 12;
+  private static readonly GCM_AUTH_TAG_LENGTH_BYTES = 16;
+
   private readonly piiEncryptionKey: Buffer;
 
   constructor(
@@ -377,8 +380,10 @@ export class ProfilesService {
       return null;
     }
 
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.piiEncryptionKey, iv);
+    const iv = randomBytes(ProfilesService.GCM_IV_LENGTH_BYTES);
+    const cipher = createCipheriv("aes-256-gcm", this.piiEncryptionKey, iv, {
+      authTagLength: ProfilesService.GCM_AUTH_TAG_LENGTH_BYTES
+    });
     const ciphertext = Buffer.concat([
       cipher.update(normalized, "utf8"),
       cipher.final()
@@ -411,12 +416,22 @@ export class ProfilesService {
     }
 
     try {
+      const iv = Buffer.from(ivB64, "base64url");
+      const authTag = Buffer.from(authTagB64, "base64url");
+      if (
+        iv.length !== ProfilesService.GCM_IV_LENGTH_BYTES ||
+        authTag.length !== ProfilesService.GCM_AUTH_TAG_LENGTH_BYTES
+      ) {
+        return null;
+      }
+
       const decipher = createDecipheriv(
         "aes-256-gcm",
         this.piiEncryptionKey,
-        Buffer.from(ivB64, "base64url")
+        iv,
+        { authTagLength: ProfilesService.GCM_AUTH_TAG_LENGTH_BYTES }
       );
-      decipher.setAuthTag(Buffer.from(authTagB64, "base64url"));
+      decipher.setAuthTag(authTag);
       const plaintext = Buffer.concat([
         decipher.update(Buffer.from(ciphertextB64, "base64url")),
         decipher.final()

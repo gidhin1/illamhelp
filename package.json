@@ -30,6 +30,7 @@
       "glob@7>minimatch": "3.1.4",
       "glob@10>minimatch": "9.0.7",
       "glob@11>minimatch": "10.2.3",
+      "glob@13>minimatch": "10.2.3",
       "@expo/cli>tar": "7.5.8",
       "cacache>tar": "7.5.8"
     }
