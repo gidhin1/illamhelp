@@ -1,0 +1,28 @@
+{
+  "name": "@illamhelp/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IllamHelp seeker/provider web app",
+  "scripts": {
+    "dev": "next dev -p ${PORT:-3000}",
+    "build": "next build",
+    "start": "next start -p ${PORT:-3000}",
+    "lint": "next lint",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"No web tests yet\""
+  },
+  "dependencies": {
+    "@illamhelp/ui-tokens": "workspace:*",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.20.0",
+    "eslint-config-next": "^16.0.0",
+    "typescript": "^5.8.2"
+  }
+}

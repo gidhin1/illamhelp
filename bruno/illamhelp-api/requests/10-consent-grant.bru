@@ -41,5 +41,5 @@ script:post-response {
     bru.setVar("grantId", res.body.id);
     bru.setEnvVar("grantId", res.body.id);
   }
-  bru.runner.setNextRequest("Consent Grants List");
+  bru.runner.setNextRequest("Profile View Provider (After Grant)");
 }

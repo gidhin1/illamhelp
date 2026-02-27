@@ -1,0 +1,47 @@
+meta {
+  name: Media Upload Ticket
+  type: http
+  seq: 16
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/media/upload-ticket
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "kind": "image",
+    "contentType": "image/jpeg",
+    "fileSizeBytes": 512,
+    "checksumSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "originalFileName": "e2e-proof.jpg"
+  }
+}
+
+tests {
+  test("media upload ticket returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("media upload ticket returns required fields", function () {
+    expect(res.body.mediaId).to.be.a("string");
+    expect(res.body.uploadUrl).to.be.a("string");
+    expect(res.body.bucketName).to.be.a("string");
+    expect(res.body.objectKey).to.be.a("string");
+  });
+}
+
+script:post-response {
+  bru.setEnvVar("mediaId", res.body.mediaId);
+  bru.runner.setNextRequest("Media List");
+}

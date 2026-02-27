@@ -14,7 +14,7 @@ Services provisioned through `infra/docker-compose.yml`:
 ## Start
 
 ```bash
-cp .env.example .env
+make init-env
 make doctor
 make up
 ```

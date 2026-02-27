@@ -6,15 +6,29 @@ import { CurrentUser } from "./decorators/current-user.decorator";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterDto } from "./dto/register.dto";
 import { AuthenticatedUser } from "./interfaces/authenticated-user.interface";
+import { UserType } from "./interfaces/user-type.enum";
+import { ProfilesService } from "../profiles/profiles.service";
 
 @Controller("auth")
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly profilesService: ProfilesService
+  ) {}
 
   @Public()
   @Post("register")
-  register(@Body() body: RegisterDto): Promise<AuthSessionResponse> {
-    return this.authService.register(body);
+  async register(@Body() body: RegisterDto): Promise<AuthSessionResponse> {
+    const session = await this.authService.register(body);
+    await this.profilesService.upsertFromRegistration({
+      userId: session.userId,
+      firstName: body.firstName,
+      lastName: body.lastName,
+      email: body.email,
+      phone: body.phone,
+      userType: UserType.BOTH
+    });
+    return session;
   }
 
   @Public()

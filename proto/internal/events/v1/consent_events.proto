@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package illamhelp.internal.events.v1;
+
+message ConsentAccessCheckedEvent {
+  string event_id = 1;
+  string occurred_at = 2;
+  string actor_user_id = 3;
+  string owner_user_id = 4;
+  string field = 5;
+  bool allowed = 6;
+  string reason = 7;
+  string purpose = 8;
+}

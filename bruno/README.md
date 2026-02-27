@@ -17,14 +17,14 @@ The collection is now scripted for full automation:
 
 1. API is running.
 2. Bruno CLI is installed:
-   `npm install -g @usebruno/cli`
+   `make bruno-cli-install`
 
 ### Run
 
 From project root:
 
 ```bash
-bash ./scripts/run-bruno-e2e.sh
+make bruno-e2e
 ```
 
 By default, the script generates random seeker/provider users and tokens each run.
@@ -32,10 +32,10 @@ By default, the script generates random seeker/provider users and tokens each ru
 If you want fixed users, provide credentials:
 
 ```bash
-export SEEKER_USERNAME='<seeker-username>'
-export SEEKER_PASSWORD='<seeker-password>'
-export PROVIDER_USERNAME='<provider-username>'
-export PROVIDER_PASSWORD='<provider-password>'
+SEEKER_USERNAME='<seeker-username>' \
+SEEKER_PASSWORD='<seeker-password>' \
+PROVIDER_USERNAME='<provider-username>' \
+PROVIDER_PASSWORD='<provider-password>' \
 make bruno-e2e
 ```
 
@@ -48,10 +48,9 @@ make bruno-e2e
 If you already have tokens, you can pass them directly:
 
 ```bash
-export SEEKER_ACCESS_TOKEN='<seeker-jwt>'
-export PROVIDER_ACCESS_TOKEN='<provider-jwt>'
-BRUNO_PREFER_GENERATED_USERS=false \
-make bruno-e2e
+SEEKER_ACCESS_TOKEN='<seeker-jwt>' \
+PROVIDER_ACCESS_TOKEN='<provider-jwt>' \
+BRUNO_PREFER_GENERATED_USERS=false make bruno-e2e
 ```
 
 Optional overrides:
@@ -86,6 +85,12 @@ The automated flow validates:
 8. `can-view` is `true` before revoke.
 9. Consent revoke succeeds.
 10. `can-view` is `false` after revoke.
+11. Media upload ticket creation succeeds.
+12. Media list includes the newly created media record.
+
+Note:
+- The default E2E chain validates `upload-ticket` + `list`.
+- `Media Complete Upload` is included as a manual request because it requires uploading bytes to the signed URL before completion.
 
 ## Manual Bruno App Run (Optional)
 
@@ -123,7 +128,6 @@ Required runtime vars for `Auth Register`:
 - `registerFirstName`
 - `registerLastName` (optional)
 - `registerPhone` (optional)
-- `registerUserType` (`seeker` | `provider` | `both`)
 
 Required runtime vars for `Auth Login`:
 

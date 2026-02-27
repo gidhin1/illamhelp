@@ -69,6 +69,7 @@ export class AuthService implements OnModuleInit {
   private readonly keycloakAdminClientId: string;
   private readonly keycloakAdminUsername?: string;
   private readonly keycloakAdminPassword?: string;
+  private readonly keycloakHttpTimeoutMs: number;
   private readonly authStartupCheckEnabled: boolean;
   private passwordGrantClientEnsured = false;
 
@@ -93,6 +94,10 @@ export class AuthService implements OnModuleInit {
     );
     this.keycloakAdminUsername = this.configService.get<string>("KEYCLOAK_ADMIN");
     this.keycloakAdminPassword = this.configService.get<string>("KEYCLOAK_ADMIN_PASSWORD");
+    this.keycloakHttpTimeoutMs = this.parsePositiveInt(
+      this.configService.get<string>("KEYCLOAK_HTTP_TIMEOUT_MS", "8000"),
+      8000
+    );
 
     this.authStartupCheckEnabled =
       this.configService.get<string>("AUTH_STARTUP_CHECK_ENABLED", "true") !== "false";
@@ -109,7 +114,7 @@ export class AuthService implements OnModuleInit {
     const username = this.resolveUsername(input.username, input.email);
     const provisionalUserId = randomUUID();
     const adminAccessToken = await this.getAdminAccessToken();
-    const rolesToAssign = this.rolesFromUserType(input.userType);
+    const rolesToAssign: AppRole[] = ["both"];
 
     const keycloakUserId = await this.createUser(adminAccessToken, {
       id: provisionalUserId,
@@ -135,7 +140,7 @@ export class AuthService implements OnModuleInit {
       password: input.password
     });
     const decodedPayload = this.decodeJwtPayload(tokenResponse.access_token);
-    const userRoles = this.extractRoles(decodedPayload);
+    const userRoles = this.normalizeAppRoles(this.extractRoles(decodedPayload));
     const tokenUserId = this.extractUserId(decodedPayload, keycloakUserId);
 
     await this.authUserService.syncUserFromToken(tokenUserId, userRoles);
@@ -143,7 +148,7 @@ export class AuthService implements OnModuleInit {
     return {
       userId: tokenUserId,
       username,
-      userType: this.userTypeFromRoles(userRoles),
+      userType: UserType.BOTH,
       roles: userRoles,
       accessToken: tokenResponse.access_token,
       refreshToken: tokenResponse.refresh_token,
@@ -163,7 +168,7 @@ export class AuthService implements OnModuleInit {
     });
 
     const decodedPayload = this.decodeJwtPayload(tokenResponse.access_token);
-    const userRoles = this.extractRoles(decodedPayload);
+    const userRoles = this.normalizeAppRoles(this.extractRoles(decodedPayload));
     const userId = this.extractUserId(decodedPayload);
 
     await this.authUserService.syncUserFromToken(userId, userRoles);
@@ -189,31 +194,15 @@ export class AuthService implements OnModuleInit {
     return email.trim().toLowerCase();
   }
 
-  private rolesFromUserType(userType: UserType): AppRole[] {
-    if (userType === UserType.SEEKER) {
-      return ["seeker"];
-    }
-    if (userType === UserType.PROVIDER) {
-      return ["provider"];
-    }
-    if (userType === UserType.BOTH) {
-      return ["seeker", "provider"];
-    }
-
-    return ["seeker"];
-  }
-
   private userTypeFromRoles(roles: AppRole[]): UserType {
+    const hasBoth = roles.includes("both");
     const hasSeeker = roles.includes("seeker");
     const hasProvider = roles.includes("provider");
 
-    if (hasSeeker && hasProvider) {
+    if (hasBoth || hasSeeker || hasProvider) {
       return UserType.BOTH;
     }
-    if (hasProvider) {
-      return UserType.PROVIDER;
-    }
-    return UserType.SEEKER;
+    return UserType.BOTH;
   }
 
   private async getAdminAccessToken(): Promise<string> {
@@ -303,7 +292,7 @@ export class AuthService implements OnModuleInit {
     );
 
     if (response.status === 409) {
-      throw new ConflictException("Username or email already exists");
+      throw new ConflictException("Unable to create account with provided credentials");
     }
     if (response.ok) {
       const locationHeader = response.headers.get("location");
@@ -430,18 +419,14 @@ export class AuthService implements OnModuleInit {
       }
 
       if (retry.response.status === 400 || retry.response.status === 401 || retry.response.status === 403) {
-        throw new UnauthorizedException(
-          retry.responseBody.error_description ?? "Invalid username or password"
-        );
+        throw new UnauthorizedException("Invalid username or password");
       }
 
       throw new BadGatewayException("Failed to login via Keycloak");
     }
 
     if (attempt.response.status === 400 || attempt.response.status === 401 || attempt.response.status === 403) {
-      throw new UnauthorizedException(
-        attempt.responseBody.error_description ?? "Invalid username or password"
-      );
+      throw new UnauthorizedException("Invalid username or password");
     }
 
     throw new BadGatewayException("Failed to login via Keycloak");
@@ -675,10 +660,23 @@ export class AuthService implements OnModuleInit {
     const realmRoles = payload.realm_access?.roles ?? [];
     const clientRoles = payload.resource_access?.[this.keycloakClientId]?.roles ?? [];
     const allRoles = [...new Set([...realmRoles, ...clientRoles])];
-    const appRoles: AppRole[] = ["seeker", "provider", "admin", "support"];
+    const appRoles: AppRole[] = ["both", "seeker", "provider", "admin", "support"];
 
     const roles = appRoles.filter((role) => allRoles.includes(role));
     return roles.length > 0 ? roles : ["seeker"];
+  }
+
+  private normalizeAppRoles(roles: AppRole[]): AppRole[] {
+    const uniqueRoles = [...new Set(roles)];
+    const privilegedRoles = uniqueRoles.filter(
+      (role): role is AppRole => role === "admin" || role === "support"
+    );
+
+    if (privilegedRoles.length > 0) {
+      return privilegedRoles;
+    }
+
+    return ["both"];
   }
 
   private async keycloakFetch(
@@ -686,12 +684,32 @@ export class AuthService implements OnModuleInit {
     init: RequestInit,
     operation: string
   ): Promise<Response> {
+    const abortController = new AbortController();
+    const timeoutHandle = setTimeout(() => abortController.abort(), this.keycloakHttpTimeoutMs);
     try {
-      return await fetch(url, init);
-    } catch {
+      return await fetch(url, {
+        ...init,
+        signal: abortController.signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new ServiceUnavailableException(
+          `Keycloak request timed out for ${operation} after ${this.keycloakHttpTimeoutMs}ms at ${this.keycloakUrl}.`
+        );
+      }
       throw new ServiceUnavailableException(
         `Unable to reach Keycloak for ${operation} at ${this.keycloakUrl}. Start it with 'make up-auth' or 'make up-core'.`
       );
+    } finally {
+      clearTimeout(timeoutHandle);
     }
+  }
+
+  private parsePositiveInt(value: string | number, fallback: number): number {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return fallback;
+    }
+    return Math.trunc(parsed);
   }
 }

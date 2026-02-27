@@ -1,0 +1,37 @@
+meta {
+  name: Media Complete Upload
+  type: http
+  seq: 17
+  tags: [
+    manual
+  ]
+}
+
+post {
+  url: {{baseUrl}}/media/{{mediaId}}/complete
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {}
+}
+
+tests {
+  test("media complete returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("media complete moves state to scanning", function () {
+    expect(res.body.state).to.equal("scanning");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Media List");
+}

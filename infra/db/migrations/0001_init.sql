@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TYPE user_role AS ENUM ('seeker', 'provider', 'admin', 'support');
+CREATE TYPE user_role AS ENUM ('both', 'seeker', 'provider', 'admin', 'support');
 CREATE TYPE job_status AS ENUM ('posted', 'accepted', 'in_progress', 'completed', 'cancelled');
 CREATE TYPE application_status AS ENUM ('applied', 'shortlisted', 'accepted', 'rejected', 'withdrawn');
 CREATE TYPE connection_status AS ENUM ('pending', 'accepted', 'declined', 'blocked');

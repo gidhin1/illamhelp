@@ -1,0 +1,34 @@
+meta {
+  name: Profile View Provider (After Grant)
+  type: http
+  seq: 12
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/profiles/{{providerUserId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("profile view after grant returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("profile view after grant reveals phone", function () {
+    expect(res.body.visibility.phone).to.equal(true);
+    expect(res.body.contact.phone).to.be.a("string");
+    expect(res.body.contact.phone.length).to.be.greaterThan(7);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Consent Grants List");
+}

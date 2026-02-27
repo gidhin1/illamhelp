@@ -23,16 +23,13 @@ export class AuthUserService {
     );
   }
 
-  private resolvePrimaryRole(roles: AppRole[]): AppRole {
+  private resolvePrimaryRole(roles: AppRole[]): AppRole | "both" {
     if (roles.includes("admin")) {
       return "admin";
     }
     if (roles.includes("support")) {
       return "support";
     }
-    if (roles.includes("provider")) {
-      return "provider";
-    }
-    return "seeker";
+    return "both";
   }
 }

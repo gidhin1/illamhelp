@@ -1,0 +1,48 @@
+meta {
+  name: Profile Update Provider
+  type: http
+  seq: 3
+  tags: [
+    e2e
+  ]
+}
+
+patch {
+  url: {{baseUrl}}/profiles/me
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "firstName": "Provider",
+    "lastName": "E2E",
+    "city": "Kochi",
+    "area": "Kakkanad",
+    "serviceCategories": ["plumber"],
+    "email": "provider.e2e@example.com",
+    "phone": "+919876543210"
+  }
+}
+
+tests {
+  test("profile update provider returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("profile update provider returns updated fields", function () {
+    expect(res.body.city).to.equal("Kochi");
+    expect(res.body.area).to.equal("Kakkanad");
+    expect(res.body.contact.phone).to.equal("+919876543210");
+    expect(res.body.contact.phoneMasked).to.be.a("string");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs Create");
+}
