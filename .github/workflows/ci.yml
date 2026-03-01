@@ -226,14 +226,34 @@ jobs:
 
             ASSET="trivy_${VERSION}_Linux-${ASSET_ARCH}.tar.gz"
             URL="https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/${ASSET}"
-            curl -fsSL "${URL}" -o "/tmp/${ASSET}"
-            tar -xzf "/tmp/${ASSET}" -C /tmp trivy
-            mkdir -p "${HOME}/.local/bin"
-            install -m 0755 /tmp/trivy "${HOME}/.local/bin/trivy"
-            echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
-            export PATH="${HOME}/.local/bin:${PATH}"
+            echo "Trying Trivy binary download: ${URL}"
+            if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 "${URL}" -o "/tmp/${ASSET}"; then
+              tar -xzf "/tmp/${ASSET}" -C /tmp trivy
+              mkdir -p "${HOME}/.local/bin"
+              install -m 0755 /tmp/trivy "${HOME}/.local/bin/trivy"
+              echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+              export PATH="${HOME}/.local/bin:${PATH}"
+              trivy --version
+              exit 0
+            fi
+
+            echo "Direct binary download failed. Trying apt repository fallback..."
+            sudo apt-get update
+            sudo apt-get install -y wget gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | gpg --dearmor \
+              | sudo tee /usr/share/keyrings/trivy.gpg >/dev/null
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+              | sudo tee /etc/apt/sources.list.d/trivy.list >/dev/null
+            sudo apt-get update
+            sudo apt-get install -y trivy
             trivy --version
           } > "${REPORT_ROOT}/trivy/install.log" 2>&1
+      - name: Print Trivy install log on failure
+        if: always() && steps.trivy_install.outcome != 'success'
+        run: |
+          echo "Trivy install failed; tailing install log:"
+          tail -n 200 "${REPORT_ROOT}/trivy/install.log" || true
       - name: Trivy filesystem scan
         id: trivy_scan
         continue-on-error: true
