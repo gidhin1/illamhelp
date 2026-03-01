@@ -206,24 +206,13 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - name: Prepare report directory
         run: mkdir -p "${REPORT_ROOT}/trivy"
-      - name: Install Trivy
+      - name: Install Trivy (direct binary)
         id: trivy_install
-        continue-on-error: true
-        uses: aquasecurity/setup-trivy@v0.2.2
-      - name: Ensure Trivy CLI is available
-        id: trivy_bootstrap
         continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p "${REPORT_ROOT}/trivy"
           {
-            if command -v trivy >/dev/null 2>&1; then
-              echo "Trivy already available at $(command -v trivy)"
-              trivy --version
-              exit 0
-            fi
-
-            echo "setup-trivy did not provide trivy on PATH. Installing fallback binary..."
             VERSION="${TRIVY_VERSION:-0.57.2}"
             ARCH="$(uname -m)"
             case "${ARCH}" in
@@ -298,7 +287,6 @@ jobs:
               "| Check | Status |",
               "|---|---|",
               "| Install | ${{ steps.trivy_install.outcome }} |",
-              "| Bootstrap | ${{ steps.trivy_bootstrap.outcome }} |",
               "| Vulnerability scan | ${{ steps.trivy_scan.outcome }} |",
               ""
           ]
