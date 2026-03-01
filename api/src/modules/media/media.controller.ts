@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
 
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { Public } from "../auth/decorators/public.decorator";
 import { AuthenticatedUser } from "../auth/interfaces/authenticated-user.interface";
 import { CompleteUploadDto } from "./dto/complete-upload.dto";
 import { CreateUploadTicketDto } from "./dto/create-upload-ticket.dto";
 import {
+  PublicMediaAssetRecord,
   MediaAssetRecord,
   MediaService,
   UploadTicketRecord
@@ -17,6 +19,14 @@ export class MediaController {
   @Get()
   listMine(@CurrentUser() user: AuthenticatedUser): Promise<MediaAssetRecord[]> {
     return this.mediaService.listMine(user.userId);
+  }
+
+  @Public()
+  @Get("public/:ownerUserId")
+  listApprovedForOwner(
+    @Param("ownerUserId") ownerUserId: string
+  ): Promise<PublicMediaAssetRecord[]> {
+    return this.mediaService.listApprovedForOwner(ownerUserId);
   }
 
   @Post("upload-ticket")

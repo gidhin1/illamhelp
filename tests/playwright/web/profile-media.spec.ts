@@ -54,7 +54,7 @@ async function registerByUi(page: Page): Promise<void> {
   await page.getByLabel("First name").fill(user.firstName);
   await page.getByLabel("Last name").fill(user.lastName);
   await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("Username (optional)").fill(user.username);
+  await page.getByLabel("User ID").fill(user.username);
   await page.getByLabel("Phone (optional)").fill("+919876543210");
   await page.getByLabel("Password").fill(user.password);
 
@@ -68,6 +68,9 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
   await registerByUi(page);
 
   await page.goto("/profile");
+  const memberIdText = (await page.getByTestId("profile-user-id").textContent()) ?? "";
+  const memberId = memberIdText.trim();
+  expect(memberId.length).toBeGreaterThan(2);
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
   await page.getByLabel("Services offered").fill("plumber, electrician");
@@ -75,11 +78,18 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
   await page.getByRole("button", { name: "Save profile" }).click();
   await waitForSuccessMessage(page, "Profile updated.");
 
-  const payload = Buffer.from(`e2e-media-${Date.now()}`, "utf8");
+  const payload = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=",
+    "base64"
+  );
   await page
     .locator("input[type='file']")
-    .setInputFiles({ name: "work-proof.jpg", mimeType: "image/jpeg", buffer: payload });
+    .setInputFiles({ name: "work-proof.png", mimeType: "image/png", buffer: payload });
   await page.getByRole("button", { name: "Upload for review" }).click();
   await waitForSuccessMessage(page, "Uploaded successfully. Review started.");
   await expect(page.getByText("State: scanning").first()).toBeVisible();
+
+  await page.getByTestId("profile-public-owner-input").fill(memberId);
+  await page.getByTestId("profile-public-load-button").click();
+  await expect(page.getByText("No approved media yet").first()).toBeVisible();
 });

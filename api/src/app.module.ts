@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { DatabaseModule } from "./common/database/database.module";
 import { HealthModule } from "./health/health.module";
 import { AuditModule } from "./modules/audit/audit.module";
+import { AdminModule } from "./modules/admin/admin.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { ConnectionsModule } from "./modules/connections/connections.module";
 import { ConsentModule } from "./modules/consent/consent.module";
@@ -25,6 +26,7 @@ import { ProfilesModule } from "./modules/profiles/profiles.module";
     }),
     DatabaseModule,
     HealthModule,
+    AdminModule,
     AuthModule,
     ProfilesModule,
     JobsModule,

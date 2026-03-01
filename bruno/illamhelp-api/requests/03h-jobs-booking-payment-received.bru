@@ -1,0 +1,33 @@
+meta {
+  name: Jobs Booking Payment Received
+  type: http
+  seq: 12
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs/{{jobId}}/booking/payment-received
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+}
+
+tests {
+  test("jobs booking payment received returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs booking payment received moves status to payment_received", function () {
+    expect(res.body.id).to.equal(bru.getEnvVar("jobId"));
+    expect(res.body.status).to.equal("payment_received");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs Booking Close");
+}

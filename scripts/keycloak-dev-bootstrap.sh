@@ -37,6 +37,21 @@ get_client_internal_id() {
     head -n1
 }
 
+ensure_realm_role() {
+  local realm="$1"
+  local role_name="$2"
+
+  if docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh get "roles/${role_name}" \
+    -r "${realm}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh create roles \
+    -r "${realm}" \
+    -s name="${role_name}" \
+    -s "description=IllamHelp application role: ${role_name}" >/dev/null
+}
+
 if [[ "$(docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null || true)" != "true" ]]; then
   echo "${CONTAINER_NAME} is not running. Start it first with: make up-auth"
   exit 1
@@ -133,6 +148,11 @@ else
     -s enabled=true \
     -s sslRequired=NONE >/dev/null
 fi
+
+echo "Ensuring app roles in realm '${KEYCLOAK_REALM}'..."
+for role_name in both seeker provider admin support; do
+  ensure_realm_role "${KEYCLOAK_REALM}" "${role_name}"
+done
 
 echo "Ensuring Keycloak client '${KEYCLOAK_CLIENT_ID}' in realm '${KEYCLOAK_REALM}'..."
 CLIENT_INTERNAL_ID="$(get_client_internal_id "${KEYCLOAK_REALM}" "${KEYCLOAK_CLIENT_ID}")"

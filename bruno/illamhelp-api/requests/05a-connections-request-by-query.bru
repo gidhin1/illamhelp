@@ -1,0 +1,36 @@
+meta {
+  name: Connections Request By Query
+  type: http
+  seq: 6
+  tags: [
+    coverage
+  ]
+}
+
+post {
+  url: {{baseUrl}}/connections/request
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "targetQuery": "{{providerUserId}}"
+  }
+}
+
+tests {
+  test("connection request by query returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("connection request by query returns a valid shape", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.status).to.be.oneOf(["pending", "accepted", "declined", "blocked"]);
+  });
+}

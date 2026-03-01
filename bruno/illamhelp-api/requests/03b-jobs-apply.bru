@@ -1,0 +1,46 @@
+meta {
+  name: Jobs Apply
+  type: http
+  seq: 6
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs/{{jobId}}/apply
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "message": "Available today for immediate support"
+  }
+}
+
+tests {
+  test("jobs apply returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs apply returns expected shape", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.jobId).to.equal(bru.getEnvVar("jobId"));
+    expect(res.body.providerUserId).to.equal(bru.getEnvVar("providerUserId"));
+    expect(res.body.status).to.equal("applied");
+  });
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setVar("applicationId", res.body.id);
+    bru.setEnvVar("applicationId", res.body.id);
+  }
+  bru.runner.setNextRequest("Jobs Applications List");
+}

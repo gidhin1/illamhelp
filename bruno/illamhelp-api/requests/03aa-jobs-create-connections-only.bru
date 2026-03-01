@@ -1,0 +1,41 @@
+meta {
+  name: Jobs Create Connections Only
+  type: http
+  seq: 5
+  tags: [
+    coverage
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "category": "electrician",
+    "title": "Connections only request",
+    "description": "Only accepted connections should see and apply to this job.",
+    "locationText": "Kochi, Kakkanad",
+    "visibility": "connections_only"
+  }
+}
+
+tests {
+  test("jobs create connections_only returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs create connections_only returns visibility", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.visibility).to.equal("connections_only");
+    expect(res.body.status).to.equal("posted");
+  });
+}

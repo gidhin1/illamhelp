@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 
 import { PageShell } from "@/components/PageShell";
+import { useSession } from "@/components/session/SessionProvider";
 import { Button, Card } from "@/components/ui/primitives";
 
 const pillars = [
@@ -19,6 +22,8 @@ const pillars = [
 ];
 
 export default function HomePage(): JSX.Element {
+  const { user, loading } = useSession();
+
   return (
     <PageShell>
       <section className="section">
@@ -30,14 +35,29 @@ export default function HomePage(): JSX.Element {
               Discover skilled people for everyday home services, connect safely,
               and share contact details only when you choose.
             </p>
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <Link href="/auth/register">
-                <Button>Create account</Button>
-              </Link>
-              <Link href="/auth/login">
-                <Button variant="ghost">Sign in</Button>
-              </Link>
-            </div>
+            {!loading ? (
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                {user ? (
+                  <>
+                    <Link href="/jobs" className="button">
+                      Browse jobs
+                    </Link>
+                    <Link href="/profile" className="button ghost">
+                      View profile
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    <Link href="/auth/register" className="button">
+                      Create account
+                    </Link>
+                    <Link href="/auth/login" className="button ghost">
+                      Sign in
+                    </Link>
+                  </>
+                )}
+              </div>
+            ) : null}
             <div className="kpi-grid">
               <div className="kpi">
                 <div className="kpi-label">New requests</div>

@@ -1,5 +1,6 @@
 const API_BASE_URL = process.env.E2E_API_BASE_URL ?? "http://localhost:4000/api/v1";
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
+const MEMBER_ID_PATTERN = /[a-z0-9._-]{3,40}/i;
 const E2E_TIMEOUT_MS = Number(process.env.DETOX_TEST_TIMEOUT_MS ?? "480000");
 
 function logStep(message) {
@@ -11,6 +12,18 @@ function parseUuid(value, context) {
   const match = String(value).match(UUID_PATTERN);
   if (!match) {
     throw new Error(`Unable to parse UUID for ${context}. Value: ${value}`);
+  }
+  return match[0];
+}
+
+function parseMemberId(value, context) {
+  const normalized = String(value)
+    .replace(/^member id:\s*/i, "")
+    .replace(/^user id:\s*/i, "")
+    .trim();
+  const match = normalized.match(MEMBER_ID_PATTERN);
+  if (!match) {
+    throw new Error(`Unable to parse member ID for ${context}. Value: ${value}`);
   }
   return match[0];
 }
@@ -60,6 +73,28 @@ async function apiRequest(method, path, body, accessToken) {
   return payload;
 }
 
+function normalizeListResponse(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && typeof payload === "object") {
+    const candidates = [
+      payload.items,
+      payload.data,
+      payload.connections,
+      payload.jobs,
+      payload.requests,
+      payload.grants
+    ];
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return [];
+}
+
 async function loginByApi(user) {
   return apiRequest("POST", "/auth/login", {
     username: user.username,
@@ -68,19 +103,102 @@ async function loginByApi(user) {
 }
 
 async function listConnectionsByApi(accessToken) {
-  return apiRequest("GET", "/connections", undefined, accessToken);
+  const payload = await apiRequest("GET", "/connections", undefined, accessToken);
+  return normalizeListResponse(payload);
 }
 
 async function listJobsByApi(accessToken) {
-  return apiRequest("GET", "/jobs", undefined, accessToken);
+  const payload = await apiRequest("GET", "/jobs", undefined, accessToken);
+  return normalizeListResponse(payload);
 }
 
 async function listAccessRequestsByApi(accessToken) {
-  return apiRequest("GET", "/consent/requests", undefined, accessToken);
+  const payload = await apiRequest("GET", "/consent/requests", undefined, accessToken);
+  return normalizeListResponse(payload);
 }
 
 async function listGrantsByApi(accessToken) {
-  return apiRequest("GET", "/consent/grants", undefined, accessToken);
+  const payload = await apiRequest("GET", "/consent/grants", undefined, accessToken);
+  return normalizeListResponse(payload);
+}
+
+async function applyToJobByApi(jobId, accessToken, message) {
+  return apiRequest(
+    "POST",
+    `/jobs/${jobId}/apply`,
+    {
+      message
+    },
+    accessToken
+  );
+}
+
+async function applyToJobRaw(jobId, accessToken, message) {
+  const headers = {
+    "content-type": "application/json",
+    Authorization: `Bearer ${accessToken}`
+  };
+  const response = await fetch(`${API_BASE_URL}/jobs/${jobId}/apply`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ message })
+  });
+
+  const raw = await response.text();
+  let payload = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = { raw };
+    }
+  }
+
+  return { status: response.status, payload };
+}
+
+async function listJobApplicationsByApi(jobId, accessToken) {
+  const payload = await apiRequest("GET", `/jobs/${jobId}/applications`, undefined, accessToken);
+  return normalizeListResponse(payload);
+}
+
+async function acceptJobApplicationByApi(applicationId, accessToken) {
+  return apiRequest("POST", `/jobs/applications/${applicationId}/accept`, undefined, accessToken);
+}
+
+async function startBookingByApi(jobId, accessToken) {
+  return apiRequest("POST", `/jobs/${jobId}/booking/start`, undefined, accessToken);
+}
+
+async function completeBookingByApi(jobId, accessToken) {
+  return apiRequest("POST", `/jobs/${jobId}/booking/complete`, undefined, accessToken);
+}
+
+async function markPaymentDoneByApi(jobId, accessToken) {
+  return apiRequest("POST", `/jobs/${jobId}/booking/payment-done`, undefined, accessToken);
+}
+
+async function markPaymentReceivedByApi(jobId, accessToken) {
+  return apiRequest("POST", `/jobs/${jobId}/booking/payment-received`, undefined, accessToken);
+}
+
+async function closeBookingByApi(jobId, accessToken) {
+  return apiRequest("POST", `/jobs/${jobId}/booking/close`, undefined, accessToken);
+}
+
+async function requestConnectionByApi(accessToken, targetUserId) {
+  return apiRequest(
+    "POST",
+    "/connections/request",
+    {
+      targetUserId
+    },
+    accessToken
+  );
+}
+
+async function acceptConnectionByApi(accessToken, connectionId) {
+  return apiRequest("POST", `/connections/${connectionId}/accept`, undefined, accessToken);
 }
 
 async function poll(action, timeoutMs = 30000) {
@@ -346,12 +464,10 @@ async function readFirstBannerMessage(bannerIds) {
   return "";
 }
 
-async function waitForJobCreated(accessToken, seekerUserId, jobTitle, timeoutMs) {
+async function waitForJobCreated(accessToken, jobTitle, timeoutMs) {
   return poll(async () => {
     const jobs = await listJobsByApi(accessToken);
-    const found = jobs.find(
-      (job) => job.title === jobTitle && (job.seekerUserId === seekerUserId || !job.seekerUserId)
-    );
+    const found = jobs.find((job) => job.title === jobTitle);
     return found?.id;
   }, timeoutMs);
 }
@@ -393,7 +509,7 @@ function compareExpectedJobSnapshot(actual, expected) {
   return mismatches;
 }
 
-async function submitJobAndWaitForCreate(accessToken, seekerUserId, jobTitle, expectedJobSnapshot) {
+async function submitJobAndWaitForCreate(accessToken, jobTitle, expectedJobSnapshot) {
   const errorBanners = ["jobs-submit-error-banner", "jobs-error-banner", "auth-error-banner"];
 
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -424,7 +540,7 @@ async function submitJobAndWaitForCreate(accessToken, seekerUserId, jobTitle, ex
     }
 
     try {
-      return await waitForJobCreated(accessToken, seekerUserId, jobTitle, 15000);
+      return await waitForJobCreated(accessToken, jobTitle, 15000);
     } catch (pollError) {
       const errorBanner = await readFirstBannerMessage(errorBanners);
       if (errorBanner) {
@@ -457,6 +573,21 @@ async function readElementTextById(targetId) {
     return value.trim();
   }
   return JSON.stringify(attrs);
+}
+
+async function waitForText(text, timeoutMs = 30000) {
+  await waitFor(element(by.text(text))).toBeVisible().withTimeout(timeoutMs);
+}
+
+async function assertElementNotExistsById(targetId, timeoutMs = 1500) {
+  try {
+    await waitFor(element(by.id(targetId))).toExist().withTimeout(timeoutMs);
+    throw new Error(`Element ${targetId} unexpectedly exists`);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("unexpectedly exists")) {
+      throw error;
+    }
+  }
 }
 
 async function waitForHomeOrAuthError(actionName) {
@@ -531,31 +662,61 @@ async function waitForAuthEntryPoint() {
 }
 
 async function registerByUi(user) {
-  await waitForAuthEntryPoint();
-  await settleIosPasswordPromptIfPresent();
-  await ensureVisible("auth-mode-register", "auth-scroll");
-  await element(by.id("auth-mode-register")).tap();
-  await typeById("auth-register-first-name", user.firstName, "auth-scroll");
-  await typeById("auth-register-last-name", user.lastName, "auth-scroll");
-  await typeById("auth-register-email", user.email, "auth-scroll");
-  await typeById("auth-register-username", user.username, "auth-scroll");
-  await typeById("auth-register-phone", "+919812345678", "auth-scroll");
-  await typeById("auth-register-password", user.password, "auth-scroll");
-  await tapById("auth-register-submit", "auth-scroll");
-  await waitForHomeOrAuthError("register");
-  await settleIosPasswordPromptIfPresent();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await waitForAuthEntryPoint();
+    await settleIosPasswordPromptIfPresent();
+    await ensureVisible("auth-mode-register", "auth-scroll");
+    await element(by.id("auth-mode-register")).tap();
+    await typeById("auth-register-first-name", user.firstName, "auth-scroll");
+    await typeById("auth-register-last-name", user.lastName, "auth-scroll");
+    await typeById("auth-register-email", user.email, "auth-scroll");
+    await typeById("auth-register-username", user.username, "auth-scroll");
+    await typeById("auth-register-phone", "+919812345678", "auth-scroll");
+    await typeById("auth-register-password", user.password, "auth-scroll");
+    await tapById("auth-register-submit", "auth-scroll");
+    try {
+      await waitForHomeOrAuthError("register");
+      await settleIosPasswordPromptIfPresent();
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        attempt < 3 &&
+        /too many authentication attempts|http 429|try again shortly/i.test(message)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 1200 * attempt));
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 async function loginByUi(user) {
-  await waitForAuthEntryPoint();
-  await settleIosPasswordPromptIfPresent();
-  await ensureVisible("auth-mode-login", "auth-scroll");
-  await element(by.id("auth-mode-login")).tap();
-  await typeById("auth-login-username", user.username, "auth-scroll");
-  await typeById("auth-login-password", user.password, "auth-scroll");
-  await tapById("auth-login-submit", "auth-scroll");
-  await waitForHomeOrAuthError("login");
-  await settleIosPasswordPromptIfPresent();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await waitForAuthEntryPoint();
+    await settleIosPasswordPromptIfPresent();
+    await ensureVisible("auth-mode-login", "auth-scroll");
+    await element(by.id("auth-mode-login")).tap();
+    await typeById("auth-login-username", user.username, "auth-scroll");
+    await typeById("auth-login-password", user.password, "auth-scroll");
+    await tapById("auth-login-submit", "auth-scroll");
+    try {
+      await waitForHomeOrAuthError("login");
+      await settleIosPasswordPromptIfPresent();
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        attempt < 3 &&
+        /too many authentication attempts|http 429|try again shortly/i.test(message)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 1200 * attempt));
+        continue;
+      }
+      throw error;
+    }
+  }
 }
 
 async function readProfileUserId() {
@@ -564,10 +725,426 @@ async function readProfileUserId() {
   await waitFor(element(by.id("profile-user-id"))).toBeVisible().withTimeout(20000);
   const attrs = await element(by.id("profile-user-id")).getAttributes();
   const text = attrs.text ?? attrs.label ?? attrs.value ?? "";
-  return parseUuid(text, "profile user id");
+  return parseMemberId(text, "profile user id");
 }
 
 describe("IllamHelp mobile full flow (Detox)", () => {
+  it("auth entrypoint renders login and register modes", async () => {
+    await waitForAuthEntryPoint();
+    await waitFor(element(by.id("auth-mode-login"))).toBeVisible().withTimeout(15000);
+    await waitFor(element(by.id("auth-mode-register"))).toBeVisible().withTimeout(15000);
+  });
+
+  it("auth mode switch shows expected form fields", async () => {
+    await waitForAuthEntryPoint();
+    await tapById("auth-mode-login", "auth-scroll");
+    await waitFor(element(by.id("auth-login-username"))).toBeVisible().withTimeout(15000);
+    await waitFor(element(by.id("auth-login-password"))).toBeVisible().withTimeout(15000);
+
+    await tapById("auth-mode-register", "auth-scroll");
+    await waitFor(element(by.id("auth-register-first-name"))).toBeVisible().withTimeout(15000);
+    await waitFor(element(by.id("auth-register-email"))).toBeVisible().withTimeout(15000);
+    await waitFor(element(by.id("auth-register-username"))).toBeVisible().withTimeout(15000);
+  });
+
+  it("register lands on home and sign out returns to auth", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    await waitFor(element(by.id("tab-home"))).toBeVisible().withTimeout(20000);
+    await signOutIfVisible();
+    await waitForAuthEntryPoint();
+  });
+
+  it("login with wrong password shows auth error", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    await signOutIfVisible();
+    await waitForAuthEntryPoint();
+    await tapById("auth-mode-login", "auth-scroll");
+    await typeById("auth-login-username", user.username, "auth-scroll");
+    await typeById("auth-login-password", `${user.password}x`, "auth-scroll");
+    await tapById("auth-login-submit", "auth-scroll");
+    await waitFor(element(by.id("auth-error-banner"))).toBeVisible().withTimeout(20000);
+  });
+
+  it("tab navigation works after sign in", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+
+    await tapTab("jobs");
+    await waitForText("Post new work");
+
+    await tapTab("connections");
+    await waitForText("Connect with people you trust");
+
+    await tapTab("consent");
+    await waitForText("Share contact details safely");
+
+    await tapTab("profile");
+    await waitForText("Your account");
+
+    await tapTab("home");
+    await waitForText("Your activity at a glance");
+  });
+
+  it("jobs form shows validation error for short payload", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await typeById("jobs-category", "p", "jobs-scroll");
+    await typeById("jobs-title", "abc", "jobs-scroll");
+    await typeById("jobs-description", "short", "jobs-scroll");
+    await typeById("jobs-location", "k", "jobs-scroll");
+    await tapById("jobs-submit", "jobs-scroll");
+    await waitFor(element(by.id("jobs-submit-error-banner"))).toBeVisible().withTimeout(20000);
+  });
+
+  it("jobs form creates a valid post", async () => {
+    const user = makeUser("both");
+    const shortId = Date.now().toString(36).slice(-4);
+    const title = `Leak fix ${shortId}`;
+    await registerByUi(user);
+
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await typeById("jobs-category", "plumber", "jobs-scroll");
+    await typeById("jobs-title", title, "jobs-scroll");
+    await typeById(
+      "jobs-description",
+      "Need urgent sink leakage repair support in apartment kitchen.",
+      "jobs-scroll"
+    );
+    await typeById("jobs-location", "Kakkanad, Kochi", "jobs-scroll");
+    await tapById("jobs-submit", "jobs-scroll");
+    await waitForSuccessOrError("jobs-success-banner", [
+      "jobs-submit-error-banner",
+      "jobs-error-banner"
+    ]);
+    await waitForText(title);
+  });
+
+  it("connections page shows empty state for new user", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    await tapTab("connections");
+    await waitForText("No connections yet.");
+  });
+
+  it("consent page shows empty-state guidance for new user", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    await tapTab("consent");
+    await waitForText("No accepted connections yet.");
+    await waitForText("No pending requests for you.");
+  });
+
+  it("profile saves changes and uploads media proof", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    await tapTab("profile");
+    await scrollToTop("profile-scroll");
+
+    await typeById("profile-city", "Kochi", "profile-scroll");
+    await typeById("profile-area", "Kakkanad", "profile-scroll");
+    await typeById("profile-service-categories", "plumber,electrician", "profile-scroll");
+    await typeById("profile-phone", "+919812345678", "profile-scroll");
+    await tapById("profile-save", "profile-scroll");
+    await waitForText("Profile updated.");
+
+    await tapById("profile-media-upload", "profile-scroll");
+    await waitFor(element(by.id("profile-media-success"))).toBeVisible().withTimeout(30000);
+  });
+
+  it("profile public gallery hides media that is still in review", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    const memberId = await readProfileUserId();
+
+    await scrollToTop("profile-scroll");
+    await tapById("profile-media-upload", "profile-scroll");
+    await waitFor(element(by.id("profile-media-success"))).toBeVisible().withTimeout(30000);
+
+    await typeById("profile-public-owner-input", memberId, "profile-scroll");
+    await tapById("profile-public-load", "profile-scroll");
+    await waitFor(element(by.id("profile-public-empty"))).toBeVisible().withTimeout(30000);
+    await assertElementNotExistsById("profile-public-item");
+  });
+
+  it("profile public gallery shows error for unknown member id", async () => {
+    const user = makeUser("both");
+    await registerByUi(user);
+    await tapTab("profile");
+    await scrollToTop("profile-scroll");
+
+    await typeById(
+      "profile-public-owner-input",
+      `missing_${Date.now().toString(36).slice(-6)}`,
+      "profile-scroll"
+    );
+    await tapById("profile-public-load", "profile-scroll");
+    await waitFor(element(by.id("profile-public-media-error"))).toBeVisible().withTimeout(30000);
+  });
+
+  it("mobile E2E connection lifecycle: decline -> re-request -> accept -> block", async () => {
+    const requester = makeUser("both");
+    const owner = makeUser("both");
+
+    await registerByUi(requester);
+    const requesterUserId = await readProfileUserId();
+    const requesterApiSession = await loginByApi(requester);
+
+    await signOutIfVisible();
+    await registerByUi(owner);
+    const ownerUserId = await readProfileUserId();
+    const ownerApiSession = await loginByApi(owner);
+
+    await signOutIfVisible();
+    await loginByUi(requester);
+    await tapTab("connections");
+    await scrollToTop("connections-scroll");
+    await typeById("connections-target-user-id", ownerUserId, "connections-scroll");
+    await tapById("connections-request-submit", "connections-scroll");
+    await waitForSuccessOrError("connections-success-banner", ["connections-error-banner"]);
+
+    const firstConnectionId = await poll(async () => {
+      const connections = await listConnectionsByApi(requesterApiSession.accessToken);
+      const found = connections.find((item) => {
+        const users = new Set([item.userAId, item.userBId]);
+        return users.has(requesterUserId) && users.has(ownerUserId) && item.status === "pending";
+      });
+      return found?.id;
+    }, 30000);
+
+    await signOutIfVisible();
+    await loginByUi(owner);
+    await tapTab("connections");
+    await scrollToTop("connections-scroll");
+    await tapById(`connections-decline-${firstConnectionId}`, "connections-scroll");
+    await waitForSuccessOrError("connections-success-banner", ["connections-error-banner"]);
+
+    await poll(async () => {
+      const connections = await listConnectionsByApi(ownerApiSession.accessToken);
+      const found = connections.find(
+        (item) => item.id === firstConnectionId && item.status === "declined"
+      );
+      return found?.id;
+    }, 30000);
+
+    await signOutIfVisible();
+    await loginByUi(requester);
+    await tapTab("connections");
+    await scrollToTop("connections-scroll");
+    await typeById("connections-target-user-id", ownerUserId, "connections-scroll");
+    await tapById("connections-request-submit", "connections-scroll");
+    await waitForSuccessOrError("connections-success-banner", ["connections-error-banner"]);
+
+    const secondConnectionId = await poll(async () => {
+      const connections = await listConnectionsByApi(requesterApiSession.accessToken);
+      const found = connections.find((item) => {
+        const users = new Set([item.userAId, item.userBId]);
+        return (
+          users.has(requesterUserId) &&
+          users.has(ownerUserId) &&
+          item.status === "pending" &&
+          item.id !== firstConnectionId
+        );
+      });
+      return found?.id;
+    }, 30000);
+
+    await signOutIfVisible();
+    await loginByUi(owner);
+    await tapTab("connections");
+    await scrollToTop("connections-scroll");
+    await tapById(`connections-accept-${secondConnectionId}`, "connections-scroll");
+    await waitForSuccessOrError("connections-success-banner", ["connections-error-banner"]);
+
+    await poll(async () => {
+      const connections = await listConnectionsByApi(ownerApiSession.accessToken);
+      const found = connections.find(
+        (item) => item.id === secondConnectionId && item.status === "accepted"
+      );
+      return found?.id;
+    }, 30000);
+
+    await tapById(`connections-block-${secondConnectionId}`, "connections-scroll");
+    await waitForSuccessOrError("connections-success-banner", ["connections-error-banner"]);
+
+    await poll(async () => {
+      const connections = await listConnectionsByApi(ownerApiSession.accessToken);
+      const found = connections.find(
+        (item) => item.id === secondConnectionId && item.status === "blocked"
+      );
+      return found?.id;
+    }, 30000);
+  });
+
+  it("mobile E2E jobs visibility: connections_only blocks non-connections then allows accepted connection", async () => {
+    const seeker = makeUser("both");
+    const provider = makeUser("both");
+    const shortId = Date.now().toString(36).slice(-4);
+    const jobTitle = `Conn-only ${shortId}`;
+
+    await registerByUi(seeker);
+    const seekerUserId = await readProfileUserId();
+    const seekerApiSession = await loginByApi(seeker);
+
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await typeById("jobs-category", "plumber", "jobs-scroll");
+    await typeById("jobs-title", jobTitle, "jobs-scroll");
+    await typeById(
+      "jobs-description",
+      "Connections-only posting for visibility gate validation.",
+      "jobs-scroll"
+    );
+    await typeById("jobs-location", "Kochi, Kakkanad", "jobs-scroll");
+    await tapById("jobs-visibility-connections", "jobs-scroll");
+    await tapById("jobs-submit", "jobs-scroll");
+    await waitForSuccessOrError("jobs-success-banner", [
+      "jobs-submit-error-banner",
+      "jobs-error-banner"
+    ]);
+    await waitForText("Visibility: Connections only", 30000);
+
+    const jobId = await poll(async () => {
+      const jobs = await listJobsByApi(seekerApiSession.accessToken);
+      const found = jobs.find((item) => item.seekerUserId === seekerUserId && item.title === jobTitle);
+      return found?.id;
+    }, 30000);
+    parseUuid(jobId, "connections-only job id");
+
+    await signOutIfVisible();
+    await registerByUi(provider);
+    const providerApiSession = await loginByApi(provider);
+
+    const deniedApply = await applyToJobRaw(
+      jobId,
+      providerApiSession.accessToken,
+      "Can visit today."
+    );
+    const deniedPayload = JSON.stringify(deniedApply.payload).toLowerCase();
+    if (deniedApply.status !== 400 || !deniedPayload.includes("connection")) {
+      throw new Error(
+        `Expected 400 connection-visibility denial. Got ${deniedApply.status}: ${JSON.stringify(
+          deniedApply.payload
+        )}`
+      );
+    }
+
+    const requestedConnection = await requestConnectionByApi(
+      providerApiSession.accessToken,
+      seekerUserId
+    );
+    const acceptedConnection = await acceptConnectionByApi(
+      seekerApiSession.accessToken,
+      requestedConnection.id
+    );
+    if (acceptedConnection.status !== "accepted") {
+      throw new Error(`Expected accepted connection, got ${acceptedConnection.status}`);
+    }
+
+    const applied = await applyToJobByApi(
+      jobId,
+      providerApiSession.accessToken,
+      "Can visit today."
+    );
+    if (applied.status !== "applied") {
+      throw new Error(`Expected applied status after accepted connection, got ${applied.status}`);
+    }
+  });
+
+  it("mobile E2E booking lifecycle reaches closed state with payment milestones", async () => {
+    const seeker = makeUser("seeker");
+    const provider = makeUser("provider");
+    const shortId = Date.now().toString(36).slice(-4);
+    const jobTitle = `Book ${shortId}`;
+
+    await registerByUi(seeker);
+    const seekerUserId = await readProfileUserId();
+    const seekerApiSession = await loginByApi(seeker);
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await typeById("jobs-category", "electrician", "jobs-scroll");
+    await typeById("jobs-title", jobTitle, "jobs-scroll");
+    await typeById(
+      "jobs-description",
+      "Need electrician to inspect and fix frequent power trips.",
+      "jobs-scroll"
+    );
+    await typeById("jobs-location", "Kakkanad, Kochi", "jobs-scroll");
+    await tapById("jobs-submit", "jobs-scroll");
+    await waitForSuccessOrError("jobs-success-banner", [
+      "jobs-submit-error-banner",
+      "jobs-error-banner"
+    ]);
+
+    const jobId = await poll(async () => {
+      const jobs = await listJobsByApi(seekerApiSession.accessToken);
+      const found = jobs.find(
+        (item) => item.seekerUserId === seekerUserId && item.title === jobTitle
+      );
+      return found?.id;
+    }, 30000);
+
+    await signOutIfVisible();
+    await registerByUi(provider);
+    const providerApiSession = await loginByApi(provider);
+
+    const application = await applyToJobByApi(
+      jobId,
+      providerApiSession.accessToken,
+      "Can inspect and complete this evening."
+    );
+    parseUuid(application.id, "booking application id");
+
+    await poll(async () => {
+      const applications = await listJobApplicationsByApi(jobId, seekerApiSession.accessToken);
+      const found = applications.find((item) => item.id === application.id);
+      return found?.id;
+    }, 30000);
+
+    const accepted = await acceptJobApplicationByApi(application.id, seekerApiSession.accessToken);
+    if (accepted.status !== "accepted") {
+      throw new Error(`Expected accepted application, got ${accepted.status}`);
+    }
+
+    const started = await startBookingByApi(jobId, providerApiSession.accessToken);
+    if (started.status !== "in_progress") {
+      throw new Error(`Expected in_progress job status, got ${started.status}`);
+    }
+
+    const completed = await completeBookingByApi(jobId, seekerApiSession.accessToken);
+    if (completed.status !== "completed") {
+      throw new Error(`Expected completed job status, got ${completed.status}`);
+    }
+
+    const paymentDone = await markPaymentDoneByApi(jobId, seekerApiSession.accessToken);
+    if (paymentDone.status !== "payment_done") {
+      throw new Error(`Expected payment_done job status, got ${paymentDone.status}`);
+    }
+
+    const paymentReceived = await markPaymentReceivedByApi(
+      jobId,
+      providerApiSession.accessToken
+    );
+    if (paymentReceived.status !== "payment_received") {
+      throw new Error(`Expected payment_received job status, got ${paymentReceived.status}`);
+    }
+
+    const closed = await closeBookingByApi(jobId, seekerApiSession.accessToken);
+    if (closed.status !== "closed") {
+      throw new Error(`Expected closed job status, got ${closed.status}`);
+    }
+
+    await tapTab("jobs");
+    await tapById("jobs-refresh", "jobs-scroll");
+    await waitForText(jobTitle, 30000);
+    await waitForText("closed", 30000);
+  });
+
   it("auth -> jobs -> connections -> consent", async () => {
     const seeker = makeUser("seeker");
     const provider = makeUser("provider");
@@ -600,7 +1177,6 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     };
     const createdJobId = await submitJobAndWaitForCreate(
       seekerApiSession.accessToken,
-      seekerUserId,
       jobTitle,
       expectedJobSnapshot
     );
@@ -643,8 +1219,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await loginByUi(provider);
     await tapTab("consent");
     await scrollToTop("consent-scroll");
-    await typeById("consent-request-owner-id", seekerUserId, "consent-scroll");
-    await typeById("consent-request-connection-id", connectionId, "consent-scroll");
+    await tapById(`consent-request-owner-${seekerUserId}`, "consent-scroll");
     await typeById("consent-request-purpose", requestPurpose, "consent-scroll");
     await tapById("consent-request-submit", "consent-scroll");
     await waitForSuccessOrError("consent-success-banner", ["consent-error-banner"]);
@@ -663,7 +1238,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await loginByUi(seeker);
     await tapTab("consent");
     await scrollToTop("consent-scroll");
-    await typeById("consent-grant-request-id", requestId, "consent-scroll");
+    await tapById(`consent-grant-request-${requestId}`, "consent-scroll");
     await typeById("consent-grant-purpose", grantPurpose, "consent-scroll");
     await tapById("consent-grant-submit", "consent-scroll");
     await waitForSuccessOrError("consent-success-banner", ["consent-error-banner"]);
@@ -682,7 +1257,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await loginByUi(provider);
     await tapTab("consent");
     await scrollToTop("consent-scroll");
-    await typeById("consent-can-view-owner-id", seekerUserId, "consent-scroll");
+    await tapById(`consent-can-view-owner-${seekerUserId}`, "consent-scroll");
     await tapById("consent-can-view-submit", "consent-scroll");
     await waitForSuccessOrError("consent-can-view-allowed-banner", ["consent-error-banner"]);
 
@@ -691,7 +1266,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await loginByUi(seeker);
     await tapTab("consent");
     await scrollToTop("consent-scroll");
-    await typeById("consent-revoke-grant-id", grantId, "consent-scroll");
+    await tapById(`consent-revoke-grant-${grantId}`, "consent-scroll");
     await typeById("consent-revoke-reason", "E2E revoke", "consent-scroll");
     await tapById("consent-revoke-submit", "consent-scroll");
     await waitForSuccessOrError("consent-success-banner", ["consent-error-banner"]);
@@ -701,7 +1276,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await loginByUi(provider);
     await tapTab("consent");
     await scrollToTop("consent-scroll");
-    await typeById("consent-can-view-owner-id", seekerUserId, "consent-scroll");
+    await tapById(`consent-can-view-owner-${seekerUserId}`, "consent-scroll");
     await tapById("consent-can-view-submit", "consent-scroll");
     await waitForSuccessOrError("consent-can-view-denied-banner", ["consent-error-banner"]);
 

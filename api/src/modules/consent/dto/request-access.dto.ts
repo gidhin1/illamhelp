@@ -13,10 +13,12 @@ import { ConsentField } from "./consent-field.enum";
 
 export class RequestAccessDto {
   @ApiProperty({
-    example: "1d21af8d-2700-4fbb-926f-163d4f963f73",
-    format: "uuid"
+    example: "anita.k",
+    description: "Public member user ID (username)"
   })
-  @IsUUID()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(40)
   ownerUserId!: string;
 
   @ApiProperty({

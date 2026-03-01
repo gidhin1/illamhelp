@@ -24,7 +24,10 @@ tests {
 
   test("auth me seeker returns user id and captures seekerUserId", function () {
     expect(res.body.userId).to.be.a("string");
+    expect(res.body.publicUserId).to.be.a("string");
     bru.setEnvVar("seekerUserId", res.body.userId);
+    bru.setEnvVar("seekerInternalUserId", res.body.userId);
+    bru.setEnvVar("seekerPublicUserId", res.body.publicUserId);
     expect(res.body.roles).to.be.an("array");
   });
 }

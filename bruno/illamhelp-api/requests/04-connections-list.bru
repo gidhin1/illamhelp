@@ -23,9 +23,10 @@ tests {
   });
 
   test("connections list contains current connection", function () {
-    expect(res.body).to.be.an("array");
+    expect(res.body).to.be.an("object");
+    expect(res.body.items).to.be.an("array");
     const expectedId = bru.getVar("connectionId") || bru.getEnvVar("connectionId");
-    const found = res.body.find((item) => item.id === expectedId);
+    const found = res.body.items.find((item) => item.id === expectedId);
     expect(found).to.not.equal(undefined);
   });
 }

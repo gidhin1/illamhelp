@@ -15,6 +15,7 @@ function createConfigService(overrides: Record<string, string> = {}): ConfigServ
     MINIO_REGION: "us-east-1",
     MINIO_QUARANTINE_BUCKET: "illamhelp-quarantine",
     MEDIA_UPLOAD_URL_TTL_SECONDS: "900",
+    MEDIA_DOWNLOAD_URL_TTL_SECONDS: "300",
     MEDIA_MAX_IMAGE_BYTES: "10485760",
     MEDIA_MAX_VIDEO_BYTES: "104857600",
     MEDIA_ALLOWED_IMAGE_TYPES: "image/jpeg,image/png,image/webp",
@@ -261,5 +262,69 @@ describe("MediaService", () => {
     expect(queryMock).toHaveBeenCalledTimes(1);
     expect(auditServiceMock.logEvent).not.toHaveBeenCalled();
     expect(internalEventsMock.appendEvent).not.toHaveBeenCalled();
+  });
+
+  it("lists only approved media for a public user id and returns download URLs", async () => {
+    const ownerUserId = "11111111-1111-4111-8111-111111111111";
+    const createdAt = new Date("2026-02-28T09:00:00.000Z");
+    const updatedAt = new Date("2026-02-28T09:02:00.000Z");
+    queryMock
+      .mockResolvedValueOnce(queryResult([{ id: ownerUserId }]))
+      .mockResolvedValueOnce(
+        queryResult([
+          {
+            id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            owner_user_id: ownerUserId,
+            username: "member_one",
+            job_id: null,
+            kind: "image",
+            bucket_name: "illamhelp-quarantine",
+            object_key: "member-one/approved/work.jpg",
+            content_type: "image/jpeg",
+            file_size_bytes: 1024,
+            state: "approved",
+            created_at: createdAt,
+            updated_at: updatedAt
+          }
+        ])
+      );
+
+    const service = new MediaService(
+      { query: queryMock } as unknown as DatabaseService,
+      auditServiceMock,
+      internalEventsMock,
+      createConfigService()
+    );
+
+    const records = await service.listApprovedForOwner("member_one");
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      ownerUserId: "member_one",
+      kind: "image",
+      contentType: "image/jpeg",
+      fileSizeBytes: 1024,
+      state: "approved"
+    });
+    expect(records[0].downloadUrl).toContain("X-Amz-Signature=");
+    expect(records[0].downloadUrl).toContain("/illamhelp-quarantine/");
+    expect("bucketName" in records[0]).toBe(false);
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns not found when public user id does not exist for approved media listing", async () => {
+    queryMock.mockResolvedValueOnce(queryResult([]));
+
+    const service = new MediaService(
+      { query: queryMock } as unknown as DatabaseService,
+      auditServiceMock,
+      internalEventsMock,
+      createConfigService()
+    );
+
+    await expect(service.listApprovedForOwner("missing_member")).rejects.toThrow(
+      "ownerUserId does not exist"
+    );
   });
 });

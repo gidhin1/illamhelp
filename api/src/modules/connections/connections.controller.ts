@@ -12,11 +12,19 @@ import { SearchConnectionsDto } from "./dto/search-connections.dto";
 
 @Controller("connections")
 export class ConnectionsController {
-  constructor(private readonly connectionsService: ConnectionsService) {}
+  constructor(private readonly connectionsService: ConnectionsService) { }
 
   @Get()
-  list(@CurrentUser() user: AuthenticatedUser): Promise<ConnectionRecord[]> {
-    return this.connectionsService.list(user.userId);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query("limit") limit?: string,
+    @Query("offset") offset?: string
+  ): Promise<{ items: ConnectionRecord[]; total: number; limit: number; offset: number }> {
+    return this.connectionsService.list(
+      user.userId,
+      limit ? parseInt(limit, 10) : undefined,
+      offset ? parseInt(offset, 10) : undefined
+    );
   }
 
   @Get("search")

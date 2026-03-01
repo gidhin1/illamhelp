@@ -57,6 +57,7 @@ describe("ProfilesService consent-aware reads", () => {
   function profileRow() {
     return {
       user_id: OWNER_USER_ID,
+      username: "anita.k",
       first_name: "Anita",
       last_name: "K",
       city: "Kochi",
@@ -80,7 +81,7 @@ describe("ProfilesService consent-aware reads", () => {
 
     const profile = await service.getOwnProfile(OWNER_USER_ID);
 
-    expect(profile.userId).toBe(OWNER_USER_ID);
+    expect(profile.userId).toBe("anita.k");
     expect(profile.contact.email).toBe("anita@example.com");
     expect(profile.contact.phone).toBe("+919876543210");
     expect(profile.contact.alternatePhone).toBe("+919812345678");
@@ -166,5 +167,64 @@ describe("ProfilesService consent-aware reads", () => {
       alternatePhone: false,
       fullAddress: false
     });
+  });
+});
+
+describe("ProfilesService setVerified", () => {
+  let queryMock: ReturnType<typeof vi.fn>;
+  let service: ProfilesService;
+
+  function profileRow(overrides: Record<string, unknown> = {}) {
+    return {
+      user_id: OWNER_USER_ID,
+      username: "anita.k",
+      first_name: "Anita",
+      last_name: "K",
+      city: "Kochi",
+      area: "Kakkanad",
+      service_categories: ["plumber"],
+      rating_average: 4.8,
+      rating_count: 9,
+      verified: true,
+      email_masked: "a***@example.com",
+      phone_masked: "**********10",
+      pii_email_encrypted: Buffer.from("anita@example.com", "utf8"),
+      pii_phone_encrypted: Buffer.from("+919876543210", "utf8"),
+      pii_alternate_phone_encrypted: null,
+      pii_full_address_encrypted: null,
+      ...overrides
+    };
+  }
+
+  beforeEach(() => {
+    queryMock = vi.fn();
+    const canViewMock = vi.fn();
+    service = new ProfilesService(
+      { query: queryMock } as unknown as DatabaseService,
+      { canView: canViewMock } as unknown as ConsentService,
+      createConfigService()
+    );
+  });
+
+  it("updates verified flag and returns profile with verified = true", async () => {
+    queryMock
+      // UPDATE users SET verified
+      .mockResolvedValueOnce(queryResult([]))
+      // ensureProfileRow check
+      .mockResolvedValueOnce(queryResult([]))
+      // getProfileRow
+      .mockResolvedValueOnce(queryResult([profileRow()]));
+
+    const profile = await service.setVerified(OWNER_USER_ID, true);
+
+    expect(profile.verified).toBe(true);
+    expect(profile.userId).toBe("anita.k");
+
+    // Verify the UPDATE query was called
+    const updateSql = queryMock.mock.calls[0][0] as string;
+    expect(updateSql).toContain("UPDATE users SET verified");
+    const updateParams = queryMock.mock.calls[0][1] as unknown[];
+    expect(updateParams[0]).toBe(OWNER_USER_ID);
+    expect(updateParams[1]).toBe(true);
   });
 });

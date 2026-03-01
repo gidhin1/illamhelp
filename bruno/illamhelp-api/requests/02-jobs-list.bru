@@ -22,11 +22,12 @@ tests {
     expect(res.getStatus()).to.equal(200);
   });
 
-  test("jobs list returns array", function () {
-    expect(res.body).to.be.an("array");
+  test("jobs list returns paginated items array", function () {
+    expect(res.body).to.be.an("object");
+    expect(res.body.items).to.be.an("array");
   });
 }
 
 script:post-response {
-  bru.runner.setNextRequest("Connections Request");
+  bru.runner.setNextRequest("Jobs Apply");
 }

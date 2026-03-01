@@ -26,12 +26,6 @@ import {
   searchConnections
 } from "@/lib/api";
 
-function looksLikeUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value
-  );
-}
-
 export default function ConnectionsPage(): JSX.Element {
   const { accessToken, user } = useSession();
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
@@ -55,8 +49,8 @@ export default function ConnectionsPage(): JSX.Element {
     setListLoading(true);
     setListError(null);
     try {
-      const records = await listConnections(accessToken);
-      setConnections(records);
+      const result = await listConnections(accessToken);
+      setConnections(result.items);
     } catch (requestErrorValue) {
       setListError(
         requestErrorValue instanceof Error
@@ -91,7 +85,10 @@ export default function ConnectionsPage(): JSX.Element {
     setRequestSuccess(null);
     try {
       const created = await requestConnection(payload, accessToken);
-      setConnections((previous) => [created, ...previous]);
+      setConnections((previous) => {
+        const withoutSameId = previous.filter((connection) => connection.id !== created.id);
+        return [created, ...withoutSameId];
+      });
       setRequestSuccess("Connection request sent.");
       setTargetQuery("");
       setSearchResults([]);
@@ -113,11 +110,7 @@ export default function ConnectionsPage(): JSX.Element {
       setRequestError("Enter a name, member ID, service, or location.");
       return;
     }
-
-    const payload = looksLikeUuid(normalizedQuery)
-      ? { targetUserId: normalizedQuery }
-      : { targetQuery: normalizedQuery };
-    await submitConnectionRequest(payload);
+    await submitConnectionRequest({ targetQuery: normalizedQuery });
   };
 
   const onSearchConnections = async (): Promise<void> => {
@@ -303,7 +296,7 @@ export default function ConnectionsPage(): JSX.Element {
                 <h3 style={{ fontFamily: "var(--font-display)" }}>Current connections</h3>
                 {listError ? <Banner tone="error">{listError}</Banner> : null}
                 {actionError ? <Banner tone="error">{actionError}</Banner> : null}
-                {listLoading ? <p className="muted-text">Loading connections...</p> : null}
+                {listLoading ? <p className="muted-text" aria-live="polite">Loading connections...</p> : null}
                 {!listLoading && connections.length === 0 ? (
                   <EmptyState
                     title="No connections yet"
@@ -313,19 +306,20 @@ export default function ConnectionsPage(): JSX.Element {
                 {!listLoading ? (
                   <div className="grid two">
                     {connections.map((connection) => {
+                      const currentUserId = user?.publicUserId;
                       const otherUserId =
-                        connection.userAId === user?.userId
+                        connection.userAId === currentUserId
                           ? connection.userBId
                           : connection.userAId;
                       const canAccept =
                         connection.status === "pending" &&
-                        connection.requestedByUserId !== user?.userId;
+                        connection.requestedByUserId !== currentUserId;
                       const canDecline = connection.status === "pending";
                       const canBlock = connection.status !== "blocked";
                       return (
                         <Card key={connection.id} className="stack">
                           <div className="pill">{connection.status}</div>
-                          <div className="data-title">Connection ID: {connection.id}</div>
+                          <div className="data-title">Connected with: {otherUserId}</div>
                           <div className="data-meta">Other user: {otherUserId}</div>
                           <div className="data-meta">
                             Requested by: {connection.requestedByUserId}
@@ -350,7 +344,7 @@ export default function ConnectionsPage(): JSX.Element {
                                 variant="secondary"
                                 onClick={() => void onDecline(connection.id)}
                               >
-                                {connection.requestedByUserId === user?.userId
+                                {connection.requestedByUserId === currentUserId
                                   ? "Withdraw request"
                                   : "Decline request"}
                               </Button>
@@ -363,7 +357,7 @@ export default function ConnectionsPage(): JSX.Element {
                                 variant="ghost"
                                 onClick={() => void onBlock(connection.id)}
                               >
-                                Block
+                                Block person
                               </Button>
                             </div>
                           ) : null}

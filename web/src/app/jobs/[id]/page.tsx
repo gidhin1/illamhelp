@@ -34,7 +34,6 @@ export default function JobDetailPage(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [ownerUserId, setOwnerUserId] = useState("");
   const [field, setField] = useState<ConsentField>("phone");
   const [checkLoading, setCheckLoading] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -47,10 +46,9 @@ export default function JobDetailPage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const jobs = await listJobs(accessToken);
-      const found = jobs.find((item) => item.id === jobId) ?? null;
+      const result = await listJobs(accessToken);
+      const found = result.items.find((item) => item.id === jobId) ?? null;
       setJob(found);
-      setOwnerUserId(found?.seekerUserId ?? "");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load job");
     } finally {
@@ -64,13 +62,13 @@ export default function JobDetailPage(): JSX.Element {
 
   const onCheckView = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (!accessToken) {
+    if (!accessToken || !job) {
       return;
     }
     setCheckLoading(true);
     setCheckError(null);
     try {
-      const result = await canViewConsent({ ownerUserId: ownerUserId.trim(), field }, accessToken);
+      const result = await canViewConsent({ ownerUserId: job.seekerUserId, field }, accessToken);
       setCanView(result.allowed);
     } catch (requestError) {
       setCheckError(
@@ -99,7 +97,7 @@ export default function JobDetailPage(): JSX.Element {
           <RequireSession>
             <div className="stack">
               {error ? <Banner tone="error">{error}</Banner> : null}
-              {loading ? <p className="muted-text">Loading job...</p> : null}
+              {loading ? <p className="muted-text" aria-live="polite">Loading job...</p> : null}
               {!loading && !job ? (
                 <Card className="stack">
                   <h3>Job not found</h3>
@@ -122,7 +120,7 @@ export default function JobDetailPage(): JSX.Element {
                     </div>
                     <div className="data-row">
                       <div className="data-title">Posted by member</div>
-                      <div className="data-meta">{job.seekerUserId}</div>
+                      <div className="data-meta">Visible after accepted connection + consent.</div>
                     </div>
                   </Card>
 
@@ -135,19 +133,10 @@ export default function JobDetailPage(): JSX.Element {
                       {checkError ? <Banner tone="error">{checkError}</Banner> : null}
                       {canView !== null ? (
                         <Banner tone={canView ? "success" : "info"}>
-                          {canView
-                            ? "Available now."
-                            : "Not available at the moment."}
+                          {canView ? "Available now." : "Not available at the moment."}
                         </Banner>
                       ) : null}
                       <form className="stack" onSubmit={onCheckView}>
-                        <Field label="Owner member ID">
-                          <TextInput
-                            value={ownerUserId}
-                            onChange={(event) => setOwnerUserId(event.target.value)}
-                            required
-                          />
-                        </Field>
                         <Field label="Field">
                           <SelectInput
                             value={field}
@@ -155,7 +144,7 @@ export default function JobDetailPage(): JSX.Element {
                           >
                             {CONSENT_FIELDS.map((option) => (
                               <option key={option} value={option}>
-                                {option}
+                                {option.replaceAll("_", " ")}
                               </option>
                             ))}
                           </SelectInput>

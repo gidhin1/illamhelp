@@ -5,8 +5,10 @@ import { NestFactory } from "@nestjs/core";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { FastifyAdapter } from "@nestjs/platform-fastify";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import compress from "@fastify/compress";
 
 import { AppModule } from "./app.module";
+import { SlidingWindowRateLimiter } from "./common/security/sliding-window-rate-limiter";
 
 function parseOrigins(originsRaw: string): string[] {
   return originsRaw
@@ -32,6 +34,15 @@ function getSingleHeaderValue(
     return value[0];
   }
   return value;
+}
+
+interface EndpointRateLimitRule {
+  id: string;
+  method: string;
+  pathPattern: RegExp;
+  windowMs: number;
+  max: number;
+  message: string;
 }
 
 async function bootstrap(): Promise<void> {
@@ -60,7 +71,16 @@ async function bootstrap(): Promise<void> {
   const nodeEnv = configService.get<string>("NODE_ENV", "development");
   const corsOriginsRaw = configService.get<string>(
     "CORS_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000"
+    [
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:3001",
+      "http://127.0.0.1:3001",
+      "http://localhost:3002",
+      "http://127.0.0.1:3002",
+      "http://localhost:3003",
+      "http://127.0.0.1:3003"
+    ].join(",")
   );
   const corsOrigins = parseOrigins(corsOriginsRaw);
   const strictOriginCheckEnabled =
@@ -73,7 +93,114 @@ async function bootstrap(): Promise<void> {
     configService.get<string>("AUTH_RATE_LIMIT_MAX", "10"),
     10
   );
-  const authRateBuckets = new Map<string, { count: number; windowStart: number }>();
+  const jobsWriteRateLimitWindowMs = parsePositiveInt(
+    configService.get<string>("JOBS_WRITE_RATE_LIMIT_WINDOW_MS", "60000"),
+    60000
+  );
+  const jobsWriteRateLimitMax = parsePositiveInt(
+    configService.get<string>("JOBS_WRITE_RATE_LIMIT_MAX", "30"),
+    30
+  );
+  const connectionsWriteRateLimitWindowMs = parsePositiveInt(
+    configService.get<string>("CONNECTIONS_WRITE_RATE_LIMIT_WINDOW_MS", "60000"),
+    60000
+  );
+  const connectionsWriteRateLimitMax = parsePositiveInt(
+    configService.get<string>("CONNECTIONS_WRITE_RATE_LIMIT_MAX", "30"),
+    30
+  );
+  const consentWriteRateLimitWindowMs = parsePositiveInt(
+    configService.get<string>("CONSENT_WRITE_RATE_LIMIT_WINDOW_MS", "60000"),
+    60000
+  );
+  const consentWriteRateLimitMax = parsePositiveInt(
+    configService.get<string>("CONSENT_WRITE_RATE_LIMIT_MAX", "30"),
+    30
+  );
+  const mediaWriteRateLimitWindowMs = parsePositiveInt(
+    configService.get<string>("MEDIA_WRITE_RATE_LIMIT_WINDOW_MS", "60000"),
+    60000
+  );
+  const mediaWriteRateLimitMax = parsePositiveInt(
+    configService.get<string>("MEDIA_WRITE_RATE_LIMIT_MAX", "20"),
+    20
+  );
+  const searchRateLimitWindowMs = parsePositiveInt(
+    configService.get<string>("SEARCH_RATE_LIMIT_WINDOW_MS", "60000"),
+    60000
+  );
+  const searchRateLimitMax = parsePositiveInt(
+    configService.get<string>("SEARCH_RATE_LIMIT_MAX", "120"),
+    120
+  );
+  const endpointRateLimiter = new SlidingWindowRateLimiter(50_000);
+  const endpointRateLimitRules: EndpointRateLimitRule[] = [
+    {
+      id: "auth-login",
+      method: "POST",
+      pathPattern: /^\/api\/v1\/auth\/login$/,
+      windowMs: authRateWindowMs,
+      max: authRateLimitMax,
+      message: "Too many authentication attempts. Try again shortly."
+    },
+    {
+      id: "auth-register",
+      method: "POST",
+      pathPattern: /^\/api\/v1\/auth\/register$/,
+      windowMs: authRateWindowMs,
+      max: authRateLimitMax,
+      message: "Too many authentication attempts. Try again shortly."
+    },
+    {
+      id: "jobs-write",
+      method: "POST",
+      pathPattern:
+        /^\/api\/v1\/jobs(?:$|\/[^/]+\/apply$|\/[^/]+\/booking\/(?:start|complete|payment-done|payment-received|close|cancel)$|\/applications\/[^/]+\/(?:accept|reject|withdraw)$)/,
+      windowMs: jobsWriteRateLimitWindowMs,
+      max: jobsWriteRateLimitMax,
+      message: "Too many job write operations. Please slow down and try again."
+    },
+    {
+      id: "connections-write",
+      method: "POST",
+      pathPattern: /^\/api\/v1\/connections\/(?:request|[^/]+\/(?:accept|decline|block))$/,
+      windowMs: connectionsWriteRateLimitWindowMs,
+      max: connectionsWriteRateLimitMax,
+      message: "Too many connection actions. Please try again shortly."
+    },
+    {
+      id: "consent-write",
+      method: "POST",
+      pathPattern: /^\/api\/v1\/consent\/(?:request-access|[^/]+\/(?:grant|revoke))$/,
+      windowMs: consentWriteRateLimitWindowMs,
+      max: consentWriteRateLimitMax,
+      message: "Too many consent actions. Please try again shortly."
+    },
+    {
+      id: "media-write",
+      method: "POST",
+      pathPattern: /^\/api\/v1\/media\/(?:upload-ticket|[^/]+\/complete)$/,
+      windowMs: mediaWriteRateLimitWindowMs,
+      max: mediaWriteRateLimitMax,
+      message: "Too many media upload actions. Please try again shortly."
+    },
+    {
+      id: "search-read",
+      method: "GET",
+      pathPattern: /^\/api\/v1\/(?:jobs\/search|connections\/search)$/,
+      windowMs: searchRateLimitWindowMs,
+      max: searchRateLimitMax,
+      message: "Too many search requests. Please try again shortly."
+    },
+    {
+      id: "media-public-read",
+      method: "GET",
+      pathPattern: /^\/api\/v1\/media\/public\/[^/]+$/,
+      windowMs: searchRateLimitWindowMs,
+      max: searchRateLimitMax,
+      message: "Too many media requests. Please try again shortly."
+    }
+  ];
   const enableHsts =
     configService.get<string>("ENABLE_HSTS", nodeEnv === "production" ? "true" : "false") ===
     "true";
@@ -85,6 +212,8 @@ async function bootstrap(): Promise<void> {
     credentials: false
   });
   const fastify = app.getHttpAdapter().getInstance();
+
+  await fastify.register(compress, { global: true });
 
   if (strictOriginCheckEnabled && corsOrigins.length > 0) {
     const allowedOrigins = new Set(corsOrigins);
@@ -110,42 +239,33 @@ async function bootstrap(): Promise<void> {
   fastify.addHook(
     "onRequest",
     async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-      const url = request.url ?? "";
+      const path = (request.url ?? "").split("?", 1)[0] ?? "";
       const method = request.method ?? "";
-      const isAuthEndpoint =
-        method === "POST" &&
-        (url.startsWith("/api/v1/auth/login") || url.startsWith("/api/v1/auth/register"));
 
-      if (!isAuthEndpoint) {
-        return;
-      }
+      for (const rule of endpointRateLimitRules) {
+        if (rule.method !== method || !rule.pathPattern.test(path)) {
+          continue;
+        }
 
-      const now = Date.now();
-      const key = `${request.ip}:${url}`;
-      const bucket = authRateBuckets.get(key);
+        const key = `${rule.id}:${request.ip}`;
+        const decision = endpointRateLimiter.consume(key, rule.windowMs, rule.max);
+        reply.header("X-RateLimit-Limit", String(rule.max));
+        reply.header("X-RateLimit-Remaining", String(decision.remaining));
+        reply.header(
+          "X-RateLimit-Reset",
+          String(Math.ceil(decision.resetAtEpochMs / 1000))
+        );
 
-      if (!bucket || now - bucket.windowStart >= authRateWindowMs) {
-        authRateBuckets.set(key, { count: 1, windowStart: now });
-        if (authRateBuckets.size > 10_000) {
-          for (const [bucketKey, entry] of authRateBuckets.entries()) {
-            if (now - entry.windowStart >= authRateWindowMs) {
-              authRateBuckets.delete(bucketKey);
-            }
-          }
+        if (!decision.allowed) {
+          reply.header("Retry-After", String(decision.retryAfterSeconds));
+          reply.status(429).send({
+            statusCode: 429,
+            error: "Too Many Requests",
+            message: rule.message
+          });
         }
         return;
       }
-
-      if (bucket.count >= authRateLimitMax) {
-        reply.status(429).send({
-          statusCode: 429,
-          error: "Too Many Requests",
-          message: "Too many authentication attempts. Try again shortly."
-        });
-        return;
-      }
-
-      bucket.count += 1;
     }
   );
 
@@ -188,6 +308,30 @@ async function bootstrap(): Promise<void> {
       swaggerOptions: {
         persistAuthorization: true
       }
+    });
+  }
+
+  app.enableShutdownHooks();
+
+  const shutdownTimeoutMs = parsePositiveInt(
+    configService.get<string>("SHUTDOWN_TIMEOUT_MS", "10000"),
+    10000
+  );
+
+  const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"];
+  for (const signal of signals) {
+    process.on(signal, () => {
+      console.log(`[bootstrap] Received ${signal}, draining connections (${shutdownTimeoutMs}ms)...`);
+      setTimeout(async () => {
+        try {
+          await app.close();
+          console.log("[bootstrap] Graceful shutdown complete.");
+        } catch (error) {
+          console.error("[bootstrap] Error during shutdown:", error);
+        } finally {
+          process.exit(0);
+        }
+      }, shutdownTimeoutMs);
     });
   }
 

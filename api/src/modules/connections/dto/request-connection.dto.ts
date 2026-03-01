@@ -1,13 +1,15 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
-import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from "class-validator";
+import { IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 
 export class RequestConnectionDto {
   @ApiPropertyOptional({
-    example: "9f65f514-12d9-4d8c-95e2-7b497f9e150d",
-    format: "uuid"
+    example: "anita.k",
+    description: "Public member user ID (username)"
   })
   @IsOptional()
-  @IsUUID()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(40)
   targetUserId?: string;
 
   @ApiPropertyOptional({

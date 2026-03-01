@@ -57,6 +57,99 @@ Phase 2 execution started:
     - full-flow now validates consent-aware profile visibility via API before grant, after grant, and after revoke.
     - full-flow now exercises web `block` action from Connections UI.
     - added dedicated `profile-media.spec.ts` to cover profile edit save + media upload/review state.
+- Phase 3 scope calibration updated:
+  - Added Admin Portal MVP implementation to Phase 3 plan (admin/support role-gated console for user oversight, jobs/applications operations, media moderation queue, and consent/audit timeline views).
+  - Added explicit Phase 3 deliverables for media upload lifecycle completion: async processing workers, AI moderation scoring, human admin review/approval actions, and approved-only publish gating.
+
+## 2026-02-28
+
+Phase 3 implementation started (Sprint 3.1):
+
+- Added Phase 3 sprint checklist with task IDs to `docs/TASKS_AND_MILESTONES.md` (`P3-S1-*` to `P3-S4-*`).
+- Started backend-first moderation/admin slice:
+  - Added role-gated admin moderation API surface (`/api/v1/admin/media/...`) for queue/details/process/review.
+  - Added moderation worker service flow for pending technical + AI moderation jobs.
+  - Added human review decision endpoint path to move media assets to `approved`/`rejected` with audit events.
+  - Current AI moderation scoring is a deterministic baseline heuristic to enable end-to-end workflow; external model-service integration remains a follow-up task.
+
+Phase 3 implementation continued (Sprint 3.2):
+
+- Implemented jobs application APIs:
+  - `POST /api/v1/jobs/:id/apply`
+  - `GET /api/v1/jobs/:id/applications`
+  - `GET /api/v1/jobs/applications/mine`
+  - `POST /api/v1/jobs/applications/:applicationId/accept`
+  - `POST /api/v1/jobs/applications/:applicationId/reject`
+  - `POST /api/v1/jobs/applications/:applicationId/withdraw`
+- Implemented booking lifecycle APIs with transition guards:
+  - `POST /api/v1/jobs/:id/booking/start`
+  - `POST /api/v1/jobs/:id/booking/complete`
+  - `POST /api/v1/jobs/:id/booking/cancel`
+- Added migration `0006_job_applications_and_booking_lifecycle.sql`:
+  - `job_applications.updated_at`
+  - `jobs.assigned_provider_user_id`
+  - `jobs.accepted_application_id`
+  - indexes + consistency constraints for booking state.
+- Added integration coverage:
+  - `api/src/modules/jobs/jobs.auth.integration.spec.ts` for apply/accept/start/complete and guard failures.
+- Extended automation flows:
+  - Bruno E2E now runs application-to-completion chain between job posting and connection flow.
+  - Playwright web full-flow now validates apply -> accept -> start -> complete via API path.
+
+Phase 3 implementation continued (Sprint 3.3):
+
+- Implemented OpenSearch-backed jobs search integration:
+  - Added `GET /api/v1/jobs/search` with category/text/location/rating/status filters.
+  - Added `JobsSearchService` with index bootstrap, document indexing, and ordered ID search.
+  - Added DB fallback path when OpenSearch is unavailable or times out.
+- Added geo search support for jobs:
+  - Added migration `0007_jobs_geo_search_fields.sql` (`jobs.location_latitude`, `jobs.location_longitude`, index, and constraints).
+  - Extended jobs create/list/read/search paths to persist and query geo coordinates.
+- Added anti-abuse/rate-limit controls in API bootstrap middleware:
+  - Auth login/register, jobs write endpoints, connections write endpoints, consent write endpoints, media write endpoints, and search endpoints.
+  - Added standard limit headers (`X-RateLimit-*`) and `Retry-After` on throttled requests.
+  - Added env configuration keys for per-surface limits and OpenSearch settings (`OPENSEARCH_*`, `*_RATE_LIMIT_*`).
+- Added Sprint 3.3 regression checks:
+  - `sliding-window-rate-limiter.spec.ts` for abuse-control behavior.
+  - `jobs-search.service.spec.ts` for index payload correctness, query filter shaping, and timeout latency fallback.
+  - Updated `jobs.auth.integration.spec.ts` for geo-aware SQL projection changes.
+
+Phase 3 implementation continued (Sprint 3.4):
+
+- Implemented Admin Portal MVP in `admin` workspace (Next.js):
+  - Auth/session shell with strict `admin/support` role gating.
+  - Moderation queue UI with queue filter, machine-process trigger, item detail panel, and approve/reject actions with reason codes + notes.
+  - Consent + audit timeline lookup UI by member-facing user ID.
+- Added backend admin oversight API:
+  - `GET /api/v1/admin/oversight/timeline?memberId=&limit=`
+  - Role-gated with `@Roles("admin", "support")` + `RolesGuard`.
+  - Returns member summary, consent requests, consent grants, and audit events in a single payload for admin/support operations.
+- Added admin Playwright automation:
+  - `tests/playwright/playwright.admin.config.ts`
+  - `tests/playwright/admin/admin-portal.spec.ts` covering role gate behavior, moderation review workflow, and timeline lookup rendering.
+- Added admin dev/test command wiring:
+  - `make dev-admin`
+  - `make ui-test-admin`
+  - `pnpm run test:ui:admin`
+  - `scripts/start-admin-playwright.sh`
+
+Phase 3 implementation continued (Sprint 3.5):
+
+- Implemented approved-media publish-gating API in media module:
+  - Added `GET /api/v1/media/public/:ownerUserId` (public endpoint) to list only moderation-`approved` assets for a member-facing user id (username or UUID input accepted).
+  - Added short-lived signed download URL generation (`MEDIA_DOWNLOAD_URL_TTL_SECONDS`, default 300s) for approved assets.
+  - Ensured response contract avoids internal storage metadata leakage (no bucket/object/checksum fields in public payload).
+- Added API client support for public approved-media listing:
+  - `web/src/lib/api.ts` -> `listPublicApprovedMedia(ownerUserId)`
+  - `mobile/src/api.ts` -> `listPublicApprovedMedia(ownerUserId)`
+- Wired user-facing profile preview flows:
+  - Web profile page now includes "Public gallery preview" with member-ID lookup and approved-media list rendering.
+  - Mobile profile page now includes the same approved-media preview flow with member-ID lookup.
+- Added/extended unit coverage in `media.service.spec.ts`:
+  - approved-only listing flow by member-facing user id
+  - signed download URL presence
+  - unknown member id rejection path
+- Extended web Playwright profile-media flow to assert public-gallery empty-state behavior for newly uploaded (non-approved) media.
 
 ## 2026-02-21
 

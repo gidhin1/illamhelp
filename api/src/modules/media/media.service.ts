@@ -60,6 +60,21 @@ interface DbMediaRow {
   updated_at: Date;
 }
 
+interface DbApprovedMediaRow {
+  id: string;
+  owner_user_id: string;
+  username: string | null;
+  job_id: string | null;
+  kind: MediaKind;
+  bucket_name: string;
+  object_key: string;
+  content_type: string;
+  file_size_bytes: number | string;
+  state: "approved";
+  created_at: Date;
+  updated_at: Date;
+}
+
 export interface MediaAssetRecord {
   id: string;
   ownerUserId: string;
@@ -84,7 +99,26 @@ export interface UploadTicketRecord {
   requiredHeaders: Record<string, string>;
 }
 
-type HttpMethod = "PUT" | "HEAD";
+export interface PublicMediaAssetRecord {
+  id: string;
+  ownerUserId: string;
+  jobId: string | null;
+  kind: MediaKind;
+  contentType: string;
+  fileSizeBytes: number;
+  state: "approved";
+  createdAt: string;
+  updatedAt: string;
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
+}
+
+export interface SignedDownloadUrlRecord {
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
+}
+
+type HttpMethod = "PUT" | "HEAD" | "GET";
 
 @Injectable()
 export class MediaService {
@@ -94,6 +128,7 @@ export class MediaService {
   private readonly accessKey: string;
   private readonly secretKey: string;
   private readonly uploadTtlSeconds: number;
+  private readonly downloadTtlSeconds: number;
   private readonly maxImageBytes: number;
   private readonly maxVideoBytes: number;
   private readonly allowedImageTypes: Set<string>;
@@ -120,6 +155,10 @@ export class MediaService {
     this.uploadTtlSeconds = this.parsePositiveInt(
       configService.get<string>("MEDIA_UPLOAD_URL_TTL_SECONDS", "900"),
       900
+    );
+    this.downloadTtlSeconds = this.parsePositiveInt(
+      configService.get<string>("MEDIA_DOWNLOAD_URL_TTL_SECONDS", "300"),
+      300
     );
     this.maxImageBytes = this.parsePositiveInt(
       configService.get<string>("MEDIA_MAX_IMAGE_BYTES", "10485760"),
@@ -183,6 +222,79 @@ export class MediaService {
     );
 
     return result.rows.map((row) => this.mapMediaRow(row));
+  }
+
+  async listApprovedForOwner(ownerUserId: string): Promise<PublicMediaAssetRecord[]> {
+    this.assertStorageConfigured();
+    const ownerInternalUserId = await this.resolveInternalUserId(ownerUserId, "ownerUserId");
+
+    const result = await this.databaseService.query<DbApprovedMediaRow>(
+      `
+      SELECT
+        ma.id,
+        ma.owner_user_id,
+        u.username,
+        ma.job_id,
+        ma.kind,
+        ma.bucket_name,
+        ma.object_key,
+        ma.content_type,
+        ma.file_size_bytes,
+        ma.state,
+        ma.created_at,
+        ma.updated_at
+      FROM media_assets ma
+      JOIN users u ON u.id = ma.owner_user_id
+      WHERE ma.owner_user_id = $1::uuid
+        AND ma.state = 'approved'::media_state
+      ORDER BY ma.created_at DESC
+      `,
+      [ownerInternalUserId]
+    );
+
+    return result.rows.map((row) => {
+      const signedDownload = this.createDownloadUrl({
+        bucketName: row.bucket_name,
+        objectKey: row.object_key
+      });
+
+      return {
+        id: row.id,
+        ownerUserId: this.toPublicUserId(row.owner_user_id, row.username),
+        jobId: row.job_id,
+        kind: row.kind,
+        contentType: row.content_type,
+        fileSizeBytes: this.parsePositiveInt(row.file_size_bytes, 0),
+        state: "approved",
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString(),
+        ...signedDownload
+      };
+    });
+  }
+
+  createDownloadUrl(input: {
+    bucketName: string;
+    objectKey: string;
+    expiresSeconds?: number;
+  }): SignedDownloadUrlRecord {
+    this.assertStorageConfigured();
+    const now = new Date();
+    const defaultTtl = this.downloadTtlSeconds;
+    const parsedTtl = this.parsePositiveInt(input.expiresSeconds ?? defaultTtl, defaultTtl);
+    const ttlSeconds = Math.max(30, Math.min(parsedTtl, 3600));
+    const downloadUrlExpiresAt = new Date(now.getTime() + ttlSeconds * 1000);
+
+    return {
+      downloadUrl: this.createPresignedUrl({
+        method: "GET",
+        bucketName: input.bucketName,
+        objectKey: input.objectKey,
+        expiresSeconds: ttlSeconds,
+        now
+      }),
+      downloadUrlExpiresAt: downloadUrlExpiresAt.toISOString()
+    };
   }
 
   async createUploadTicket(input: CreateUploadTicketInput): Promise<UploadTicketRecord> {
@@ -368,7 +480,7 @@ export class MediaService {
     }
 
     const asset = existing.rows[0];
-    if (asset.state !== "uploaded" && asset.state !== "scanning") {
+    if (asset.state !== "uploaded") {
       throw new BadRequestException(`Media asset cannot be completed from state '${asset.state}'`);
     }
 
@@ -385,8 +497,7 @@ export class MediaService {
       headResponse = await fetch(headUrl, { method: "HEAD" });
     } catch (error) {
       throw new BadGatewayException(
-        `Failed to verify uploaded object in storage: ${
-          error instanceof Error ? error.message : "unknown error"
+        `Failed to verify uploaded object in storage: ${error instanceof Error ? error.message : "unknown error"
         }`
       );
     }
@@ -646,6 +757,41 @@ export class MediaService {
     if (!result.rowCount) {
       throw new BadRequestException("jobId is not valid for this user");
     }
+  }
+
+  private async resolveInternalUserId(identifier: string, fieldName: string): Promise<string> {
+    const normalized = identifier.trim().toLowerCase();
+    if (!normalized) {
+      throw new NotFoundException(`${fieldName} is required`);
+    }
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+      return normalized;
+    }
+
+    const result = await this.databaseService.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+      FROM users
+      WHERE LOWER(username) = $1::text
+      LIMIT 1
+      `,
+      [normalized]
+    );
+
+    if (!result.rowCount) {
+      throw new NotFoundException(`${fieldName} does not exist`);
+    }
+
+    return result.rows[0].id;
+  }
+
+  private toPublicUserId(internalUserId: string, username?: string | null): string {
+    const normalized = username?.trim().toLowerCase() ?? "";
+    if (normalized.length >= 3) {
+      return normalized;
+    }
+    return `member_${internalUserId.replace(/-/g, "").slice(0, 10).toLowerCase()}`;
   }
 
   private createPresignedUrl(params: {

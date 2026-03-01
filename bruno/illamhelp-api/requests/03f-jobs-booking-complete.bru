@@ -1,0 +1,33 @@
+meta {
+  name: Jobs Booking Complete
+  type: http
+  seq: 10
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs/{{jobId}}/booking/complete
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("jobs booking complete returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs booking complete marks job completed", function () {
+    expect(res.body.id).to.equal(bru.getEnvVar("jobId"));
+    expect(res.body.status).to.equal("completed");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs Booking Payment Done");
+}

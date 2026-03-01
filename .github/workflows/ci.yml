@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  REPORT_ROOT: artifacts/ci
+
 jobs:
   quality:
     name: Lint, Typecheck, Test
@@ -24,12 +27,55 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+      - name: Prepare report directory
+        run: mkdir -p "${REPORT_ROOT}/quality"
       - name: Lint
-        run: pnpm lint
+        id: lint
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pnpm lint 2>&1 | tee "${REPORT_ROOT}/quality/lint.log"
       - name: Typecheck
-        run: pnpm typecheck
+        id: typecheck
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pnpm typecheck 2>&1 | tee "${REPORT_ROOT}/quality/typecheck.log"
       - name: Test
-        run: pnpm test
+        id: test
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pnpm test 2>&1 | tee "${REPORT_ROOT}/quality/test.log"
+      - name: Build quality summary
+        if: always()
+        run: |
+          cat > "${REPORT_ROOT}/quality/summary.md" <<EOF
+          # Quality Report
+
+          | Check | Status |
+          |---|---|
+          | Lint | ${{ steps.lint.outcome }} |
+          | Typecheck | ${{ steps.typecheck.outcome }} |
+          | Test | ${{ steps.test.outcome }} |
+          EOF
+          cat "${REPORT_ROOT}/quality/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload quality report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-quality-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REPORT_ROOT }}/quality
+          if-no-files-found: warn
+      - name: Fail quality job on check failures
+        if: always()
+        run: |
+          if [[ "${{ steps.lint.outcome }}" != "success" || \
+                "${{ steps.typecheck.outcome }}" != "success" || \
+                "${{ steps.test.outcome }}" != "success" ]]; then
+            echo "One or more quality checks failed."
+            exit 1
+          fi
 
   gitleaks:
     name: Secret Scan (Gitleaks)
@@ -38,30 +84,315 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Prepare report directory
+        run: mkdir -p "${REPORT_ROOT}/gitleaks"
+      - name: Install Gitleaks
+        id: gitleaks_install
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VERSION="${GITLEAKS_VERSION:-8.24.2}"
+          ARCHIVE="gitleaks_${VERSION}_linux_x64.tar.gz"
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/${ARCHIVE}"
+
+          {
+            echo "Installing Gitleaks ${VERSION}"
+            curl -fsSL "${URL}" -o "/tmp/${ARCHIVE}"
+            tar -xzf "/tmp/${ARCHIVE}" -C /tmp
+            mkdir -p "${HOME}/.local/bin"
+            install -m 0755 /tmp/gitleaks "${HOME}/.local/bin/gitleaks"
+            echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+            "${HOME}/.local/bin/gitleaks" version
+          } > "${REPORT_ROOT}/gitleaks/install.log" 2>&1
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: gitleaks_scan
+        continue-on-error: true
+        run: |
+          set +e
+          "${HOME}/.local/bin/gitleaks" detect \
+            --source . \
+            --report-format json \
+            --report-path "${REPORT_ROOT}/gitleaks/gitleaks-report.json" \
+            --redact \
+            --no-banner \
+            > "${REPORT_ROOT}/gitleaks/gitleaks.log" 2>&1
+          scan_exit_code=$?
+          echo "scan_exit_code=${scan_exit_code}" >> "$GITHUB_OUTPUT"
+
+          if [[ ! -s "${REPORT_ROOT}/gitleaks/gitleaks-report.json" ]]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          log_file = Path("artifacts/ci/gitleaks/gitleaks.log")
+          report_file = Path("artifacts/ci/gitleaks/gitleaks-report.json")
+          payload = {
+              "findings": [],
+              "errors": [log_file.read_text()[-8000:] if log_file.exists() else "Gitleaks report was not generated."]
+          }
+          report_file.write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+          fi
+
+          exit "${scan_exit_code}"
+      - name: Build gitleaks summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report_file = Path("artifacts/ci/gitleaks/gitleaks-report.json")
+          log_file = Path("artifacts/ci/gitleaks/gitleaks.log")
+          summary_file = Path("artifacts/ci/gitleaks/summary.md")
+
+          lines = [
+              "# Gitleaks Report",
+              "",
+              "| Check | Status |",
+              "|---|---|",
+              "| Install | ${{ steps.gitleaks_install.outcome }} |",
+              "| Secret scan | ${{ steps.gitleaks_scan.outcome }} |",
+              ""
+          ]
+
+          if report_file.exists():
+            try:
+              data = json.loads(report_file.read_text())
+              if isinstance(data, list):
+                findings = data
+                errors = []
+              else:
+                findings = data.get("findings") or data.get("Leaks") or []
+                errors = data.get("errors") or []
+              lines.append(f"- Total findings in report: {len(findings)}")
+              if errors:
+                lines.append(f"- Gitleaks runtime errors: {len(errors)} (see gitleaks.log)")
+            except Exception as exc:
+              lines.append(f"- Failed to parse report JSON: {exc}")
+          else:
+            lines.append("- Report file not generated.")
+
+          if log_file.exists():
+            lines.append(f"- Scan log: {log_file}")
+
+          summary_file.write_text("\n".join(lines) + "\n")
+          PY
+          cat "${REPORT_ROOT}/gitleaks/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload gitleaks report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-gitleaks-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REPORT_ROOT }}/gitleaks
+          if-no-files-found: warn
+      - name: Fail gitleaks job on findings
+        if: always()
+        run: |
+          if [[ "${{ steps.gitleaks_install.outcome }}" != "success" || \
+                "${{ steps.gitleaks_scan.outcome }}" != "success" ]]; then
+            echo "Gitleaks scan reported findings or errors."
+            exit 1
+          fi
 
   trivy:
     name: Vulnerability Scan (Trivy FS)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare report directory
+        run: mkdir -p "${REPORT_ROOT}/trivy"
+      - name: Install Trivy
+        id: trivy_install
+        continue-on-error: true
+        uses: aquasecurity/setup-trivy@v0.2.2
+      - name: Ensure Trivy CLI is available
+        id: trivy_bootstrap
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p "${REPORT_ROOT}/trivy"
+          {
+            if command -v trivy >/dev/null 2>&1; then
+              echo "Trivy already available at $(command -v trivy)"
+              trivy --version
+              exit 0
+            fi
+
+            echo "setup-trivy did not provide trivy on PATH. Installing fallback binary..."
+            VERSION="${TRIVY_VERSION:-0.57.2}"
+            ARCH="$(uname -m)"
+            case "${ARCH}" in
+              x86_64|amd64) ASSET_ARCH="64bit" ;;
+              aarch64|arm64) ASSET_ARCH="ARM64" ;;
+              *)
+                echo "Unsupported architecture for Trivy fallback install: ${ARCH}"
+                exit 1
+                ;;
+            esac
+
+            ASSET="trivy_${VERSION}_Linux-${ASSET_ARCH}.tar.gz"
+            URL="https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/${ASSET}"
+            curl -fsSL "${URL}" -o "/tmp/${ASSET}"
+            tar -xzf "/tmp/${ASSET}" -C /tmp trivy
+            mkdir -p "${HOME}/.local/bin"
+            install -m 0755 /tmp/trivy "${HOME}/.local/bin/trivy"
+            echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+            export PATH="${HOME}/.local/bin:${PATH}"
+            trivy --version
+          } > "${REPORT_ROOT}/trivy/install.log" 2>&1
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@0.28.0
+        id: trivy_scan
+        continue-on-error: true
+        run: |
+          set +e
+          if ! command -v trivy >/dev/null 2>&1; then
+            printf "trivy command not found in PATH. Install step likely failed.\n" \
+              > "${REPORT_ROOT}/trivy/trivy.log"
+            scan_exit_code=127
+          else
+            trivy fs . \
+              --ignore-unfixed \
+              --severity CRITICAL,HIGH \
+              --format json \
+              --output "${REPORT_ROOT}/trivy/trivy-report.json" \
+              > "${REPORT_ROOT}/trivy/trivy.log" 2>&1
+            scan_exit_code=$?
+          fi
+          echo "scan_exit_code=${scan_exit_code}" >> "$GITHUB_OUTPUT"
+
+          if [[ ! -s "${REPORT_ROOT}/trivy/trivy-report.json" ]]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          log_file = Path("artifacts/ci/trivy/trivy.log")
+          report_file = Path("artifacts/ci/trivy/trivy-report.json")
+          payload = {
+              "SchemaVersion": 2,
+              "ArtifactName": ".",
+              "ArtifactType": "filesystem",
+              "Results": [],
+              "Errors": [log_file.read_text()[-8000:] if log_file.exists() else "Trivy report was not generated."]
+          }
+          report_file.write_text(json.dumps(payload, indent=2) + "\n")
+          PY
+          fi
+
+          exit "${scan_exit_code}"
+      - name: Build trivy summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report_file = Path("artifacts/ci/trivy/trivy-report.json")
+          log_file = Path("artifacts/ci/trivy/trivy.log")
+          summary_file = Path("artifacts/ci/trivy/summary.md")
+          lines = [
+              "# Trivy Report",
+              "",
+              "| Check | Status |",
+              "|---|---|",
+              "| Install | ${{ steps.trivy_install.outcome }} |",
+              "| Bootstrap | ${{ steps.trivy_bootstrap.outcome }} |",
+              "| Vulnerability scan | ${{ steps.trivy_scan.outcome }} |",
+              ""
+          ]
+          if report_file.exists():
+            try:
+              data = json.loads(report_file.read_text())
+              vulns = []
+              for result in data.get("Results", []):
+                vulns.extend(result.get("Vulnerabilities", []) or [])
+              lines.append(f"- Total vulnerabilities in report: {len(vulns)}")
+              if vulns:
+                high = sum(1 for v in vulns if v.get("Severity") == "HIGH")
+                critical = sum(1 for v in vulns if v.get("Severity") == "CRITICAL")
+                lines.append(f"- HIGH: {high}")
+                lines.append(f"- CRITICAL: {critical}")
+              errors = data.get("Errors", []) or []
+              if errors:
+                lines.append(f"- Trivy reported runtime errors: {len(errors)} (see trivy.log)")
+            except Exception as exc:
+              lines.append(f"- Failed to parse report JSON: {exc}")
+          else:
+            lines.append("- Report file not generated.")
+          if log_file.exists():
+            lines.append(f"- Scan log: {log_file}")
+          summary_file.write_text("\n".join(lines) + "\n")
+          PY
+          cat "${REPORT_ROOT}/trivy/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload trivy report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          scan-type: fs
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
-          exit-code: "1"
+          name: ci-trivy-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REPORT_ROOT }}/trivy
+          if-no-files-found: warn
+      - name: Fail trivy job on findings
+        if: always()
+        run: |
+          if [[ "${{ steps.trivy_scan.outcome }}" != "success" ]]; then
+            echo "Trivy scan reported findings or errors."
+            exit 1
+          fi
 
   semgrep:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
-    container:
-      image: returntocorp/semgrep:latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare report directory
+        run: mkdir -p "${REPORT_ROOT}/semgrep"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install Semgrep
+        id: semgrep_install
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install semgrep > "${REPORT_ROOT}/semgrep/semgrep-install.log" 2>&1
       - name: Run Semgrep
-        run: semgrep scan --config auto --error --exclude node_modules
+        id: semgrep_scan
+        continue-on-error: true
+        run: |
+          semgrep scan --config auto --error --exclude node_modules --json \
+            --json-output "${REPORT_ROOT}/semgrep/semgrep-report.json" \
+            > "${REPORT_ROOT}/semgrep/semgrep.log" 2>&1
+      - name: Build semgrep summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report_file = Path("artifacts/ci/semgrep/semgrep-report.json")
+          summary_file = Path("artifacts/ci/semgrep/summary.md")
+          lines = ["# Semgrep Report", "", "| Check | Status |", "|---|---|", "| Install | ${{ steps.semgrep_install.outcome }} |", "| SAST scan | ${{ steps.semgrep_scan.outcome }} |", ""]
+          if report_file.exists():
+            try:
+              data = json.loads(report_file.read_text())
+              findings = data.get("results", []) or []
+              lines.append(f"- Total findings in report: {len(findings)}")
+            except Exception as exc:
+              lines.append(f"- Failed to parse report JSON: {exc}")
+          else:
+            lines.append("- Report file not generated.")
+          summary_file.write_text("\n".join(lines) + "\n")
+          PY
+          cat "${REPORT_ROOT}/semgrep/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload semgrep report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-semgrep-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REPORT_ROOT }}/semgrep
+          if-no-files-found: warn
+      - name: Fail semgrep job on findings
+        if: always()
+        run: |
+          if [[ "${{ steps.semgrep_install.outcome }}" != "success" || \
+                "${{ steps.semgrep_scan.outcome }}" != "success" ]]; then
+            echo "Semgrep install/scan reported findings or errors."
+            exit 1
+          fi

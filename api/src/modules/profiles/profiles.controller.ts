@@ -7,11 +7,16 @@ import { ProfileRecord, ProfilesService } from "./profiles.service";
 
 @Controller("profiles")
 export class ProfilesController {
-  constructor(private readonly profilesService: ProfilesService) {}
+  constructor(private readonly profilesService: ProfilesService) { }
 
   @Get("me")
   me(@CurrentUser() user: AuthenticatedUser): Promise<ProfileRecord> {
     return this.profilesService.getOwnProfile(user.userId);
+  }
+
+  @Get("me/dashboard")
+  dashboard(@CurrentUser() user: AuthenticatedUser) {
+    return this.profilesService.getDashboard(user.userId);
   }
 
   @Patch("me")

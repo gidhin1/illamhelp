@@ -39,10 +39,7 @@ fi
 
 WORKSPACE_BASENAME="$(basename "$WORKSPACE" .xcworkspace)"
 
-ALL_SCHEMES=()
-while IFS= read -r line; do
-  [[ -n "$line" ]] && ALL_SCHEMES+=("$line")
-done < <(
+ALL_SCHEMES_RAW="$(
   xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | awk '
     /Schemes:/ { in_schemes = 1; next }
     in_schemes && NF {
@@ -50,34 +47,37 @@ done < <(
       print
     }
   '
-)
+)"
 
 SCHEME="${DETOX_IOS_SCHEME:-}"
 if [[ -z "$SCHEME" ]]; then
   # Prefer a scheme matching workspace name (typical Expo-generated app scheme).
   WORKSPACE_BASENAME_LOWER="$(printf '%s' "$WORKSPACE_BASENAME" | tr '[:upper:]' '[:lower:]')"
-  for candidate in "${ALL_SCHEMES[@]}"; do
+  while IFS= read -r candidate; do
+    [[ -z "$candidate" ]] && continue
     candidate_lower="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
     if [[ "$candidate_lower" == "$WORKSPACE_BASENAME_LOWER" ]]; then
       SCHEME="$candidate"
       break
     fi
-  done
+  done <<< "$ALL_SCHEMES_RAW"
 fi
 
 if [[ -z "$SCHEME" ]]; then
   # Fallback: pick first scheme that builds an application target (WRAPPER_EXTENSION=app).
-  for candidate in "${ALL_SCHEMES[@]}"; do
+  while IFS= read -r candidate; do
+    [[ -z "$candidate" ]] && continue
     if xcodebuild -workspace "$WORKSPACE" -scheme "$candidate" -showBuildSettings -configuration "$IOS_BUILD_CONFIGURATION" -sdk iphonesimulator 2>/dev/null | grep -q "WRAPPER_EXTENSION = app"; then
       SCHEME="$candidate"
       break
     fi
-  done
+  done <<< "$ALL_SCHEMES_RAW"
 fi
 
 if [[ -z "$SCHEME" ]]; then
+  AVAILABLE_SCHEMES="$(printf '%s' "$ALL_SCHEMES_RAW" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
   echo "Could not determine an iOS app scheme from workspace '$WORKSPACE'."
-  echo "Available schemes: ${ALL_SCHEMES[*]}"
+  echo "Available schemes: ${AVAILABLE_SCHEMES:-<none>}"
   echo "Set DETOX_IOS_SCHEME and retry."
   exit 1
 fi

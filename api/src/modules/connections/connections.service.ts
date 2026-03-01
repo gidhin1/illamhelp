@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 
 import { DatabaseService } from "../../common/database/database.service";
 import { assertUuid } from "../../common/utils/uuid";
+import { escapeIlikeLiteral } from "../../common/utils/sql";
+import { ConsentService } from "../consent/consent.service";
 
 type ConnectionStatus = "pending" | "accepted" | "declined" | "blocked";
 
@@ -54,33 +56,68 @@ interface DbConnectionSearchRow {
 
 @Injectable()
 export class ConnectionsService {
-  constructor(private readonly databaseService: DatabaseService) {}
+  private readonly logger = new Logger(ConnectionsService.name);
+
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly consentService: ConsentService
+  ) { }
 
   async request(input: CreateConnectionRequest): Promise<ConnectionRecord> {
     assertUuid(input.requesterUserId, "requesterUserId");
     const targetUserId = await this.resolveTargetUserId(input);
-    assertUuid(targetUserId, "targetUserId");
 
     if (input.requesterUserId === targetUserId) {
       throw new BadRequestException("Requester and target cannot be the same user");
     }
 
-    await this.assertUserExists(input.requesterUserId, "requesterUserId");
-    await this.assertUserExists(targetUserId, "targetUserId");
+    await this.assertInternalUserExists(input.requesterUserId, "requesterUserId");
 
     const [userAId, userBId] = [input.requesterUserId, targetUserId].sort();
 
     const existing = await this.databaseService.query<DbConnectionRow>(
       `
-      SELECT id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
-      FROM connections
-      WHERE user_a_id = $1::uuid AND user_b_id = $2::uuid
+      SELECT
+        c.id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.user_a_id)), ''), 'member_' || SUBSTRING(md5(c.user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.user_b_id)), ''), 'member_' || SUBSTRING(md5(c.user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(c.requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        c.status,
+        c.requested_at,
+        c.decided_at
+      FROM connections c
+      WHERE c.user_a_id = $1::uuid AND c.user_b_id = $2::uuid
       `,
       [userAId, userBId]
     );
 
     if (existing.rowCount && existing.rowCount > 0) {
-      return this.mapRow(existing.rows[0]);
+      const existingConnection = existing.rows[0];
+      if (existingConnection.status === "declined") {
+        const reopened = await this.databaseService.query<DbConnectionRow>(
+          `
+          UPDATE connections
+          SET status = 'pending'::connection_status,
+              requested_by_user_id = $2::uuid,
+              requested_at = now(),
+              decided_at = NULL
+          WHERE id = $1::uuid
+          RETURNING
+            id,
+            COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_a_id)), ''), 'member_' || SUBSTRING(md5(user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+            COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_b_id)), ''), 'member_' || SUBSTRING(md5(user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+            COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+            status,
+            requested_at,
+            decided_at
+          `,
+          [existingConnection.id, input.requesterUserId]
+        );
+
+        return this.mapRow(reopened.rows[0]);
+      }
+
+      return this.mapRow(existingConnection);
     }
 
     const inserted = await this.databaseService.query<DbConnectionRow>(
@@ -92,7 +129,14 @@ export class ConnectionsService {
         status
       )
       VALUES ($1::uuid, $2::uuid, $3::uuid, 'pending'::connection_status)
-      RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
+      RETURNING
+        id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_a_id)), ''), 'member_' || SUBSTRING(md5(user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_b_id)), ''), 'member_' || SUBSTRING(md5(user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        status,
+        requested_at,
+        decided_at
       `,
       [userAId, userBId, input.requesterUserId]
     );
@@ -123,6 +167,9 @@ export class ConnectionsService {
     if (!isParticipant) {
       throw new BadRequestException("Actor is not part of this connection");
     }
+    if (connection.requested_by_user_id === actorUserId) {
+      throw new BadRequestException("Cannot accept your own connection request");
+    }
     if (connection.status !== "pending") {
       throw new BadRequestException("Only pending connections can be accepted");
     }
@@ -133,7 +180,14 @@ export class ConnectionsService {
       SET status = 'accepted'::connection_status,
           decided_at = now()
       WHERE id = $1::uuid
-      RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
+      RETURNING
+        id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_a_id)), ''), 'member_' || SUBSTRING(md5(user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_b_id)), ''), 'member_' || SUBSTRING(md5(user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        status,
+        requested_at,
+        decided_at
       `,
       [connectionId]
     );
@@ -153,7 +207,14 @@ export class ConnectionsService {
       SET status = 'declined'::connection_status,
           decided_at = now()
       WHERE id = $1::uuid
-      RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
+      RETURNING
+        id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_a_id)), ''), 'member_' || SUBSTRING(md5(user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_b_id)), ''), 'member_' || SUBSTRING(md5(user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        status,
+        requested_at,
+        decided_at
       `,
       [connectionId]
     );
@@ -164,7 +225,8 @@ export class ConnectionsService {
   async block(connectionId: string, actorUserId: string): Promise<ConnectionRecord> {
     const connection = await this.assertParticipantAndLoad(connectionId, actorUserId);
     if (connection.status === "blocked") {
-      return this.mapRow(connection);
+      const existing = await this.findById(connectionId);
+      return existing ?? this.mapRow(connection);
     }
 
     const updated = await this.databaseService.query<DbConnectionRow>(
@@ -173,10 +235,26 @@ export class ConnectionsService {
       SET status = 'blocked'::connection_status,
           decided_at = now()
       WHERE id = $1::uuid
-      RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
+      RETURNING
+        id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_a_id)), ''), 'member_' || SUBSTRING(md5(user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = user_b_id)), ''), 'member_' || SUBSTRING(md5(user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        status,
+        requested_at,
+        decided_at
       `,
       [connectionId]
     );
+
+    // Revoke all active consent grants for this connection
+    const revokedCount = await this.consentService.revokeAllForConnection(
+      connectionId,
+      "Connection blocked by participant"
+    );
+    if (revokedCount > 0) {
+      this.logger.log(`Revoked ${revokedCount} consent grant(s) for blocked connection ${connectionId}`);
+    }
 
     return this.mapRow(updated.rows[0]);
   }
@@ -192,7 +270,7 @@ export class ConnectionsService {
       ? Math.max(1, Math.min(Math.trunc(limit), 20))
       : 8;
     const normalizedQuery = query?.trim().toLowerCase() ?? "";
-    const likePattern = `%${normalizedQuery}%`;
+    const likePattern = `%${escapeIlikeLiteral(normalizedQuery)}%`;
     const tokens = normalizedQuery
       .split(/[\s,;|/]+/)
       .map((value) => value.trim())
@@ -211,7 +289,7 @@ export class ConnectionsService {
       ),
       base AS (
         SELECT
-          u.id AS user_id,
+          COALESCE(NULLIF(TRIM(u.username), ''), 'member_' || SUBSTRING(md5(u.id::text) FROM 1 FOR 10)) AS user_id,
           u.created_at,
           p.first_name,
           p.last_name,
@@ -224,7 +302,7 @@ export class ConnectionsService {
           lower(
             concat_ws(
               ' ',
-              u.id::text,
+              COALESCE(NULLIF(TRIM(u.username), ''), 'member_' || SUBSTRING(md5(u.id::text) FROM 1 FOR 10)),
               COALESCE(p.first_name, ''),
               COALESCE(p.last_name, ''),
               COALESCE(p.city, ''),
@@ -263,7 +341,7 @@ export class ConnectionsService {
         )
       ORDER BY
         CASE
-          WHEN user_id::text = $2::text THEN 0
+          WHEN user_id = $2::text THEN 0
           WHEN searchable_text LIKE $3::text THEN 1
           ELSE 2
         END,
@@ -282,9 +360,16 @@ export class ConnectionsService {
 
     const result = await this.databaseService.query<DbConnectionRow>(
       `
-      SELECT id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
-      FROM connections
-      WHERE id = $1::uuid
+      SELECT
+        c.id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.user_a_id)), ''), 'member_' || SUBSTRING(md5(c.user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.user_b_id)), ''), 'member_' || SUBSTRING(md5(c.user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(c.requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        c.status,
+        c.requested_at,
+        c.decided_at
+      FROM connections c
+      WHERE c.id = $1::uuid
       `,
       [connectionId]
     );
@@ -296,20 +381,45 @@ export class ConnectionsService {
     return this.mapRow(result.rows[0]);
   }
 
-  async list(actorUserId: string): Promise<ConnectionRecord[]> {
+  async list(
+    actorUserId: string,
+    limit = 50,
+    offset = 0
+  ): Promise<{ items: ConnectionRecord[]; total: number; limit: number; offset: number }> {
     assertUuid(actorUserId, "actorUserId");
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit) || 50, 100));
+    const safeOffset = Math.max(0, Math.trunc(offset) || 0);
+
+    const countResult = await this.databaseService.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM connections WHERE user_a_id = $1::uuid OR user_b_id = $1::uuid`,
+      [actorUserId]
+    );
+    const total = parseInt(countResult.rows[0]?.count ?? "0", 10);
 
     const result = await this.databaseService.query<DbConnectionRow>(
       `
-      SELECT id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
-      FROM connections
-      WHERE user_a_id = $1::uuid OR user_b_id = $1::uuid
-      ORDER BY requested_at DESC
+      SELECT
+        c.id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.user_a_id)), ''), 'member_' || SUBSTRING(md5(c.user_a_id::text) FROM 1 FOR 10)) AS user_a_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.user_b_id)), ''), 'member_' || SUBSTRING(md5(c.user_b_id::text) FROM 1 FOR 10)) AS user_b_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = c.requested_by_user_id)), ''), 'member_' || SUBSTRING(md5(c.requested_by_user_id::text) FROM 1 FOR 10)) AS requested_by_user_id,
+        c.status,
+        c.requested_at,
+        c.decided_at
+      FROM connections c
+      WHERE c.user_a_id = $1::uuid OR c.user_b_id = $1::uuid
+      ORDER BY c.requested_at DESC
+      LIMIT $2::int OFFSET $3::int
       `,
-      [actorUserId]
+      [actorUserId, safeLimit, safeOffset]
     );
 
-    return result.rows.map((row) => this.mapRow(row));
+    return {
+      items: result.rows.map((row) => this.mapRow(row)),
+      total,
+      limit: safeLimit,
+      offset: safeOffset
+    };
   }
 
   private async assertParticipantAndLoad(
@@ -342,22 +452,10 @@ export class ConnectionsService {
     return connection;
   }
 
-  private mapRow(row: DbConnectionRow): ConnectionRecord {
-    return {
-      id: row.id,
-      userAId: row.user_a_id,
-      userBId: row.user_b_id,
-      requestedByUserId: row.requested_by_user_id,
-      status: row.status,
-      requestedAt: row.requested_at.toISOString(),
-      decidedAt: row.decided_at ? row.decided_at.toISOString() : null
-    };
-  }
-
   private async resolveTargetUserId(input: CreateConnectionRequest): Promise<string> {
     const targetUserId = input.targetUserId?.trim();
     if (targetUserId) {
-      return targetUserId;
+      return this.resolveInternalUserId(targetUserId, "targetUserId");
     }
 
     const targetQuery = input.targetQuery?.trim();
@@ -366,7 +464,7 @@ export class ConnectionsService {
     }
 
     if (this.looksLikeUuid(targetQuery)) {
-      return targetQuery;
+      return this.resolveInternalUserId(targetQuery, "targetQuery");
     }
 
     const matches = await this.searchCandidates(input.requesterUserId, targetQuery, 6);
@@ -382,7 +480,19 @@ export class ConnectionsService {
       );
     }
 
-    return matches[0].userId;
+    return this.resolveInternalUserId(matches[0].userId, "targetQuery");
+  }
+
+  private mapRow(row: DbConnectionRow): ConnectionRecord {
+    return {
+      id: row.id,
+      userAId: row.user_a_id,
+      userBId: row.user_b_id,
+      requestedByUserId: row.requested_by_user_id,
+      status: row.status,
+      requestedAt: row.requested_at.toISOString(),
+      decidedAt: row.decided_at ? row.decided_at.toISOString() : null
+    };
   }
 
   private mapSearchRow(row: DbConnectionSearchRow): ConnectionSearchCandidate {
@@ -412,7 +522,7 @@ export class ConnectionsService {
     );
   }
 
-  private async assertUserExists(userId: string, fieldName: string): Promise<void> {
+  private async assertInternalUserExists(userId: string, fieldName: string): Promise<void> {
     const result = await this.databaseService.query<{ id: string }>(
       `
       SELECT id
@@ -426,4 +536,31 @@ export class ConnectionsService {
       throw new BadRequestException(`${fieldName} does not exist`);
     }
   }
+
+  private async resolveInternalUserId(identifier: string, fieldName: string): Promise<string> {
+    const normalized = identifier.trim().toLowerCase();
+    if (!normalized) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    if (this.looksLikeUuid(normalized)) {
+      await this.assertInternalUserExists(normalized, fieldName);
+      return normalized;
+    }
+
+    const byUsername = await this.databaseService.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+      FROM users
+      WHERE LOWER(username) = $1::text
+      LIMIT 1
+      `,
+      [normalized]
+    );
+    if (!byUsername.rowCount) {
+      throw new NotFoundException(`${fieldName} does not exist`);
+    }
+    return byUsername.rows[0].id;
+  }
+
 }

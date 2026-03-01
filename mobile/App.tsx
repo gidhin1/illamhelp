@@ -2,6 +2,7 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Keyboard,
+  Linking,
   Pressable,
   SafeAreaView,
   ScrollView,
@@ -38,8 +39,10 @@ import {
   listConsentRequests,
   listJobs,
   listMyMedia,
+  listPublicApprovedMedia,
   login,
   MediaAssetRecord,
+  PublicMediaAssetRecord,
   ProfileRecord,
   register,
   requestConnection,
@@ -71,17 +74,12 @@ const CONSENT_FIELD_LABELS: Record<ConsentField, string> = {
   full_address: "Home address"
 };
 
-function looksLikeUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value
-  );
-}
-
 interface CreateJobPayload {
   category: string;
   title: string;
   description: string;
   locationText: string;
+  visibility: "public" | "connections_only";
 }
 
 function validateJobPayload(payload: CreateJobPayload): string | null {
@@ -482,7 +480,7 @@ function AuthScreen({
               testID="auth-register-email"
             />
             <InputField
-              label="Username (optional)"
+              label="User ID"
               value={registerForm.username}
               onChangeText={(value) => setRegisterForm({ ...registerForm, username: value })}
               placeholder="anita_worker_01"
@@ -629,6 +627,7 @@ function JobsScreen({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [locationText, setLocationText] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "connections_only">("public");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
@@ -636,7 +635,8 @@ function JobsScreen({
     category: "",
     title: "",
     description: "",
-    locationText: ""
+    locationText: "",
+    visibility: "public"
   });
   const visibleJobs = useMemo(() => jobs.slice(0, MAX_RENDER_ROWS), [jobs]);
 
@@ -670,7 +670,8 @@ function JobsScreen({
       category: latestDraftRef.current.category.trim(),
       title: latestDraftRef.current.title.trim(),
       description: latestDraftRef.current.description.trim(),
-      locationText: latestDraftRef.current.locationText.trim()
+      locationText: latestDraftRef.current.locationText.trim(),
+      visibility: latestDraftRef.current.visibility
     };
 
     const validationError = validateJobPayload(payload);
@@ -688,12 +689,14 @@ function JobsScreen({
         category: "",
         title: "",
         description: "",
-        locationText: ""
+        locationText: "",
+        visibility: "public"
       };
       setCategory("");
       setTitle("");
       setDescription("");
       setLocationText("");
+      setVisibility("public");
     } catch (requestError) {
       const message = asError(requestError, "Unable to create job");
       setSubmitError(message);
@@ -763,6 +766,46 @@ function JobsScreen({
           placeholder="Kakkanad, Kochi"
           testID="jobs-location"
         />
+        <Text style={styles.fieldLabel}>Visibility</Text>
+        <View style={styles.roleRow}>
+          <Pressable
+            style={[styles.roleChip, visibility === "public" ? styles.roleChipSelected : null]}
+            onPress={() => {
+              latestDraftRef.current.visibility = "public";
+              setVisibility("public");
+            }}
+            testID="jobs-visibility-public"
+          >
+            <Text
+              style={[
+                styles.roleChipLabel,
+                visibility === "public" ? styles.roleChipLabelSelected : null
+              ]}
+            >
+              Public
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.roleChip,
+              visibility === "connections_only" ? styles.roleChipSelected : null
+            ]}
+            onPress={() => {
+              latestDraftRef.current.visibility = "connections_only";
+              setVisibility("connections_only");
+            }}
+            testID="jobs-visibility-connections"
+          >
+            <Text
+              style={[
+                styles.roleChipLabel,
+                visibility === "connections_only" ? styles.roleChipLabelSelected : null
+              ]}
+            >
+              Connections only
+            </Text>
+          </Pressable>
+        </View>
         <AppButton
           label={submitting ? "Posting..." : "Post job"}
           onPress={() => {
@@ -788,6 +831,9 @@ function JobsScreen({
             <Text style={styles.dataTitle}>{job.title}</Text>
             <Text style={styles.dataMeta}>
               {job.category} · {job.locationText}
+            </Text>
+            <Text style={styles.dataMeta}>
+              Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
             </Text>
             <Text style={styles.dataMeta}>{job.status}</Text>
             <Text style={styles.dataMeta}>{formatDate(job.createdAt)}</Text>
@@ -881,11 +927,7 @@ function ConnectionsScreen({
       setError("Enter a name, member ID, service, or location.");
       return;
     }
-
-    const payload = looksLikeUuid(normalizedQuery)
-      ? { targetUserId: normalizedQuery }
-      : { targetQuery: normalizedQuery };
-    await submitRequest(payload);
+    await submitRequest({ targetQuery: normalizedQuery });
   };
 
   const onSearch = async (): Promise<void> => {
@@ -1043,16 +1085,16 @@ function ConnectionsScreen({
           </Text>
         ) : null}
         {visibleConnections.map((connection) => {
+          const currentUserId = user.publicUserId;
           const otherUser =
-            connection.userAId === user.userId ? connection.userBId : connection.userAId;
+            connection.userAId === currentUserId ? connection.userBId : connection.userAId;
           const canAccept =
-            connection.status === "pending" && connection.requestedByUserId !== user.userId;
+            connection.status === "pending" && connection.requestedByUserId !== currentUserId;
           const canDecline = connection.status === "pending";
           const canBlock = connection.status !== "blocked";
           return (
             <View key={connection.id} style={styles.dataRow}>
               <Text style={styles.dataTitle}>{connection.status}</Text>
-              <Text style={styles.dataMeta}>ID: {connection.id}</Text>
               <Text style={styles.dataMeta}>Other user: {otherUser}</Text>
               <Text style={styles.dataMeta}>Requested at: {formatDate(connection.requestedAt)}</Text>
               {canAccept ? (
@@ -1068,7 +1110,7 @@ function ConnectionsScreen({
               {canDecline ? (
                 <AppButton
                   label={
-                    connection.requestedByUserId === user.userId
+                    connection.requestedByUserId === currentUserId
                       ? "Withdraw request"
                       : "Decline"
                   }
@@ -1108,20 +1150,22 @@ function ConnectionsScreen({
 
 function ConsentScreen({
   accessToken,
+  user,
   onSessionInvalid
 }: {
   accessToken: string;
+  user: AuthenticatedUser;
   onSessionInvalid: () => void;
 }): JSX.Element {
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
   const [grants, setGrants] = useState<ConsentGrantRecord[]>([]);
+  const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const [ownerUserId, setOwnerUserId] = useState("");
-  const [connectionId, setConnectionId] = useState("");
+  const [requestConnectionId, setRequestConnectionId] = useState("");
   const [requestPurpose, setRequestPurpose] = useState("");
   const [requestFields, setRequestFields] = useState<ConsentField[]>(["phone"]);
 
@@ -1133,9 +1177,34 @@ function ConsentScreen({
   const [revokeGrantId, setRevokeGrantId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
 
-  const [canViewOwnerId, setCanViewOwnerId] = useState("");
+  const [canViewConnectionId, setCanViewConnectionId] = useState("");
   const [canViewField, setCanViewField] = useState<ConsentField>("phone");
   const [canViewResult, setCanViewResult] = useState<boolean | null>(null);
+  const currentUserId = user.publicUserId;
+  const acceptedConnections = useMemo(
+    () => connections.filter((connection) => connection.status === "accepted"),
+    [connections]
+  );
+  const connectionPeople = useMemo(
+    () =>
+      acceptedConnections.map((connection) => ({
+        connectionId: connection.id,
+        memberId:
+          connection.userAId === currentUserId ? connection.userBId : connection.userAId
+      })),
+    [acceptedConnections, currentUserId]
+  );
+  const pendingIncomingRequests = useMemo(
+    () =>
+      requests.filter(
+        (request) => request.status === "pending" && request.ownerUserId === currentUserId
+      ),
+    [requests, currentUserId]
+  );
+  const activeOwnedGrants = useMemo(
+    () => grants.filter((grant) => grant.status === "active" && grant.ownerUserId === currentUserId),
+    [grants, currentUserId]
+  );
   const visibleRequests = useMemo(
     () => requests.slice(0, MAX_RENDER_ROWS),
     [requests]
@@ -1149,12 +1218,14 @@ function ConsentScreen({
     setLoading(true);
     setError(null);
     try {
-      const [requestRows, grantRows] = await Promise.all([
+      const [requestRows, grantRows, connectionRows] = await Promise.all([
         listConsentRequests(accessToken),
-        listConsentGrants(accessToken)
+        listConsentGrants(accessToken),
+        listConnections(accessToken)
       ]);
       setRequests(requestRows);
       setGrants(grantRows);
+      setConnections(connectionRows);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load consent data");
       setError(message);
@@ -1203,18 +1274,23 @@ function ConsentScreen({
 
   const onRequestAccess = async (): Promise<void> => {
     await runAction(async () => {
+      const selectedConnection = connectionPeople.find(
+        (connection) => connection.connectionId === requestConnectionId
+      );
+      if (!selectedConnection) {
+        throw new Error("Choose a connected person first.");
+      }
       const created = await requestConsentAccess(
         {
-          ownerUserId: ownerUserId.trim(),
-          connectionId: connectionId.trim(),
+          ownerUserId: selectedConnection.memberId,
+          connectionId: selectedConnection.connectionId,
           requestedFields: requestFields,
           purpose: requestPurpose.trim()
         },
         accessToken
       );
       setRequests((previous) => [created, ...previous]);
-      setOwnerUserId("");
-      setConnectionId("");
+      setRequestConnectionId("");
       setRequestPurpose("");
       setSuccess("Access request created.");
     });
@@ -1222,6 +1298,9 @@ function ConsentScreen({
 
   const onGrant = async (): Promise<void> => {
     await runAction(async () => {
+      if (!grantRequestId.trim()) {
+        throw new Error("Choose a pending request first.");
+      }
       const payload: {
         grantedFields: ConsentField[];
         purpose: string;
@@ -1235,6 +1314,11 @@ function ConsentScreen({
       }
       const grant = await grantConsent(grantRequestId.trim(), payload, accessToken);
       setGrants((previous) => [grant, ...previous]);
+      setRequests((previous) =>
+        previous.map((item) =>
+          item.id === grant.accessRequestId ? { ...item, status: "approved" } : item
+        )
+      );
       setGrantRequestId("");
       setGrantPurpose("");
       setGrantExpiresAt("");
@@ -1244,6 +1328,9 @@ function ConsentScreen({
 
   const onRevoke = async (): Promise<void> => {
     await runAction(async () => {
+      if (!revokeGrantId.trim()) {
+        throw new Error("Choose an active share first.");
+      }
       const updated = await revokeConsent(
         revokeGrantId.trim(),
         { reason: revokeReason.trim() },
@@ -1261,9 +1348,15 @@ function ConsentScreen({
   const onCanView = async (): Promise<void> => {
     await runAction(async () => {
       setCanViewResult(null);
+      const selectedConnection = connectionPeople.find(
+        (connection) => connection.connectionId === canViewConnectionId
+      );
+      if (!selectedConnection) {
+        throw new Error("Choose a connected person first.");
+      }
       const result = await canViewConsent(
         {
-          ownerUserId: canViewOwnerId.trim(),
+          ownerUserId: selectedConnection.memberId,
           field: canViewField
         },
         accessToken
@@ -1292,20 +1385,32 @@ function ConsentScreen({
       {success ? <Banner tone="success" message={success} testID="consent-success-banner" /> : null}
 
       <SectionCard title="Request access">
-        <InputField
-          label="Person's member ID"
-          value={ownerUserId}
-          onChangeText={setOwnerUserId}
-          placeholder="Member ID"
-          testID="consent-request-owner-id"
-        />
-        <InputField
-          label="Connection reference ID"
-          value={connectionId}
-          onChangeText={setConnectionId}
-          placeholder="Connection ID"
-          testID="consent-request-connection-id"
-        />
+        <Text style={styles.fieldLabel}>Choose person</Text>
+        <View style={styles.roleRow}>
+          {connectionPeople.length === 0 ? (
+            <Text style={styles.cardBodyMuted}>No accepted connections yet.</Text>
+          ) : null}
+          {connectionPeople.map((item) => (
+            <Pressable
+              key={item.connectionId}
+              style={[
+                styles.roleChip,
+                requestConnectionId === item.connectionId ? styles.roleChipSelected : null
+              ]}
+              onPress={() => setRequestConnectionId(item.connectionId)}
+              testID={`consent-request-owner-${item.memberId}`}
+            >
+              <Text
+                style={[
+                  styles.roleChipLabel,
+                  requestConnectionId === item.connectionId ? styles.roleChipLabelSelected : null
+                ]}
+              >
+                {item.memberId}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <InputField
           label="Why you need this"
           value={requestPurpose}
@@ -1339,19 +1444,38 @@ function ConsentScreen({
           onPress={() => {
             void onRequestAccess();
           }}
-          disabled={submitting || requestFields.length === 0}
+          disabled={submitting || requestFields.length === 0 || requestConnectionId.length === 0}
           testID="consent-request-submit"
         />
       </SectionCard>
 
       <SectionCard title="Grant access">
-        <InputField
-          label="Request reference ID"
-          value={grantRequestId}
-          onChangeText={setGrantRequestId}
-          placeholder="Access request ID"
-          testID="consent-grant-request-id"
-        />
+        <Text style={styles.fieldLabel}>Pending requests</Text>
+        <View style={styles.roleRow}>
+          {pendingIncomingRequests.length === 0 ? (
+            <Text style={styles.cardBodyMuted}>No pending requests for you.</Text>
+          ) : null}
+          {pendingIncomingRequests.map((request) => (
+            <Pressable
+              key={request.id}
+              style={[
+                styles.roleChip,
+                grantRequestId === request.id ? styles.roleChipSelected : null
+              ]}
+              onPress={() => setGrantRequestId(request.id)}
+              testID={`consent-grant-request-${request.id}`}
+            >
+              <Text
+                style={[
+                  styles.roleChipLabel,
+                  grantRequestId === request.id ? styles.roleChipLabelSelected : null
+                ]}
+              >
+                {request.requesterUserId}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <InputField
           label="Why you are approving"
           value={grantPurpose}
@@ -1393,19 +1517,38 @@ function ConsentScreen({
             void onGrant();
           }}
           variant="secondary"
-          disabled={submitting || grantFields.length === 0}
+          disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}
           testID="consent-grant-submit"
         />
       </SectionCard>
 
       <SectionCard title="Stop sharing + access check">
-        <InputField
-          label="Grant reference ID"
-          value={revokeGrantId}
-          onChangeText={setRevokeGrantId}
-          placeholder="Grant ID"
-          testID="consent-revoke-grant-id"
-        />
+        <Text style={styles.fieldLabel}>Active shares</Text>
+        <View style={styles.roleRow}>
+          {activeOwnedGrants.length === 0 ? (
+            <Text style={styles.cardBodyMuted}>No active shares to revoke.</Text>
+          ) : null}
+          {activeOwnedGrants.map((grant) => (
+            <Pressable
+              key={grant.id}
+              style={[
+                styles.roleChip,
+                revokeGrantId === grant.id ? styles.roleChipSelected : null
+              ]}
+              onPress={() => setRevokeGrantId(grant.id)}
+              testID={`consent-revoke-grant-${grant.id}`}
+            >
+              <Text
+                style={[
+                  styles.roleChipLabel,
+                  revokeGrantId === grant.id ? styles.roleChipLabelSelected : null
+                ]}
+              >
+                {grant.granteeUserId}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <InputField
           label="Revoke reason"
           value={revokeReason}
@@ -1419,23 +1562,40 @@ function ConsentScreen({
             void onRevoke();
           }}
           variant="secondary"
-          disabled={submitting}
+          disabled={submitting || revokeGrantId.length === 0}
           testID="consent-revoke-submit"
         />
 
-        <InputField
-          label="Person's member ID for check"
-          value={canViewOwnerId}
-          onChangeText={setCanViewOwnerId}
-          placeholder="Member ID"
-          testID="consent-can-view-owner-id"
-        />
+        <Text style={styles.fieldLabel}>Check a connected person</Text>
+        <View style={styles.roleRow}>
+          {connectionPeople.map((item) => (
+            <Pressable
+              key={`check-${item.connectionId}`}
+              style={[
+                styles.roleChip,
+                canViewConnectionId === item.connectionId ? styles.roleChipSelected : null
+              ]}
+              onPress={() => setCanViewConnectionId(item.connectionId)}
+              testID={`consent-can-view-owner-${item.memberId}`}
+            >
+              <Text
+                style={[
+                  styles.roleChipLabel,
+                  canViewConnectionId === item.connectionId ? styles.roleChipLabelSelected : null
+                ]}
+              >
+                {item.memberId}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
         <View style={styles.roleRow}>
           {CONSENT_FIELDS.map((field) => (
             <Pressable
               key={field}
               style={[styles.roleChip, canViewField === field ? styles.roleChipSelected : null]}
               onPress={() => setCanViewField(field)}
+              testID={`consent-can-view-field-${field}`}
             >
               <Text
                 style={[
@@ -1453,7 +1613,7 @@ function ConsentScreen({
           onPress={() => {
             void onCanView();
           }}
-          disabled={submitting}
+          disabled={submitting || canViewConnectionId.length === 0}
           testID="consent-can-view-submit"
         />
         {canViewResult !== null ? (
@@ -1487,7 +1647,9 @@ function ConsentScreen({
         {visibleRequests.map((request) => (
           <View key={request.id} style={styles.dataRow}>
             <Text style={styles.dataTitle}>Request · {request.status}</Text>
-            <Text style={styles.dataMeta}>ID: {request.id}</Text>
+            <Text style={styles.dataMeta}>
+              {request.requesterUserId} asked {request.ownerUserId}
+            </Text>
             <Text style={styles.dataMeta}>
               Details:{" "}
               {request.requestedFields
@@ -1500,7 +1662,9 @@ function ConsentScreen({
         {visibleGrants.map((grant) => (
           <View key={grant.id} style={styles.dataRow}>
             <Text style={styles.dataTitle}>Grant · {grant.status}</Text>
-            <Text style={styles.dataMeta}>ID: {grant.id}</Text>
+            <Text style={styles.dataMeta}>
+              {grant.ownerUserId} shared with {grant.granteeUserId}
+            </Text>
             <Text style={styles.dataMeta}>
               Details: {grant.grantedFields.map((field) => CONSENT_FIELD_LABELS[field]).join(", ")}
             </Text>
@@ -1542,6 +1706,31 @@ function ProfileScreen({
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaSuccess, setMediaSuccess] = useState<string | null>(null);
+  const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
+  const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
+  const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
+  const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
+
+  const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
+    const normalizedOwnerId = ownerUserId.trim().toLowerCase();
+    if (!normalizedOwnerId) {
+      setPublicGalleryError("Enter a member ID to load approved media.");
+      setPublicMediaAssets([]);
+      return;
+    }
+
+    setPublicGalleryLoading(true);
+    setPublicGalleryError(null);
+    try {
+      const assets = await listPublicApprovedMedia(normalizedOwnerId);
+      setPublicMediaAssets(assets);
+    } catch (requestError) {
+      setPublicGalleryError(asError(requestError, "Unable to load public media"));
+      setPublicMediaAssets([]);
+    } finally {
+      setPublicGalleryLoading(false);
+    }
+  }, []);
 
   const loadProfile = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -1554,6 +1743,8 @@ function ProfileScreen({
       setProfile(record);
       setForm(buildProfileForm(record));
       setMediaAssets(media);
+      setPublicGalleryOwner(record.userId);
+      await loadPublicGallery(record.userId);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load profile");
       setError(message);
@@ -1563,7 +1754,7 @@ function ProfileScreen({
     } finally {
       setLoading(false);
     }
-  }, [accessToken, onSessionInvalid]);
+  }, [accessToken, loadPublicGallery, onSessionInvalid]);
 
   useEffect(() => {
     void loadProfile();
@@ -1672,7 +1863,7 @@ function ProfileScreen({
       {success ? <Banner tone="success" message={success} /> : null}
       <SectionCard title="Identity">
         <Text style={styles.dataMeta} testID="profile-user-id">
-          User ID: {user.userId}
+          Member ID: {profile?.userId ?? user.publicUserId}
         </Text>
         <Text style={styles.dataMeta}>Name: {profile?.displayName ?? "-"}</Text>
         <Text style={styles.dataMeta}>Account: Member</Text>
@@ -1794,6 +1985,50 @@ function ProfileScreen({
           </View>
         ))}
       </SectionCard>
+      <SectionCard title="Public gallery preview">
+        <Text style={styles.cardBody}>
+          This view matches what other members can open publicly after moderation approval.
+        </Text>
+        {publicGalleryError ? (
+          <Banner tone="error" message={publicGalleryError} testID="profile-public-media-error" />
+        ) : null}
+        <InputField
+          label="Member ID"
+          value={publicGalleryOwner}
+          onChangeText={setPublicGalleryOwner}
+          placeholder="anita_worker_01"
+          testID="profile-public-owner-input"
+        />
+        <AppButton
+          label={publicGalleryLoading ? "Loading..." : "Load approved media"}
+          onPress={() => {
+            void loadPublicGallery(publicGalleryOwner);
+          }}
+          disabled={publicGalleryLoading}
+          testID="profile-public-load"
+        />
+        {publicMediaAssets.length === 0 ? (
+          <Text style={styles.cardBodyMuted} testID="profile-public-empty">
+            No approved media yet.
+          </Text>
+        ) : null}
+        {publicMediaAssets.map((asset) => (
+          <View key={asset.id} style={styles.dataRow} testID="profile-public-item">
+            <Text style={styles.dataTitle}>
+              {asset.kind} · {formatBytes(asset.fileSizeBytes)}
+            </Text>
+            <Text style={styles.dataMeta}>{formatDate(asset.createdAt)}</Text>
+            <AppButton
+              label="Open approved file"
+              onPress={() => {
+                void Linking.openURL(asset.downloadUrl);
+              }}
+              variant="ghost"
+              testID={`profile-public-open-${asset.id}`}
+            />
+          </View>
+        ))}
+      </SectionCard>
       {loading ? <Text style={styles.cardBodyMuted}>Loading profile...</Text> : null}
       <AppButton label="Sign out" onPress={onSignOut} variant="ghost" testID="profile-signout" />
     </ScrollView>
@@ -1803,6 +2038,7 @@ function ProfileScreen({
 function mapSessionUser(session: AuthSessionResponse): AuthenticatedUser {
   return {
     userId: session.userId,
+    publicUserId: session.publicUserId,
     roles: session.roles,
     userType: session.userType,
     tokenSubject: session.userId
@@ -1861,8 +2097,12 @@ export default function App(): JSX.Element {
     setAuthBusy(true);
     setAuthError(null);
     try {
+      const normalizedUserId = registerForm.username.trim().toLowerCase();
+      if (normalizedUserId.length < 3) {
+        throw new Error("User ID must be at least 3 characters.");
+      }
       const session = await register({
-        username: registerForm.username.trim() || undefined,
+        username: normalizedUserId,
         email: registerForm.email.trim(),
         password: registerForm.password,
         firstName: registerForm.firstName.trim(),
@@ -1917,7 +2157,13 @@ export default function App(): JSX.Element {
         );
         break;
       case "consent":
-        content = <ConsentScreen accessToken={accessToken} onSessionInvalid={signOut} />;
+        content = (
+          <ConsentScreen
+            accessToken={accessToken}
+            user={user}
+            onSessionInvalid={signOut}
+          />
+        );
         break;
       case "profile":
         content = (

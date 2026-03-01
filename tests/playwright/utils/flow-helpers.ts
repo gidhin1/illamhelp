@@ -12,6 +12,8 @@ export interface E2eUser {
   userType: "seeker" | "provider" | "both";
 }
 
+const MEMBER_ID_PATTERN = /\b[a-z0-9._-]{3,40}\b/i;
+
 function suffix(): string {
   const ts = Date.now().toString(36).slice(-5);
   const rand = Math.random().toString(36).slice(2, 5);
@@ -36,6 +38,18 @@ export function parseUuid(value: string, context: string): string {
   const match = value.match(UUID_PATTERN);
   if (!match) {
     throw new Error(`Unable to parse UUID for ${context}. Value: ${value}`);
+  }
+  return match[0];
+}
+
+export function parseMemberId(value: string, context: string): string {
+  const normalized = value
+    .replace(/^member id:\s*/i, "")
+    .replace(/^user id:\s*/i, "")
+    .trim();
+  const match = normalized.match(MEMBER_ID_PATTERN);
+  if (!match) {
+    throw new Error(`Unable to parse member id for ${context}. Value: ${value}`);
   }
   return match[0];
 }
@@ -80,8 +94,14 @@ export async function readUuidByTestId(page: Page, testId: string): Promise<stri
   return parseUuid(text, testId);
 }
 
+export async function readTextByTestId(page: Page, testId: string): Promise<string> {
+  const locator = page.getByTestId(testId).first();
+  await expect(locator).toBeVisible();
+  return (await locator.innerText()).trim();
+}
+
 export async function cardByHeading(page: Page, heading: string): Promise<Locator> {
-  const card = page.locator("section.card").filter({
+  const card = page.locator(".card").filter({
     has: page.getByRole("heading", { name: heading })
   });
   await expect(card.first()).toBeVisible();

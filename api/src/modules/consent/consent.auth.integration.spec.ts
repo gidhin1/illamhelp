@@ -74,7 +74,7 @@ interface GrantRow {
 }
 
 class InMemoryDatabaseService {
-  private readonly users = new Map<string, { id: string; role: string }>();
+  private readonly users = new Map<string, { id: string; role: string; username: string | null }>();
   private readonly connections = new Map<string, ConnectionRow>();
   private readonly accessRequests = new Map<string, AccessRequestRow>();
   private readonly grants = new Map<string, GrantRow>();
@@ -119,8 +119,59 @@ class InMemoryDatabaseService {
     if (normalized.startsWith("insert into users")) {
       const userId = params[0] as string;
       const role = params[1] as string;
-      this.users.set(userId, { id: userId, role });
+      const username = (params[2] as string | undefined) ?? null;
+      this.users.set(userId, { id: userId, role, username });
       return this.result<T>([], 1);
+    }
+
+    if (normalized.includes("select username from users where id = $1::uuid")) {
+      const userId = params[0] as string;
+      const row = this.users.get(userId);
+      if (!row) {
+        return this.result<T>([], 0);
+      }
+      return this.result<T>([{ username: row.username } as unknown as T], 1);
+    }
+
+    if (normalized.includes("select id::text as id from users where lower(username) = $1::text")) {
+      const username = (params[0] as string).toLowerCase();
+      const row = [...this.users.values()].find(
+        (user) => (user.username ?? "").toLowerCase() === username
+      );
+      if (!row) {
+        return this.result<T>([], 0);
+      }
+      return this.result<T>([{ id: row.id } as unknown as T], 1);
+    }
+
+    if (normalized.includes("select id::text as id from users where id = $1::uuid")) {
+      const userId = params[0] as string;
+      const row = this.users.get(userId);
+      return row
+        ? this.result<T>([{ id: row.id } as unknown as T], 1)
+        : this.result<T>([], 0);
+    }
+
+    if (
+      normalized.includes("from pii_consent_grants") &&
+      normalized.includes("where owner_user_id = $1::uuid") &&
+      normalized.includes("and grantee_user_id = $2::uuid") &&
+      normalized.includes("and connection_id = $3::uuid") &&
+      normalized.includes("and status = 'active'::pii_grant_status")
+    ) {
+      const ownerId = params[0] as string;
+      const granteeId = params[1] as string;
+      const connectionId = params[2] as string;
+      const existing = [...this.grants.values()].find(
+        (grant) =>
+          grant.owner_user_id === ownerId &&
+          grant.grantee_user_id === granteeId &&
+          grant.connection_id === connectionId &&
+          grant.status === "active"
+      );
+      return existing
+        ? this.result<T>([{ id: existing.id } as unknown as T], 1)
+        : this.result<T>([], 0);
     }
 
     if (
@@ -271,7 +322,7 @@ function buildExecutionContext(
   const handler = function testHandler(): void {
     // no-op
   };
-  class TestController {}
+  class TestController { }
 
   return {
     switchToHttp: () => ({

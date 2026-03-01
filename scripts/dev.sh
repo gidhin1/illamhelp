@@ -28,7 +28,7 @@ fi
 make keycloak-bootstrap
 make migrate
 
-CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT},http://localhost:3000,http://127.0.0.1:3000}" pnpm dev:api &
+CORS_ORIGINS="${CORS_ORIGINS:-http://localhost:${WEB_PORT},http://127.0.0.1:${WEB_PORT},http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003}" pnpm dev:api &
 API_PID=$!
 
 PORT="${WEB_PORT}" pnpm dev:web &

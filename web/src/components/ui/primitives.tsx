@@ -40,7 +40,7 @@ export function Card({
   soft?: boolean;
   className?: string;
 }): JSX.Element {
-  return <section className={`card ${soft ? "soft" : ""} ${className ?? ""}`}>{children}</section>;
+  return <div className={`card ${soft ? "soft" : ""} ${className ?? ""}`}>{children}</div>;
 }
 
 export function Button({
@@ -111,7 +111,8 @@ export function Banner({
   tone: "info" | "success" | "error";
   children: ReactNode;
 }): JSX.Element {
-  return <div className={`banner ${tone}`}>{children}</div>;
+  const ariaRole = tone === "error" ? "alert" : "status";
+  return <div className={`banner ${tone}`} role={ariaRole}>{children}</div>;
 }
 
 export function EmptyState({

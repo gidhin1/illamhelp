@@ -5,7 +5,6 @@ import {
   FormEvent,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState
 } from "react";
@@ -25,23 +24,22 @@ import {
 import {
   completeMediaUpload,
   createMediaUploadTicket,
+  DashboardResponse,
   formatDate,
+  getMyDashboard,
   getMyProfile,
-  JobRecord,
-  listConnections,
-  listConsentGrants,
-  listConsentRequests,
-  listJobs,
   listMyMedia,
+  listPublicApprovedMedia,
   MediaAssetRecord,
   MediaKind,
+  PublicMediaAssetRecord,
   ProfileRecord,
   updateMyProfile
 } from "@/lib/api";
 
 interface ProfileMetrics {
-  jobs: JobRecord[];
-  connections: number;
+  totalJobs: number;
+  totalConnections: number;
   pendingConnections: number;
   consentRequests: number;
   activeConsentGrants: number;
@@ -94,8 +92,40 @@ async function sha256Hex(file: File): Promise<string> {
   if (!globalThis.crypto?.subtle) {
     throw new Error("Your browser does not support file checksum calculation.");
   }
-  const buffer = await file.arrayBuffer();
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
+
+  // For small files (< 4MB), use the simple approach
+  if (file.size < 4 * 1024 * 1024) {
+    const buffer = await file.arrayBuffer();
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
+    const bytes = Array.from(new Uint8Array(digest));
+    return bytes.map((value) => value.toString(16).padStart(2, "0")).join("");
+  }
+
+  // For large files, read in chunks to avoid blocking the main thread
+  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks
+  const chunks: Uint8Array[] = [];
+  let offset = 0;
+
+  while (offset < file.size) {
+    const slice = file.slice(offset, offset + CHUNK_SIZE);
+    const buffer = await slice.arrayBuffer();
+    chunks.push(new Uint8Array(buffer));
+    offset += CHUNK_SIZE;
+
+    // Yield to the main thread between chunks
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  // Combine chunks and hash
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const combined = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, pos);
+    pos += chunk.length;
+  }
+
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", combined);
   const bytes = Array.from(new Uint8Array(digest));
   return bytes.map((value) => value.toString(16).padStart(2, "0")).join("");
 }
@@ -113,8 +143,8 @@ function formatBytes(bytes: number): string {
 export default function ProfilePage(): JSX.Element {
   const { accessToken, user } = useSession();
   const [metrics, setMetrics] = useState<ProfileMetrics>({
-    jobs: [],
-    connections: 0,
+    totalJobs: 0,
+    totalConnections: 0,
     pendingConnections: 0,
     consentRequests: 0,
     activeConsentGrants: 0
@@ -130,7 +160,36 @@ export default function ProfilePage(): JSX.Element {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
+  const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
+  const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
+  const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
+    const normalizedOwnerId = ownerUserId.trim().toLowerCase();
+    if (!normalizedOwnerId) {
+      setPublicGalleryError("Enter a member ID to load approved media.");
+      setPublicMediaAssets([]);
+      return;
+    }
+
+    setPublicGalleryLoading(true);
+    setPublicGalleryError(null);
+    try {
+      const assets = await listPublicApprovedMedia(normalizedOwnerId);
+      setPublicMediaAssets(assets);
+    } catch (requestError) {
+      setPublicGalleryError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Unable to load public media"
+      );
+      setPublicMediaAssets([]);
+    } finally {
+      setPublicGalleryLoading(false);
+    }
+  }, []);
 
   const loadProfileData = useCallback(async (): Promise<void> => {
     if (!accessToken) {
@@ -139,24 +198,23 @@ export default function ProfilePage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const [jobs, connections, requests, grants, profileRecord, media] = await Promise.all([
-        listJobs(accessToken),
-        listConnections(accessToken),
-        listConsentRequests(accessToken),
-        listConsentGrants(accessToken),
-        getMyProfile(accessToken),
+      const [dashboard, media] = await Promise.all([
+        getMyDashboard(accessToken),
         listMyMedia(accessToken)
       ]);
       setMetrics({
-        jobs,
-        connections: connections.length,
-        pendingConnections: connections.filter((item) => item.status === "pending").length,
-        consentRequests: requests.length,
-        activeConsentGrants: grants.filter((item) => item.status === "active").length
+        totalJobs: dashboard.metrics.totalJobs,
+        totalConnections: dashboard.metrics.totalConnections,
+        pendingConnections: dashboard.metrics.pendingConnections,
+        consentRequests: dashboard.metrics.consentRequests,
+        activeConsentGrants: dashboard.metrics.activeConsentGrants
       });
-      setProfile(profileRecord);
-      setForm(buildForm(profileRecord));
+      setRecentJobs(dashboard.recentJobs);
+      setProfile(dashboard.profile);
+      setForm(buildForm(dashboard.profile));
       setMediaAssets(media);
+      setPublicGalleryOwner(dashboard.profile.userId);
+      await loadPublicGallery(dashboard.profile.userId);
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -166,13 +224,13 @@ export default function ProfilePage(): JSX.Element {
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, loadPublicGallery]);
 
   useEffect(() => {
     void loadProfileData();
   }, [loadProfileData]);
 
-  const recentJobs = useMemo(() => metrics.jobs.slice(0, 3), [metrics.jobs]);
+  const [recentJobs, setRecentJobs] = useState<DashboardResponse["recentJobs"]>([]);
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const selected = event.target.files?.[0] ?? null;
@@ -303,11 +361,11 @@ export default function ProfilePage(): JSX.Element {
               <div className="kpi-grid">
                 <div className="kpi">
                   <div className="kpi-label">Your jobs</div>
-                  <div className="kpi-value">{metrics.jobs.length}</div>
+                  <div className="kpi-value">{metrics.totalJobs}</div>
                 </div>
                 <div className="kpi">
                   <div className="kpi-label">Connections</div>
-                  <div className="kpi-value">{metrics.connections}</div>
+                  <div className="kpi-value">{metrics.totalConnections}</div>
                 </div>
                 <div className="kpi">
                   <div className="kpi-label">Active contact shares</div>
@@ -331,9 +389,9 @@ export default function ProfilePage(): JSX.Element {
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Identity</h3>
                   <div className="data-row">
-                    <div className="data-title">User ID</div>
+                    <div className="data-title">Member ID</div>
                     <div className="data-meta" data-testid="profile-user-id">
-                      {profile?.userId ?? user?.userId}
+                      {profile?.userId ?? user?.publicUserId}
                     </div>
                   </div>
                   <div className="data-row">
@@ -534,6 +592,52 @@ export default function ProfilePage(): JSX.Element {
                         <div className="data-meta">State: {asset.state.replaceAll("_", " ")}</div>
                         <div className="data-meta">{formatBytes(asset.fileSizeBytes)}</div>
                         <div className="field-hint">{formatDate(asset.createdAt)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="stack">
+                <h3 style={{ fontFamily: "var(--font-display)" }}>Public gallery preview</h3>
+                <p className="muted-text">
+                  This is what others can view publicly. Only approved files appear here.
+                </p>
+                {publicGalleryError ? <Banner tone="error">{publicGalleryError}</Banner> : null}
+                <div className="grid two">
+                  <Field label="Member ID">
+                    <TextInput
+                      data-testid="profile-public-owner-input"
+                      value={publicGalleryOwner}
+                      onChange={(event) => setPublicGalleryOwner(event.target.value)}
+                    />
+                  </Field>
+                  <div style={{ alignSelf: "end" }}>
+                    <Button
+                      type="button"
+                      data-testid="profile-public-load-button"
+                      disabled={publicGalleryLoading}
+                      onClick={() => void loadPublicGallery(publicGalleryOwner)}
+                    >
+                      {publicGalleryLoading ? "Loading..." : "Load approved media"}
+                    </Button>
+                  </div>
+                </div>
+                {publicMediaAssets.length === 0 ? (
+                  <EmptyState
+                    title="No approved media yet"
+                    body="Approved files will appear here once moderation is complete."
+                  />
+                ) : (
+                  <div className="grid two" data-testid="profile-public-media-grid">
+                    {publicMediaAssets.map((asset) => (
+                      <div key={asset.id} className="data-row" data-testid="profile-public-media-item">
+                        <div className="pill">{asset.kind}</div>
+                        <div className="data-meta">{formatBytes(asset.fileSizeBytes)}</div>
+                        <div className="field-hint">{formatDate(asset.createdAt)}</div>
+                        <a href={asset.downloadUrl} target="_blank" rel="noreferrer">
+                          Open approved file
+                        </a>
                       </div>
                     ))}
                   </div>

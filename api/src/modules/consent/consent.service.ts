@@ -79,6 +79,8 @@ interface DbAccessRequestRow {
   id: string;
   requester_user_id: string;
   owner_user_id: string;
+  requester_public_user_id?: string | null;
+  owner_public_user_id?: string | null;
   connection_id: string;
   requested_fields: ConsentField[];
   purpose: string;
@@ -91,6 +93,8 @@ interface DbGrantRow {
   id: string;
   owner_user_id: string;
   grantee_user_id: string;
+  owner_public_user_id?: string | null;
+  grantee_public_user_id?: string | null;
   connection_id: string;
   granted_fields: ConsentField[];
   purpose: string;
@@ -114,10 +118,21 @@ export class ConsentService {
     private readonly databaseService: DatabaseService,
     private readonly opaService: OpaService,
     private readonly auditService: AuditService
-  ) {}
+  ) { }
 
   async requestAccess(input: AccessRequestInput): Promise<AccessRequestRecord> {
     this.assertAccessRequestInput(input);
+    const requesterInternalUserId = await this.resolveInternalUserId(
+      input.requesterUserId,
+      "requesterUserId"
+    );
+    const ownerInternalUserId = await this.resolveInternalUserId(
+      input.ownerUserId,
+      "ownerUserId"
+    );
+    if (requesterInternalUserId === ownerInternalUserId) {
+      throw new BadRequestException("Requester and owner must be different users");
+    }
 
     const connection = await this.getConnection(input.connectionId);
     if (!connection || connection.status !== "accepted") {
@@ -127,15 +142,15 @@ export class ConsentService {
     }
 
     const isParticipant =
-      connection.user_a_id === input.requesterUserId ||
-      connection.user_b_id === input.requesterUserId;
+      connection.user_a_id === requesterInternalUserId ||
+      connection.user_b_id === requesterInternalUserId;
     if (!isParticipant) {
       throw new BadRequestException("Requester is not part of the connection");
     }
 
     const ownerIsParticipant =
-      connection.user_a_id === input.ownerUserId ||
-      connection.user_b_id === input.ownerUserId;
+      connection.user_a_id === ownerInternalUserId ||
+      connection.user_b_id === ownerInternalUserId;
     if (!ownerIsParticipant) {
       throw new BadRequestException("Owner is not part of the connection");
     }
@@ -154,18 +169,21 @@ export class ConsentService {
       RETURNING id, requester_user_id, owner_user_id, connection_id, requested_fields, purpose, status, created_at
       `,
       [
-        input.requesterUserId,
-        input.ownerUserId,
+        requesterInternalUserId,
+        ownerInternalUserId,
         input.connectionId,
         input.requestedFields,
         input.purpose
       ]
     );
 
-    const record = this.mapAccessRequestRow(result.rows[0]);
+    const record = this.mapAccessRequestRow(result.rows[0], {
+      requesterPublicUserId: await this.resolvePublicUserId(requesterInternalUserId),
+      ownerPublicUserId: await this.resolvePublicUserId(ownerInternalUserId)
+    });
     await this.auditService.logEvent({
-      actorUserId: record.requesterUserId,
-      targetUserId: record.ownerUserId,
+      actorUserId: requesterInternalUserId,
+      targetUserId: ownerInternalUserId,
       eventType: "pii_access_requested",
       purpose: record.purpose,
       metadata: {
@@ -180,7 +198,10 @@ export class ConsentService {
 
   async grant(requestId: string, input: GrantRequestInput): Promise<ConsentGrantRecord> {
     assertUuid(requestId, "requestId");
-    assertUuid(input.ownerUserId, "ownerUserId");
+    const ownerInternalUserId = await this.resolveInternalUserId(
+      input.ownerUserId,
+      "ownerUserId"
+    );
     this.assertFields(input.grantedFields, "grantedFields");
 
     const accessRequest = await this.databaseService.query<DbAccessRequestRow>(
@@ -197,7 +218,7 @@ export class ConsentService {
     }
 
     const request = accessRequest.rows[0];
-    if (request.owner_user_id !== input.ownerUserId) {
+    if (request.owner_user_id !== ownerInternalUserId) {
       throw new BadRequestException("Only owner can grant PII access");
     }
 
@@ -207,6 +228,25 @@ export class ConsentService {
     if (nonRequestedField) {
       throw new BadRequestException(
         `Granted field was not requested: ${nonRequestedField}`
+      );
+    }
+
+    const existingGrant = await this.databaseService.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+      FROM pii_consent_grants
+      WHERE owner_user_id = $1::uuid
+        AND grantee_user_id = $2::uuid
+        AND connection_id = $3::uuid
+        AND status = 'active'::pii_grant_status
+        AND (expires_at IS NULL OR expires_at > now())
+      LIMIT 1
+      `,
+      [request.owner_user_id, request.requester_user_id, request.connection_id]
+    );
+    if (existingGrant.rowCount) {
+      throw new BadRequestException(
+        "An active consent grant already exists for this connection. Revoke it first or wait for it to expire."
       );
     }
 
@@ -246,10 +286,13 @@ export class ConsentService {
       ]
     );
 
-    const grantRecord = this.mapGrantRow(grantResult.rows[0]);
+    const grantRecord = this.mapGrantRow(grantResult.rows[0], {
+      ownerPublicUserId: await this.resolvePublicUserId(request.owner_user_id),
+      granteePublicUserId: await this.resolvePublicUserId(request.requester_user_id)
+    });
     await this.auditService.logEvent({
-      actorUserId: grantRecord.ownerUserId,
-      targetUserId: grantRecord.granteeUserId,
+      actorUserId: request.owner_user_id,
+      targetUserId: request.requester_user_id,
       eventType: "pii_access_granted",
       purpose: grantRecord.purpose,
       metadata: {
@@ -265,7 +308,10 @@ export class ConsentService {
 
   async revoke(grantId: string, input: RevokeGrantInput): Promise<ConsentGrantRecord> {
     assertUuid(grantId, "grantId");
-    assertUuid(input.ownerUserId, "ownerUserId");
+    const ownerInternalUserId = await this.resolveInternalUserId(
+      input.ownerUserId,
+      "ownerUserId"
+    );
 
     const grantQuery = await this.databaseService.query<DbGrantRow>(
       `
@@ -281,7 +327,7 @@ export class ConsentService {
     }
 
     const grant = grantQuery.rows[0];
-    if (grant.owner_user_id !== input.ownerUserId) {
+    if (grant.owner_user_id !== ownerInternalUserId) {
       throw new BadRequestException("Only owner can revoke consent");
     }
 
@@ -297,10 +343,13 @@ export class ConsentService {
       [grantId, input.reason]
     );
 
-    const revokedRecord = this.mapGrantRow(updated.rows[0]);
+    const revokedRecord = this.mapGrantRow(updated.rows[0], {
+      ownerPublicUserId: await this.resolvePublicUserId(grant.owner_user_id),
+      granteePublicUserId: await this.resolvePublicUserId(grant.grantee_user_id)
+    });
     await this.auditService.logEvent({
-      actorUserId: revokedRecord.ownerUserId,
-      targetUserId: revokedRecord.granteeUserId,
+      actorUserId: grant.owner_user_id,
+      targetUserId: grant.grantee_user_id,
       eventType: "pii_access_revoked",
       purpose: "user_revocation",
       metadata: {
@@ -312,9 +361,49 @@ export class ConsentService {
     return revokedRecord;
   }
 
+  async revokeAllForConnection(connectionId: string, reason: string): Promise<number> {
+    assertUuid(connectionId, "connectionId");
+
+    const result = await this.databaseService.query<DbGrantRow>(
+      `
+      UPDATE pii_consent_grants
+      SET status = 'revoked'::pii_grant_status,
+          revoked_at = now(),
+          revoke_reason = $2
+      WHERE connection_id = $1::uuid
+        AND status = 'active'::pii_grant_status
+      RETURNING access_request_id, id, owner_user_id, grantee_user_id, connection_id, granted_fields, purpose, status, granted_at, expires_at, revoked_at, revoke_reason
+      `,
+      [connectionId, reason]
+    );
+
+    // Audit each revoked grant
+    for (const row of result.rows) {
+      await this.auditService.logEvent({
+        actorUserId: row.owner_user_id,
+        targetUserId: row.grantee_user_id,
+        eventType: "pii_access_revoked",
+        purpose: "connection_blocked",
+        metadata: {
+          grantId: row.id,
+          connectionId,
+          reason
+        }
+      });
+    }
+
+    return result.rowCount ?? 0;
+  }
+
   async canView(input: AccessCheckInput): Promise<{ allowed: boolean }> {
-    assertUuid(input.actorUserId, "actorUserId");
-    assertUuid(input.ownerUserId, "ownerUserId");
+    const actorInternalUserId = await this.resolveInternalUserId(
+      input.actorUserId,
+      "actorUserId"
+    );
+    const ownerInternalUserId = await this.resolveInternalUserId(
+      input.ownerUserId,
+      "ownerUserId"
+    );
     this.assertFields([input.field], "field");
 
     const result = await this.databaseService.query<DbCanViewRow>(
@@ -330,16 +419,17 @@ export class ConsentService {
         AND g.grantee_user_id = $2::uuid
         AND g.status = 'active'::pii_grant_status
         AND $3 = ANY(g.granted_fields)
+        AND (g.expires_at IS NULL OR g.expires_at > now())
       ORDER BY g.granted_at DESC
       LIMIT 1
       `,
-      [input.ownerUserId, input.actorUserId, input.field]
+      [ownerInternalUserId, actorInternalUserId, input.field]
     );
 
     if (!result.rowCount) {
       await this.auditService.logEvent({
-        actorUserId: input.actorUserId,
-        targetUserId: input.ownerUserId,
+        actorUserId: actorInternalUserId,
+        targetUserId: ownerInternalUserId,
         eventType: "pii_access_checked",
         purpose: "consent_read_path",
         metadata: {
@@ -365,16 +455,16 @@ export class ConsentService {
     }
 
     const allowed = await this.opaService.canViewPii({
-      actor_id: input.actorUserId,
-      owner_id: input.ownerUserId,
+      actor_id: actorInternalUserId,
+      owner_id: ownerInternalUserId,
       field: input.field,
       relationship_status: grant.relationship_status,
       grant: grantInput
     });
 
     await this.auditService.logEvent({
-      actorUserId: input.actorUserId,
-      targetUserId: input.ownerUserId,
+      actorUserId: actorInternalUserId,
+      targetUserId: ownerInternalUserId,
       eventType: "pii_access_checked",
       purpose: "consent_read_path",
       metadata: {
@@ -387,32 +477,66 @@ export class ConsentService {
   }
 
   async listRequests(actorUserId: string): Promise<AccessRequestRecord[]> {
-    assertUuid(actorUserId, "actorUserId");
+    const actorInternalUserId = await this.resolveInternalUserId(
+      actorUserId,
+      "actorUserId"
+    );
 
     const result = await this.databaseService.query<DbAccessRequestRow>(
       `
-      SELECT id, requester_user_id, owner_user_id, connection_id, requested_fields, purpose, status, created_at
-      FROM pii_access_requests
-      WHERE requester_user_id = $1::uuid OR owner_user_id = $1::uuid
+      SELECT
+        r.id,
+        r.requester_user_id,
+        r.owner_user_id,
+        COALESCE(NULLIF(TRIM(requester.username), ''), 'member_' || SUBSTRING(md5(r.requester_user_id::text) FROM 1 FOR 10)) AS requester_public_user_id,
+        COALESCE(NULLIF(TRIM(owner.username), ''), 'member_' || SUBSTRING(md5(r.owner_user_id::text) FROM 1 FOR 10)) AS owner_public_user_id,
+        r.connection_id,
+        r.requested_fields,
+        r.purpose,
+        r.status,
+        r.created_at
+      FROM pii_access_requests r
+      JOIN users requester ON requester.id = r.requester_user_id
+      JOIN users owner ON owner.id = r.owner_user_id
+      WHERE r.requester_user_id = $1::uuid OR r.owner_user_id = $1::uuid
       ORDER BY created_at DESC
       `,
-      [actorUserId]
+      [actorInternalUserId]
     );
 
     return result.rows.map((row) => this.mapAccessRequestRow(row));
   }
 
   async listGrants(actorUserId: string): Promise<ConsentGrantRecord[]> {
-    assertUuid(actorUserId, "actorUserId");
+    const actorInternalUserId = await this.resolveInternalUserId(
+      actorUserId,
+      "actorUserId"
+    );
 
     const result = await this.databaseService.query<DbGrantRow>(
       `
-      SELECT access_request_id, id, owner_user_id, grantee_user_id, connection_id, granted_fields, purpose, status, granted_at, expires_at, revoked_at, revoke_reason
-      FROM pii_consent_grants
-      WHERE owner_user_id = $1::uuid OR grantee_user_id = $1::uuid
+      SELECT
+        g.access_request_id,
+        g.id,
+        g.owner_user_id,
+        g.grantee_user_id,
+        COALESCE(NULLIF(TRIM(owner.username), ''), 'member_' || SUBSTRING(md5(g.owner_user_id::text) FROM 1 FOR 10)) AS owner_public_user_id,
+        COALESCE(NULLIF(TRIM(grantee.username), ''), 'member_' || SUBSTRING(md5(g.grantee_user_id::text) FROM 1 FOR 10)) AS grantee_public_user_id,
+        g.connection_id,
+        g.granted_fields,
+        g.purpose,
+        g.status,
+        g.granted_at,
+        g.expires_at,
+        g.revoked_at,
+        g.revoke_reason
+      FROM pii_consent_grants g
+      JOIN users owner ON owner.id = g.owner_user_id
+      JOIN users grantee ON grantee.id = g.grantee_user_id
+      WHERE g.owner_user_id = $1::uuid OR g.grantee_user_id = $1::uuid
       ORDER BY granted_at DESC
       `,
-      [actorUserId]
+      [actorInternalUserId]
     );
 
     return result.rows.map((row) => this.mapGrantRow(row));
@@ -436,12 +560,12 @@ export class ConsentService {
   }
 
   private assertAccessRequestInput(input: AccessRequestInput): void {
-    assertUuid(input.requesterUserId, "requesterUserId");
-    assertUuid(input.ownerUserId, "ownerUserId");
+    if (!input.requesterUserId || input.requesterUserId.trim().length < 3) {
+      throw new BadRequestException("requesterUserId is required");
+    }
     assertUuid(input.connectionId, "connectionId");
-
-    if (input.requesterUserId === input.ownerUserId) {
-      throw new BadRequestException("Requester and owner must be different users");
+    if (!input.ownerUserId || input.ownerUserId.trim().length < 3) {
+      throw new BadRequestException("ownerUserId is required");
     }
 
     this.assertFields(input.requestedFields, "requestedFields");
@@ -458,11 +582,20 @@ export class ConsentService {
     }
   }
 
-  private mapAccessRequestRow(row: DbAccessRequestRow): AccessRequestRecord {
+  private mapAccessRequestRow(
+    row: DbAccessRequestRow,
+    overrides?: { requesterPublicUserId?: string; ownerPublicUserId?: string }
+  ): AccessRequestRecord {
     return {
       id: row.id,
-      requesterUserId: row.requester_user_id,
-      ownerUserId: row.owner_user_id,
+      requesterUserId:
+        overrides?.requesterPublicUserId ??
+        row.requester_public_user_id ??
+        this.toPublicUserId(row.requester_user_id),
+      ownerUserId:
+        overrides?.ownerPublicUserId ??
+        row.owner_public_user_id ??
+        this.toPublicUserId(row.owner_user_id),
       connectionId: row.connection_id,
       requestedFields: row.requested_fields,
       purpose: row.purpose,
@@ -471,12 +604,21 @@ export class ConsentService {
     };
   }
 
-  private mapGrantRow(row: DbGrantRow): ConsentGrantRecord {
+  private mapGrantRow(
+    row: DbGrantRow,
+    overrides?: { ownerPublicUserId?: string; granteePublicUserId?: string }
+  ): ConsentGrantRecord {
     return {
       id: row.id,
       accessRequestId: row.access_request_id,
-      ownerUserId: row.owner_user_id,
-      granteeUserId: row.grantee_user_id,
+      ownerUserId:
+        overrides?.ownerPublicUserId ??
+        row.owner_public_user_id ??
+        this.toPublicUserId(row.owner_user_id),
+      granteeUserId:
+        overrides?.granteePublicUserId ??
+        row.grantee_public_user_id ??
+        this.toPublicUserId(row.grantee_user_id),
       connectionId: row.connection_id,
       grantedFields: row.granted_fields,
       purpose: row.purpose,
@@ -486,5 +628,60 @@ export class ConsentService {
       revokedAt: row.revoked_at ? row.revoked_at.toISOString() : null,
       revokeReason: row.revoke_reason
     };
+  }
+
+  private async resolveInternalUserId(identifier: string, fieldName: string): Promise<string> {
+    const normalized = identifier.trim().toLowerCase();
+    if (!normalized) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+      const exists = await this.databaseService.query<{ id: string }>(
+        `SELECT id::text AS id FROM users WHERE id = $1::uuid LIMIT 1`,
+        [normalized]
+      );
+      if (!exists.rowCount) {
+        throw new NotFoundException(`${fieldName} does not exist`);
+      }
+      return normalized;
+    }
+
+    const result = await this.databaseService.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+      FROM users
+      WHERE LOWER(username) = $1::text
+      LIMIT 1
+      `,
+      [normalized]
+    );
+    if (!result.rowCount) {
+      throw new NotFoundException(`${fieldName} does not exist`);
+    }
+    return result.rows[0].id;
+  }
+
+  private async resolvePublicUserId(internalUserId: string): Promise<string> {
+    const result = await this.databaseService.query<{ username: string | null }>(
+      `
+      SELECT username
+      FROM users
+      WHERE id = $1::uuid
+      `,
+      [internalUserId]
+    );
+    if (!result.rowCount) {
+      return this.toPublicUserId(internalUserId);
+    }
+    return this.toPublicUserId(internalUserId, result.rows[0].username);
+  }
+
+  private toPublicUserId(internalUserId: string, username?: string | null): string {
+    const normalized = username?.trim().toLowerCase() ?? "";
+    if (normalized.length >= 3) {
+      return normalized;
+    }
+    return `member_${internalUserId.replace(/-/g, "").slice(0, 10).toLowerCase()}`;
   }
 }

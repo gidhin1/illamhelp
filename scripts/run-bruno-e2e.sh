@@ -22,6 +22,9 @@ BASE_URL="${BRUNO_BASE_URL:-http://localhost:4000/api/v1}"
 BRUNO_PRINT_EXPORTS="${BRUNO_PRINT_EXPORTS:-false}"
 BRUNO_LOGIN_ONLY="${BRUNO_LOGIN_ONLY:-false}"
 BRUNO_PREFER_GENERATED_USERS="${BRUNO_PREFER_GENERATED_USERS:-true}"
+BRUNO_USER_CACHE_FILE="${BRUNO_USER_CACHE_FILE:-${ROOT_DIR}/.cache/bruno-e2e-users.env}"
+AUTH_MAX_ATTEMPTS="${AUTH_MAX_ATTEMPTS:-8}"
+AUTH_RETRY_BASE_SECONDS="${AUTH_RETRY_BASE_SECONDS:-2}"
 
 SEEKER_TOKEN="${SEEKER_ACCESS_TOKEN:-}"
 PROVIDER_TOKEN="${PROVIDER_ACCESS_TOKEN:-}"
@@ -90,46 +93,98 @@ json_escape_register_payload() {
   ' "${username}" "${email}" "${password}"
 }
 
+auth_backoff_seconds() {
+  local attempt="$1"
+  local base="${AUTH_RETRY_BASE_SECONDS}"
+  local wait=$((base * attempt))
+  if ((wait > 30)); then
+    wait=30
+  fi
+  echo "${wait}"
+}
+
+auth_request_with_retry() {
+  local endpoint="$1"
+  local payload="$2"
+  local label="$3"
+  local action="$4"
+
+  local attempt
+  local raw_response=""
+  local status_code=""
+  local response_body=""
+
+  for ((attempt = 1; attempt <= AUTH_MAX_ATTEMPTS; attempt += 1)); do
+    raw_response="$(
+      curl -sS -X POST "${BASE_URL}${endpoint}" \
+        -H "Content-Type: application/json" \
+        --data "${payload}" \
+        -w $'\n%{http_code}' || true
+    )"
+
+    response_body="${raw_response%$'\n'*}"
+    status_code="${raw_response##*$'\n'}"
+
+    if [[ "${status_code}" == "429" && "${attempt}" -lt "${AUTH_MAX_ATTEMPTS}" ]]; then
+      local wait_seconds
+      wait_seconds="$(auth_backoff_seconds "${attempt}")"
+      echo "WARN: ${label} ${action} rate-limited (HTTP 429). Retry ${attempt}/${AUTH_MAX_ATTEMPTS} in ${wait_seconds}s." >&2
+      sleep "${wait_seconds}"
+      continue
+    fi
+
+    if [[ "${status_code}" == "000" && "${attempt}" -lt "${AUTH_MAX_ATTEMPTS}" ]]; then
+      local wait_seconds
+      wait_seconds="$(auth_backoff_seconds "${attempt}")"
+      echo "WARN: ${label} ${action} request failed (HTTP 000). Retry ${attempt}/${AUTH_MAX_ATTEMPTS} in ${wait_seconds}s." >&2
+      sleep "${wait_seconds}"
+      continue
+    fi
+
+    echo "${raw_response}"
+    return 0
+  done
+
+  echo "${raw_response}"
+  return 0
+}
+
 login_for_token() {
   local label="$1"
   local username="$2"
   local password="$3"
 
   if [[ -z "${username}" || -z "${password}" ]]; then
-    echo "ERROR: Missing ${label} credentials."
-    echo "Set ${label}_USERNAME and ${label}_PASSWORD, or export ${label}_ACCESS_TOKEN."
-    exit 1
+    echo "ERROR: Missing ${label} credentials." >&2
+    echo "Set ${label}_USERNAME and ${label}_PASSWORD, or export ${label}_ACCESS_TOKEN." >&2
+    return 1
   fi
 
   local payload
   payload="$(json_escape_login_payload "${username}" "${password}")"
 
   local raw_response
-  raw_response="$(
-    curl -sS -X POST "${BASE_URL}/auth/login" \
-      -H "Content-Type: application/json" \
-      --data "${payload}" \
-      -w $'\n%{http_code}'
-  )"
+  raw_response="$(auth_request_with_retry "/auth/login" "${payload}" "${label}" "login")"
 
   local response_body="${raw_response%$'\n'*}"
   local status_code="${raw_response##*$'\n'}"
 
   if [[ "${status_code}" != "200" && "${status_code}" != "201" ]]; then
-    echo "ERROR: ${label} login failed with HTTP ${status_code}."
-    echo "Response: ${response_body}"
-    exit 1
+    echo "ERROR: ${label} login failed with HTTP ${status_code}." >&2
+    echo "Response: ${response_body}" >&2
+    return 1
   fi
 
   local token
   token="$(extract_access_token "${response_body}")"
   if [[ -z "${token}" ]]; then
-    echo "ERROR: ${label} login response did not include accessToken."
-    echo "Response: ${response_body}"
-    exit 1
+    echo "ERROR: ${label} login response did not include accessToken." >&2
+    echo "Response: ${response_body}" >&2
+    return 1
   fi
 
   echo "${token}"
+  return 0
 }
 
 register_for_token() {
@@ -139,39 +194,35 @@ register_for_token() {
   local password="$4"
 
   if [[ -z "${username}" || -z "${email}" || -z "${password}" ]]; then
-    echo "ERROR: Missing ${label} registration fields."
-    exit 1
+    echo "ERROR: Missing ${label} registration fields." >&2
+    return 1
   fi
 
   local payload
   payload="$(json_escape_register_payload "${username}" "${email}" "${password}")"
 
   local raw_response
-  raw_response="$(
-    curl -sS -X POST "${BASE_URL}/auth/register" \
-      -H "Content-Type: application/json" \
-      --data "${payload}" \
-      -w $'\n%{http_code}'
-  )"
+  raw_response="$(auth_request_with_retry "/auth/register" "${payload}" "${label}" "register")"
 
   local response_body="${raw_response%$'\n'*}"
   local status_code="${raw_response##*$'\n'}"
 
   if [[ "${status_code}" != "200" && "${status_code}" != "201" ]]; then
-    echo "ERROR: ${label} register failed with HTTP ${status_code}."
-    echo "Response: ${response_body}"
-    exit 1
+    echo "ERROR: ${label} register failed with HTTP ${status_code}." >&2
+    echo "Response: ${response_body}" >&2
+    return 1
   fi
 
   local token
   token="$(extract_access_token "${response_body}")"
   if [[ -z "${token}" ]]; then
-    echo "ERROR: ${label} register response did not include accessToken."
-    echo "Response: ${response_body}"
-    exit 1
+    echo "ERROR: ${label} register response did not include accessToken." >&2
+    echo "Response: ${response_body}" >&2
+    return 1
   fi
 
   echo "${token}"
+  return 0
 }
 
 if ! command -v bru >/dev/null 2>&1; then
@@ -213,6 +264,27 @@ is_jwt_like() {
     }
   ' "${token}" >/dev/null 2>&1
 }
+
+load_cached_generated_users() {
+  if [[ -f "${BRUNO_USER_CACHE_FILE}" ]]; then
+    # shellcheck disable=SC1090
+    source "${BRUNO_USER_CACHE_FILE}"
+  fi
+}
+
+persist_cached_generated_users() {
+  mkdir -p "$(dirname "${BRUNO_USER_CACHE_FILE}")"
+  {
+    printf "CACHED_SEEKER_USERNAME=%q\n" "${SEEKER_USERNAME:-}"
+    printf "CACHED_SEEKER_PASSWORD=%q\n" "${SEEKER_PASSWORD:-}"
+    printf "CACHED_SEEKER_EMAIL=%q\n" "${SEEKER_EMAIL:-}"
+    printf "CACHED_PROVIDER_USERNAME=%q\n" "${PROVIDER_USERNAME:-}"
+    printf "CACHED_PROVIDER_PASSWORD=%q\n" "${PROVIDER_PASSWORD:-}"
+    printf "CACHED_PROVIDER_EMAIL=%q\n" "${PROVIDER_EMAIL:-}"
+  } >"${BRUNO_USER_CACHE_FILE}"
+}
+
+load_cached_generated_users
 
 if [[ "${BRUNO_PREFER_GENERATED_USERS}" == "true" ]]; then
   if [[ -z "${SEEKER_USERNAME}" && -z "${SEEKER_PASSWORD}" ]]; then
@@ -261,17 +333,28 @@ if [[ -z "${SEEKER_TOKEN}" ]]; then
   if [[ -n "${SEEKER_USERNAME}" && -n "${SEEKER_PASSWORD}" ]]; then
     SEEKER_TOKEN="$(login_for_token "SEEKER" "${SEEKER_USERNAME}" "${SEEKER_PASSWORD}")"
   elif [[ -z "${SEEKER_USERNAME}" && -z "${SEEKER_PASSWORD}" ]]; then
-    seeker_identity="$(generate_random_identity "seeker")"
-    SEEKER_USERNAME="$(printf "%s\n" "${seeker_identity}" | sed -n '1p')"
-    SEEKER_PASSWORD="$(printf "%s\n" "${seeker_identity}" | sed -n '2p')"
-    SEEKER_EMAIL="${SEEKER_EMAIL:-$(printf "%s\n" "${seeker_identity}" | sed -n '3p')}"
-    SEEKER_TOKEN="$(
-      register_for_token \
-        "SEEKER" \
-        "${SEEKER_USERNAME}" \
-        "${SEEKER_EMAIL}" \
-        "${SEEKER_PASSWORD}"
-    )"
+    if [[ -n "${CACHED_SEEKER_USERNAME:-}" && -n "${CACHED_SEEKER_PASSWORD:-}" ]]; then
+      SEEKER_USERNAME="${CACHED_SEEKER_USERNAME}"
+      SEEKER_PASSWORD="${CACHED_SEEKER_PASSWORD}"
+      SEEKER_EMAIL="${SEEKER_EMAIL:-${CACHED_SEEKER_EMAIL:-}}"
+      if ! SEEKER_TOKEN="$(login_for_token "SEEKER" "${SEEKER_USERNAME}" "${SEEKER_PASSWORD}")"; then
+        SEEKER_TOKEN=""
+      fi
+    fi
+
+    if [[ -z "${SEEKER_TOKEN}" ]]; then
+      seeker_identity="$(generate_random_identity "seeker")"
+      SEEKER_USERNAME="$(printf "%s\n" "${seeker_identity}" | sed -n '1p')"
+      SEEKER_PASSWORD="$(printf "%s\n" "${seeker_identity}" | sed -n '2p')"
+      SEEKER_EMAIL="${SEEKER_EMAIL:-$(printf "%s\n" "${seeker_identity}" | sed -n '3p')}"
+      SEEKER_TOKEN="$(
+        register_for_token \
+          "SEEKER" \
+          "${SEEKER_USERNAME}" \
+          "${SEEKER_EMAIL}" \
+          "${SEEKER_PASSWORD}"
+      )"
+    fi
   else
     echo "ERROR: Provide both SEEKER_USERNAME and SEEKER_PASSWORD, or neither."
     exit 1
@@ -282,22 +365,35 @@ if [[ -z "${PROVIDER_TOKEN}" ]]; then
   if [[ -n "${PROVIDER_USERNAME}" && -n "${PROVIDER_PASSWORD}" ]]; then
     PROVIDER_TOKEN="$(login_for_token "PROVIDER" "${PROVIDER_USERNAME}" "${PROVIDER_PASSWORD}")"
   elif [[ -z "${PROVIDER_USERNAME}" && -z "${PROVIDER_PASSWORD}" ]]; then
-    provider_identity="$(generate_random_identity "provider")"
-    PROVIDER_USERNAME="$(printf "%s\n" "${provider_identity}" | sed -n '1p')"
-    PROVIDER_PASSWORD="$(printf "%s\n" "${provider_identity}" | sed -n '2p')"
-    PROVIDER_EMAIL="${PROVIDER_EMAIL:-$(printf "%s\n" "${provider_identity}" | sed -n '3p')}"
-    PROVIDER_TOKEN="$(
-      register_for_token \
-        "PROVIDER" \
-        "${PROVIDER_USERNAME}" \
-        "${PROVIDER_EMAIL}" \
-        "${PROVIDER_PASSWORD}"
-    )"
+    if [[ -n "${CACHED_PROVIDER_USERNAME:-}" && -n "${CACHED_PROVIDER_PASSWORD:-}" ]]; then
+      PROVIDER_USERNAME="${CACHED_PROVIDER_USERNAME}"
+      PROVIDER_PASSWORD="${CACHED_PROVIDER_PASSWORD}"
+      PROVIDER_EMAIL="${PROVIDER_EMAIL:-${CACHED_PROVIDER_EMAIL:-}}"
+      if ! PROVIDER_TOKEN="$(login_for_token "PROVIDER" "${PROVIDER_USERNAME}" "${PROVIDER_PASSWORD}")"; then
+        PROVIDER_TOKEN=""
+      fi
+    fi
+
+    if [[ -z "${PROVIDER_TOKEN}" ]]; then
+      provider_identity="$(generate_random_identity "provider")"
+      PROVIDER_USERNAME="$(printf "%s\n" "${provider_identity}" | sed -n '1p')"
+      PROVIDER_PASSWORD="$(printf "%s\n" "${provider_identity}" | sed -n '2p')"
+      PROVIDER_EMAIL="${PROVIDER_EMAIL:-$(printf "%s\n" "${provider_identity}" | sed -n '3p')}"
+      PROVIDER_TOKEN="$(
+        register_for_token \
+          "PROVIDER" \
+          "${PROVIDER_USERNAME}" \
+          "${PROVIDER_EMAIL}" \
+          "${PROVIDER_PASSWORD}"
+      )"
+    fi
   else
     echo "ERROR: Provide both PROVIDER_USERNAME and PROVIDER_PASSWORD, or neither."
     exit 1
   fi
 fi
+
+persist_cached_generated_users
 
 export SEEKER_ACCESS_TOKEN="${SEEKER_TOKEN}"
 export PROVIDER_ACCESS_TOKEN="${PROVIDER_TOKEN}"

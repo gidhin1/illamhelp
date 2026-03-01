@@ -40,5 +40,9 @@ script:post-response {
     bru.setVar("connectionId", res.body.id);
     bru.setEnvVar("connectionId", res.body.id);
   }
+  if (res.body && res.body.status === "accepted") {
+    bru.runner.setNextRequest("Profile View Provider (Before Grant)");
+    return;
+  }
   bru.runner.setNextRequest("Connections Accept");
 }

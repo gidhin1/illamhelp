@@ -78,15 +78,17 @@ The automated flow validates:
 1. Health endpoint is reachable.
 2. Seeker and provider tokens are valid (`/auth/me` subject checks).
 3. Job creation succeeds.
-4. Connection request and accept succeed.
-5. Connection list contains the created/accepted connection.
-6. Consent access request is created and listed.
-7. Consent grant is created and listed.
-8. `can-view` is `true` before revoke.
-9. Consent revoke succeeds.
-10. `can-view` is `false` after revoke.
-11. Media upload ticket creation succeeds.
-12. Media list includes the newly created media record.
+4. Job application submit/list/accept succeeds.
+5. Booking start and complete transitions succeed.
+6. Connection request and accept succeed.
+7. Connection list contains the created/accepted connection.
+8. Consent access request is created and listed.
+9. Consent grant is created and listed.
+10. `can-view` is `true` before revoke.
+11. Consent revoke succeeds.
+12. `can-view` is `false` after revoke.
+13. Media upload ticket creation succeeds.
+14. Media list includes the newly created media record.
 
 Note:
 - The default E2E chain validates `upload-ticket` + `list`.

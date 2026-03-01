@@ -23,7 +23,8 @@ body:json {
     "category": "plumber",
     "title": "Kitchen sink leak",
     "description": "Need urgent repair",
-    "locationText": "Chennai, Velachery"
+    "locationText": "Chennai, Velachery",
+    "visibility": "public"
   }
 }
 
@@ -34,11 +35,16 @@ tests {
 
   test("jobs create returns expected shape", function () {
     expect(res.body.id).to.be.a("string");
-    expect(res.body.seekerUserId).to.equal(bru.getEnvVar("seekerUserId"));
+    expect(res.body.seekerUserId).to.equal(bru.getEnvVar("seekerPublicUserId"));
     expect(res.body.status).to.equal("posted");
+    expect(res.body.visibility).to.equal("public");
   });
 }
 
 script:post-response {
+  if (res.body && res.body.id) {
+    bru.setVar("jobId", res.body.id);
+    bru.setEnvVar("jobId", res.body.id);
+  }
   bru.runner.setNextRequest("Jobs List");
 }

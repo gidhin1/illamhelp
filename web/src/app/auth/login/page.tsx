@@ -51,6 +51,7 @@ export default function LoginPage(): JSX.Element {
                   onChange={(event) => setUsername(event.target.value)}
                   placeholder="anita_worker_01"
                   required
+                  autoComplete="username"
                 />
               </Field>
               <Field label="Password">
@@ -60,6 +61,7 @@ export default function LoginPage(): JSX.Element {
                   placeholder="StrongPass#2026"
                   type="password"
                   required
+                  autoComplete="current-password"
                 />
               </Field>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>

@@ -23,6 +23,8 @@ tests/playwright/reports/
 playwright-report/
 blob-report/
 reports/
+.act-artifacts/
+.cache/
 
 # env
 .env

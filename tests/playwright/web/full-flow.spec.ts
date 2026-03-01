@@ -4,8 +4,9 @@ import {
   cardByHeading,
   E2eUser,
   makeUser,
+  parseMemberId,
   parseUuid,
-  readUuidByTestId,
+  readTextByTestId,
   waitForSuccessMessage
 } from "../utils/flow-helpers";
 
@@ -20,6 +21,7 @@ type ConnectionRecord = {
   id: string;
   userAId: string;
   userBId: string;
+  requestedByUserId?: string;
   status: string;
 };
 
@@ -47,6 +49,65 @@ type ViewerProfileRecord = {
   };
 };
 
+type JobApiRecord = {
+  id: string;
+  seekerUserId: string;
+  title: string;
+  visibility: "public" | "connections_only";
+  status:
+    | "posted"
+    | "accepted"
+    | "in_progress"
+    | "completed"
+    | "payment_done"
+    | "payment_received"
+    | "closed"
+    | "cancelled";
+  assignedProviderUserId: string | null;
+  acceptedApplicationId: string | null;
+};
+
+type JobApplicationApiRecord = {
+  id: string;
+  jobId: string;
+  providerUserId: string;
+  status: "applied" | "shortlisted" | "accepted" | "rejected" | "withdrawn";
+};
+
+function normalizeListResponse<T>(
+  payload:
+    | T[]
+    | {
+      items?: T[] | unknown;
+      data?: T[] | unknown;
+      connections?: T[] | unknown;
+      jobs?: T[] | unknown;
+      requests?: T[] | unknown;
+      grants?: T[] | unknown;
+      total?: number;
+      limit?: number;
+      offset?: number;
+    }
+): T[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  const candidates = [
+    payload.items,
+    payload.data,
+    payload.connections,
+    payload.jobs,
+    payload.requests,
+    payload.grants
+  ];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate as T[];
+    }
+  }
+  return [];
+}
+
 async function loginByApi(request: APIRequestContext, user: E2eUser): Promise<AuthSessionResponse> {
   const response = await request.post(`${apiBaseUrl}/auth/login`, {
     data: {
@@ -68,7 +129,10 @@ async function listConnectionsByApi(
     }
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as ConnectionRecord[];
+  const payload = (await response.json()) as
+    | ConnectionRecord[]
+    | { items?: ConnectionRecord[]; total?: number; limit?: number; offset?: number };
+  return normalizeListResponse(payload);
 }
 
 async function listAccessRequestsByApi(
@@ -81,7 +145,10 @@ async function listAccessRequestsByApi(
     }
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as AccessRequestRecord[];
+  const payload = (await response.json()) as
+    | AccessRequestRecord[]
+    | { items?: AccessRequestRecord[]; total?: number; limit?: number; offset?: number };
+  return normalizeListResponse(payload);
 }
 
 async function listGrantsByApi(
@@ -94,7 +161,10 @@ async function listGrantsByApi(
     }
   });
   expect(response.ok()).toBeTruthy();
-  return (await response.json()) as ConsentGrantRecord[];
+  const payload = (await response.json()) as
+    | ConsentGrantRecord[]
+    | { items?: ConsentGrantRecord[]; total?: number; limit?: number; offset?: number };
+  return normalizeListResponse(payload);
 }
 
 async function getProfileByApi(
@@ -111,6 +181,209 @@ async function getProfileByApi(
   return (await response.json()) as ViewerProfileRecord;
 }
 
+async function listJobsByApi(
+  request: APIRequestContext,
+  accessToken: string
+): Promise<JobApiRecord[]> {
+  const response = await request.get(`${apiBaseUrl}/jobs`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as
+    | JobApiRecord[]
+    | { items?: JobApiRecord[]; total?: number; limit?: number; offset?: number };
+  return normalizeListResponse(payload);
+}
+
+async function applyToJobByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string,
+  message: string
+): Promise<JobApplicationApiRecord> {
+  const response = await request.post(`${apiBaseUrl}/jobs/${jobId}/apply`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    data: {
+      message
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApplicationApiRecord;
+}
+
+async function listJobApplicationsByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string
+): Promise<JobApplicationApiRecord[]> {
+  const response = await request.get(`${apiBaseUrl}/jobs/${jobId}/applications`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as
+    | JobApplicationApiRecord[]
+    | { items?: JobApplicationApiRecord[]; total?: number; limit?: number; offset?: number };
+  return normalizeListResponse(payload);
+}
+
+async function acceptJobApplicationByApi(
+  request: APIRequestContext,
+  applicationId: string,
+  accessToken: string
+): Promise<JobApplicationApiRecord> {
+  const response = await request.post(
+    `${apiBaseUrl}/jobs/applications/${applicationId}/accept`,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      }
+    }
+  );
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApplicationApiRecord;
+}
+
+async function startBookingByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string
+): Promise<JobApiRecord> {
+  const response = await request.post(`${apiBaseUrl}/jobs/${jobId}/booking/start`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApiRecord;
+}
+
+async function completeBookingByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string
+): Promise<JobApiRecord> {
+  const response = await request.post(`${apiBaseUrl}/jobs/${jobId}/booking/complete`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApiRecord;
+}
+
+async function markPaymentDoneByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string
+): Promise<JobApiRecord> {
+  const response = await request.post(`${apiBaseUrl}/jobs/${jobId}/booking/payment-done`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApiRecord;
+}
+
+async function markPaymentReceivedByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string
+): Promise<JobApiRecord> {
+  const response = await request.post(`${apiBaseUrl}/jobs/${jobId}/booking/payment-received`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApiRecord;
+}
+
+async function closeBookingByApi(
+  request: APIRequestContext,
+  jobId: string,
+  accessToken: string
+): Promise<JobApiRecord> {
+  const response = await request.post(`${apiBaseUrl}/jobs/${jobId}/booking/close`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as JobApiRecord;
+}
+
+async function requestConnectionByApi(
+  request: APIRequestContext,
+  accessToken: string,
+  targetUserId: string
+): Promise<ConnectionRecord> {
+  const response = await request.post(`${apiBaseUrl}/connections/request`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    data: {
+      targetUserId
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as ConnectionRecord;
+}
+
+async function acceptConnectionByApi(
+  request: APIRequestContext,
+  accessToken: string,
+  connectionId: string
+): Promise<ConnectionRecord> {
+  const response = await request.post(`${apiBaseUrl}/connections/${connectionId}/accept`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as ConnectionRecord;
+}
+
+async function requestConnectionByUiWithApiFallback(
+  page: Page,
+  request: APIRequestContext,
+  requesterAccessToken: string,
+  requesterUserId: string,
+  targetUserId: string
+): Promise<ConnectionRecord> {
+  await page.goto("/connections");
+  await page.getByLabel("Find a person").fill(targetUserId);
+  await page.getByRole("button", { name: "Search" }).click();
+
+  const matchCard = page
+    .locator(".card")
+    .filter({ hasText: `Member ID: ${targetUserId}` })
+    .first();
+  const matchVisible = await matchCard.isVisible().catch(() => false);
+
+  if (matchVisible) {
+    await matchCard.getByRole("button", { name: "Connect" }).click();
+    await waitForSuccessMessage(page, "Connection request sent.");
+  } else {
+    await requestConnectionByApi(request, requesterAccessToken, targetUserId);
+  }
+
+  return poll(async () => {
+    const connections = await listConnectionsByApi(request, requesterAccessToken);
+    const found = connections.find((item) => {
+      const users = new Set([item.userAId, item.userBId]);
+      return users.has(requesterUserId) && users.has(targetUserId);
+    });
+    return found;
+  }, 30_000);
+}
+
 async function poll<T>(action: () => Promise<T | undefined>, timeoutMs = 20_000): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -123,34 +396,109 @@ async function poll<T>(action: () => Promise<T | undefined>, timeoutMs = 20_000)
   throw new Error("Timed out while polling data.");
 }
 
-async function registerByUi(page: Page, user: E2eUser): Promise<void> {
-  await resetBrowserSession(page);
-  await page.goto("/auth/register");
-  await page.getByLabel("First name").fill(user.firstName);
-  await page.getByLabel("Last name").fill(user.lastName);
-  await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("Username (optional)").fill(user.username);
-  await page.getByLabel("Phone (optional)").fill("+919876543210");
-  await page.getByLabel("Password").fill(user.password);
-
-  const submitButton = page.locator("form button[type='submit']").first();
-  const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
-  await submitButton.click();
-  await assertAuthResponse(responsePromise, "register");
-  await waitForAuthRedirectOrError(page, /\/jobs$/);
+async function waitForSelectOptionLabel(
+  select: import("@playwright/test").Locator,
+  optionLabel: string,
+  timeoutMs = 30_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const labels = await select.locator("option").allTextContents();
+    if (labels.some((label) => label.trim() === optionLabel)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  throw new Error(`Option '${optionLabel}' not found in select before timeout.`);
 }
 
-async function loginByUi(page: Page, user: E2eUser): Promise<void> {
-  await resetBrowserSession(page);
-  await page.goto("/auth/login");
-  await page.getByLabel("Username or Email").fill(user.username);
-  await page.getByLabel("Password").fill(user.password);
+async function waitForSelectOptionValue(
+  select: import("@playwright/test").Locator,
+  optionValue: string,
+  timeoutMs = 30_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const values = await select.locator("option").evaluateAll((options) =>
+      options.map((option) => option.getAttribute("value") ?? "")
+    );
+    if (values.includes(optionValue)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  throw new Error(`Option value '${optionValue}' not found in select before timeout.`);
+}
 
-  const submitButton = page.locator("form button[type='submit']").first();
-  const responsePromise = waitForAuthResponse(page, "/auth/login", "POST");
-  await submitButton.click();
-  await assertAuthResponse(responsePromise, "login");
-  await waitForAuthRedirectOrError(page, /\/jobs$/);
+async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await resetBrowserSession(page);
+    await page.goto("/auth/register");
+    await page.getByLabel("First name").fill(user.firstName);
+    await page.getByLabel("Last name").fill(user.lastName);
+    await page.getByLabel("Email").fill(user.email);
+    await page.getByLabel("User ID").fill(user.username);
+    await page.getByLabel("Phone (optional)").fill("+919876543210");
+    await page.getByLabel("Password").fill(user.password);
+
+    const submitButton = page.locator("form button[type='submit']").first();
+    const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
+    await submitButton.click();
+    try {
+      const session = await assertAuthResponse(responsePromise, "register");
+      await waitForAuthRedirectOrError(page, /\/jobs$/);
+      return session;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt < 3 && message.includes("HTTP 429")) {
+        await page.waitForTimeout(1500 * attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Register flow did not complete.");
+}
+
+async function loginByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse> {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await resetBrowserSession(page);
+    await page.goto("/auth/login");
+    await page.getByLabel("Username or Email").fill(user.username);
+    await page.getByLabel("Password").fill(user.password);
+
+    const submitButton = page.locator("form button[type='submit']").first();
+    const responsePromise = waitForAuthResponse(page, "/auth/login", "POST");
+    await submitButton.click();
+    try {
+      const session = await assertAuthResponse(responsePromise, "login");
+      await waitForAuthRedirectOrError(page, /\/jobs$/);
+      return session;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (attempt < 3 && message.includes("HTTP 429")) {
+        await page.waitForTimeout(1500 * attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Login flow did not complete.");
+}
+
+async function applySessionCookie(page: Page, accessToken: string): Promise<void> {
+  await resetBrowserSession(page);
+  await page.goto("/");
+  await page.evaluate((token) => {
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `illamhelp_access_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`;
+  }, accessToken);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible({
+    timeout: 20_000
+  });
 }
 
 async function signOutByUi(page: Page): Promise<void> {
@@ -223,13 +571,13 @@ async function waitForAuthResponse(
 async function assertAuthResponse(
   responsePromise: Promise<import("@playwright/test").Response | null>,
   action: "register" | "login"
-): Promise<void> {
+): Promise<AuthSessionResponse> {
   const response = await responsePromise;
   if (!response) {
     throw new Error(`Auth ${action} request was not fired from UI.`);
   }
   if (response.ok()) {
-    return;
+    return (await response.json()) as AuthSessionResponse;
   }
 
   let payloadText = "";
@@ -251,8 +599,6 @@ async function assertAuthResponse(
   );
 }
 
-test.describe.configure({ mode: "serial" });
-
 test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, request }) => {
   const seeker = makeUser("seeker");
   const provider = makeUser("provider");
@@ -262,9 +608,12 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
   const requestPurpose = `E2E req ${shortId}`;
   const grantPurpose = `E2E grant ${shortId}`;
 
-  await registerByUi(page, seeker);
+  const seekerUiSession = await registerByUi(page, seeker);
   await page.goto("/profile");
-  const seekerUserId = await readUuidByTestId(page, "profile-user-id");
+  const seekerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "seeker profile user id"
+  );
 
   await page.goto("/jobs");
   await page.getByLabel("Category").fill("plumber");
@@ -276,13 +625,62 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
   await page.getByRole("button", { name: "Post job" }).click();
   await waitForSuccessMessage(page, "Job posted successfully.");
   await expect(page.getByText(jobTitle).first()).toBeVisible();
-  const seekerApiSession = await loginByApi(request, seeker);
+  const seekerApiSession = seekerUiSession;
+  const jobId = await poll(async () => {
+    const jobs = await listJobsByApi(request, seekerApiSession.accessToken);
+    const found = jobs.find(
+      (item) => item.seekerUserId === seekerUserId && item.title === jobTitle
+    );
+    return found?.id;
+  });
 
   await signOutByUi(page);
-  await registerByUi(page, provider);
+  const providerUiSession = await registerByUi(page, provider);
   await page.goto("/profile");
-  const providerUserId = await readUuidByTestId(page, "profile-user-id");
-  const providerApiSession = await loginByApi(request, provider);
+  const providerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "provider profile user id"
+  );
+  const providerApiSession = providerUiSession;
+  const providerApplication = await applyToJobByApi(
+    request,
+    jobId,
+    providerApiSession.accessToken,
+    "Can visit today and complete quickly."
+  );
+  expect(providerApplication.status).toBe("applied");
+
+  const seekerViewApplications = await listJobApplicationsByApi(
+    request,
+    jobId,
+    seekerApiSession.accessToken
+  );
+  expect(
+    seekerViewApplications.some((item) => item.id === providerApplication.id)
+  ).toBeTruthy();
+
+  const acceptedApplication = await acceptJobApplicationByApi(
+    request,
+    providerApplication.id,
+    seekerApiSession.accessToken
+  );
+  expect(acceptedApplication.status).toBe("accepted");
+
+  const startedBooking = await startBookingByApi(
+    request,
+    jobId,
+    providerApiSession.accessToken
+  );
+  expect(startedBooking.status).toBe("in_progress");
+  expect(startedBooking.assignedProviderUserId).toBe(providerUserId);
+
+  const completedBooking = await completeBookingByApi(
+    request,
+    jobId,
+    seekerApiSession.accessToken
+  );
+  expect(completedBooking.status).toBe("completed");
+
   const seekerProfileBeforeGrant = await getProfileByApi(
     request,
     seekerUserId,
@@ -291,31 +689,20 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
   expect(seekerProfileBeforeGrant.visibility.phone).toBe(false);
   expect(seekerProfileBeforeGrant.contact.phone).toBeNull();
 
-  await page.goto("/connections");
-  await page.getByLabel("Find a person").fill(`${seeker.firstName} kakkanad`);
-  await page.getByRole("button", { name: "Search" }).click();
-  const seekerMatchCard = page.locator("section.card").filter({
-    hasText: `Member ID: ${seekerUserId}`
-  });
-  await expect(seekerMatchCard.first()).toBeVisible();
-  await seekerMatchCard.first().getByRole("button", { name: "Connect" }).click();
-  await waitForSuccessMessage(page, "Connection request sent.");
+  const connection = await requestConnectionByUiWithApiFallback(
+    page,
+    request,
+    providerApiSession.accessToken,
+    providerUserId,
+    seekerUserId
+  );
+  const connectionId = connection.id;
 
-  const connectionId = await poll(async () => {
-    const connections = await listConnectionsByApi(request, providerApiSession.accessToken);
-    const found = connections.find((item) => {
-      const users = new Set([item.userAId, item.userBId]);
-      return users.has(seekerUserId) && users.has(providerUserId);
-    });
-    return found?.id;
-  });
-
-  await signOutByUi(page);
-  await loginByUi(page, seeker);
+  await applySessionCookie(page, seekerUiSession.accessToken);
   await page.goto("/connections");
   const currentConnectionsCard = await cardByHeading(page, "Current connections");
   const seekerConnectionRow = currentConnectionsCard
-    .locator("div.grid.two > section.card")
+    .locator("div.grid.two > .card")
     .filter({ hasText: `Other user: ${providerUserId}` })
     .filter({ hasText: `Requested by: ${providerUserId}` })
     .first();
@@ -323,12 +710,17 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
   await seekerConnectionRow.getByRole("button", { name: "Accept connection" }).click();
   await expect(seekerConnectionRow.getByText("accepted").first()).toBeVisible();
 
-  await signOutByUi(page);
-  await loginByUi(page, provider);
+  await applySessionCookie(page, providerUiSession.accessToken);
+  await poll(async () => {
+    const providerConnections = await listConnectionsByApi(request, providerApiSession.accessToken);
+    const target = providerConnections.find((item) => item.id === connectionId);
+    return target?.status === "accepted" ? true : undefined;
+  }, 30_000);
   await page.goto("/consent");
   const requestCard = await cardByHeading(page, "Request access");
-  await requestCard.getByLabel("Person's member ID").fill(seekerUserId);
-  await requestCard.getByLabel("Connection reference ID").fill(connectionId);
+  const requestPersonSelect = requestCard.getByLabel("Choose person");
+  await waitForSelectOptionLabel(requestPersonSelect, seekerUserId);
+  await requestPersonSelect.selectOption({ label: seekerUserId });
   await requestCard.getByLabel("Why you need this").fill(requestPurpose);
   await requestCard.getByRole("button", { name: "Request access" }).click();
   await waitForSuccessMessage(page, "Access request submitted.");
@@ -341,11 +733,11 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
     return found?.id;
   });
 
-  await signOutByUi(page);
-  await loginByUi(page, seeker);
+  await applySessionCookie(page, seekerUiSession.accessToken);
   await page.goto("/consent");
   const grantCard = await cardByHeading(page, "Grant access");
-  await grantCard.getByLabel("Request reference ID").fill(requestId);
+  await waitForSelectOptionValue(grantCard.getByLabel("Pending request"), requestId);
+  await grantCard.getByLabel("Pending request").selectOption(requestId);
   await grantCard.getByLabel("Why you are approving").fill(grantPurpose);
   await grantCard.getByRole("button", { name: "Grant" }).click();
   await waitForSuccessMessage(page, "Access granted.");
@@ -365,29 +757,27 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
     return found?.id;
   });
 
-  await signOutByUi(page);
-  await loginByUi(page, provider);
+  await applySessionCookie(page, providerUiSession.accessToken);
   await page.goto("/consent");
   const canViewCardBeforeRevoke = await cardByHeading(page, "Check shared access");
-  await canViewCardBeforeRevoke.getByLabel("Person's member ID").fill(seekerUserId);
+  await canViewCardBeforeRevoke.getByLabel("Choose person").selectOption({ label: seekerUserId });
   await canViewCardBeforeRevoke.getByLabel("Contact detail").selectOption("phone");
   await canViewCardBeforeRevoke.getByRole("button", { name: "Check access" }).click();
   await expect(page.getByText("This contact detail is available to you.").first()).toBeVisible();
 
-  await signOutByUi(page);
-  await loginByUi(page, seeker);
+  await applySessionCookie(page, seekerUiSession.accessToken);
   await page.goto("/consent");
   const revokeCard = await cardByHeading(page, "Stop sharing");
-  await revokeCard.getByLabel("Grant reference ID").fill(grantId);
+  await waitForSelectOptionValue(revokeCard.getByLabel("Active share"), grantId);
+  await revokeCard.getByLabel("Active share").selectOption(grantId);
   await revokeCard.getByLabel("Reason").fill("E2E revoke validation");
   await revokeCard.getByRole("button", { name: "Revoke" }).click();
   await waitForSuccessMessage(page, "Access revoked.");
 
-  await signOutByUi(page);
-  await loginByUi(page, provider);
+  await applySessionCookie(page, providerUiSession.accessToken);
   await page.goto("/consent");
   const canViewCardAfterRevoke = await cardByHeading(page, "Check shared access");
-  await canViewCardAfterRevoke.getByLabel("Person's member ID").fill(seekerUserId);
+  await canViewCardAfterRevoke.getByLabel("Choose person").selectOption({ label: seekerUserId });
   await canViewCardAfterRevoke.getByLabel("Contact detail").selectOption("phone");
   await canViewCardAfterRevoke.getByRole("button", { name: "Check access" }).click();
   await expect(
@@ -404,8 +794,8 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
   await page.goto("/connections");
   const providerConnectionsCard = await cardByHeading(page, "Current connections");
   const providerConnectionRow = providerConnectionsCard
-    .locator("div.grid.two > section.card")
-    .filter({ hasText: `Connection ID: ${connectionId}` })
+    .locator("div.grid.two > .card")
+    .filter({ hasText: `Connected with: ${seekerUserId}` })
     .first();
   await expect(providerConnectionRow).toBeVisible();
   const blockButton = providerConnectionRow.getByRole("button", { name: /block/i }).first();
@@ -416,4 +806,298 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ page, 
   expect(parseUuid(connectionId, "connectionId")).toBeTruthy();
   expect(parseUuid(requestId, "requestId")).toBeTruthy();
   expect(parseUuid(grantId, "grantId")).toBeTruthy();
+  expect(parseUuid(jobId, "jobId")).toBeTruthy();
+  expect(parseUuid(providerApplication.id, "applicationId")).toBeTruthy();
+});
+
+test("web E2E connection lifecycle: decline -> re-request -> accept -> block", async ({
+  page,
+  request
+}) => {
+  const requester = makeUser("both");
+  const owner = makeUser("both");
+
+  const requesterUiSession = await registerByUi(page, requester);
+  await page.goto("/profile");
+  const requesterUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "requester profile user id"
+  );
+  const requesterApiSession = requesterUiSession;
+
+  await signOutByUi(page);
+  const ownerUiSession = await registerByUi(page, owner);
+  await page.goto("/profile");
+  const ownerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "owner profile user id"
+  );
+  const ownerApiSession = ownerUiSession;
+
+  await applySessionCookie(page, requesterUiSession.accessToken);
+  const firstRequested = await requestConnectionByUiWithApiFallback(
+    page,
+    request,
+    requesterApiSession.accessToken,
+    requesterUserId,
+    ownerUserId
+  );
+  const firstConnectionId = firstRequested.id;
+
+  await applySessionCookie(page, ownerUiSession.accessToken);
+  await page.goto("/connections");
+  const ownerConnectionsCard = await cardByHeading(page, "Current connections");
+  const firstPendingRow = ownerConnectionsCard
+    .locator("div.grid.two > .card")
+    .filter({ hasText: `Other user: ${requesterUserId}` })
+    .filter({ hasText: `Requested by: ${requesterUserId}` })
+    .filter({ hasText: "pending" })
+    .first();
+  await expect(firstPendingRow).toBeVisible();
+  await firstPendingRow.getByRole("button", { name: "Decline request" }).click();
+  await waitForSuccessMessage(page, "Connection request declined.");
+
+  await poll(async () => {
+    const connections = await listConnectionsByApi(request, ownerApiSession.accessToken);
+    const found = connections.find(
+      (item) => item.id === firstConnectionId && item.status === "declined"
+    );
+    return found?.id;
+  }, 30_000);
+
+  await applySessionCookie(page, requesterUiSession.accessToken);
+  const reopened = await requestConnectionByUiWithApiFallback(
+    page,
+    request,
+    requesterApiSession.accessToken,
+    requesterUserId,
+    ownerUserId
+  );
+  const activeConnectionId = reopened.id;
+  expect(activeConnectionId).toBe(firstConnectionId);
+
+  await applySessionCookie(page, ownerUiSession.accessToken);
+  await page.goto("/connections");
+  const secondPendingRow = ownerConnectionsCard
+    .locator("div.grid.two > .card")
+    .filter({ hasText: `Other user: ${requesterUserId}` })
+    .filter({ hasText: `Requested by: ${requesterUserId}` })
+    .filter({ hasText: "pending" })
+    .first();
+  await expect(secondPendingRow).toBeVisible();
+  await secondPendingRow.getByRole("button", { name: "Accept connection" }).click();
+  await waitForSuccessMessage(page, "Connection accepted.");
+
+  await poll(async () => {
+    const connections = await listConnectionsByApi(request, ownerApiSession.accessToken);
+    const found = connections.find(
+      (item) => item.id === activeConnectionId && item.status === "accepted"
+    );
+    return found?.id;
+  }, 30_000);
+
+  const acceptedRow = ownerConnectionsCard
+    .locator("div.grid.two > .card")
+    .filter({ hasText: `Other user: ${requesterUserId}` })
+    .filter({ hasText: "accepted" })
+    .first();
+  await expect(acceptedRow).toBeVisible();
+  await acceptedRow.getByRole("button", { name: /block person/i }).click();
+  await waitForSuccessMessage(page, "Person blocked.");
+
+  await poll(async () => {
+    const connections = await listConnectionsByApi(request, ownerApiSession.accessToken);
+    const found = connections.find(
+      (item) => item.id === activeConnectionId && item.status === "blocked"
+    );
+    return found?.id;
+  }, 30_000);
+
+  expect(parseUuid(firstConnectionId, "firstConnectionId")).toBeTruthy();
+  expect(parseUuid(activeConnectionId, "activeConnectionId")).toBeTruthy();
+});
+
+test("web E2E jobs visibility: connections_only blocks non-connections", async ({
+  page,
+  request
+}) => {
+  const seeker = makeUser("both");
+  const provider = makeUser("both");
+  const shortId = Date.now().toString(36).slice(-4);
+  const title = `Connections only ${shortId}`;
+
+  const seekerUiSession = await registerByUi(page, seeker);
+  await page.goto("/profile");
+  const seekerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "visibility seeker profile user id"
+  );
+
+  await page.goto("/jobs");
+  await page.getByLabel("Category").fill("plumber");
+  await page.getByLabel("Location text").fill("Kochi, Kakkanad");
+  await page.getByLabel("Title").fill(title);
+  await page
+    .getByLabel("Description")
+    .fill("Connections-only job posting for visibility access checks.");
+  await page
+    .locator("form")
+    .first()
+    .locator("select")
+    .first()
+    .selectOption("connections_only");
+  await page.getByRole("button", { name: "Post job" }).click();
+  await waitForSuccessMessage(page, "Job posted successfully.");
+  await expect(page.getByText("Visibility: Connections only").first()).toBeVisible();
+
+  const jobId = await poll(async () => {
+    const jobs = await listJobsByApi(request, seekerUiSession.accessToken);
+    const found = jobs.find((item) => item.seekerUserId === seekerUserId && item.title === title);
+    return found?.id;
+  }, 30_000);
+
+  await signOutByUi(page);
+  const providerUiSession = await registerByUi(page, provider);
+  await page.goto("/profile");
+  const providerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "visibility provider profile user id"
+  );
+
+  const deniedApplyResponse = await request.post(`${apiBaseUrl}/jobs/${jobId}/apply`, {
+    headers: {
+      Authorization: `Bearer ${providerUiSession.accessToken}`
+    },
+    data: {
+      message: "Can visit today."
+    }
+  });
+  expect(deniedApplyResponse.status()).toBe(400);
+
+  const requestedConnection = await requestConnectionByApi(
+    request,
+    providerUiSession.accessToken,
+    seekerUserId
+  );
+  const acceptedConnection = await acceptConnectionByApi(
+    request,
+    seekerUiSession.accessToken,
+    requestedConnection.id
+  );
+  expect(acceptedConnection.status).toBe("accepted");
+
+  const applied = await applyToJobByApi(
+    request,
+    jobId,
+    providerUiSession.accessToken,
+    "Can visit today."
+  );
+  expect(applied.status).toBe("applied");
+  expect(parseMemberId(providerUserId, "visibility provider id")).toBeTruthy();
+});
+
+test("web E2E booking lifecycle: apply -> accept -> in_progress -> completed -> payment -> closed", async ({
+  page,
+  request
+}) => {
+  const seeker = makeUser("seeker");
+  const provider = makeUser("provider");
+  const shortId = Date.now().toString(36).slice(-4);
+  const jobTitle = `Booking E2E ${shortId}`;
+
+  const seekerUiSession = await registerByUi(page, seeker);
+  await page.goto("/profile");
+  const seekerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "booking seeker profile user id"
+  );
+  const seekerApiSession = seekerUiSession;
+
+  await page.goto("/jobs");
+  await page.getByLabel("Category").fill("electrician");
+  await page.getByLabel("Location text").fill("Kakkanad, Kochi");
+  await page.getByLabel("Title").fill(jobTitle);
+  await page
+    .getByLabel("Description")
+    .fill("Need an electrician to inspect repeated power trip in kitchen.");
+  await page.getByRole("button", { name: "Post job" }).click();
+  await waitForSuccessMessage(page, "Job posted successfully.");
+  await expect(page.getByText(jobTitle).first()).toBeVisible();
+
+  const jobId = await poll(async () => {
+    const jobs = await listJobsByApi(request, seekerApiSession.accessToken);
+    const found = jobs.find(
+      (item) => item.seekerUserId === seekerUserId && item.title === jobTitle
+    );
+    return found?.id;
+  }, 30_000);
+
+  await signOutByUi(page);
+  const providerUiSession = await registerByUi(page, provider);
+  const providerApiSession = providerUiSession;
+  const providerApplication = await applyToJobByApi(
+    request,
+    jobId,
+    providerApiSession.accessToken,
+    "Can visit this evening and complete the diagnosis."
+  );
+  expect(providerApplication.status).toBe("applied");
+
+  const acceptedApplication = await acceptJobApplicationByApi(
+    request,
+    providerApplication.id,
+    seekerApiSession.accessToken
+  );
+  expect(acceptedApplication.status).toBe("accepted");
+
+  const startedBooking = await startBookingByApi(
+    request,
+    jobId,
+    providerApiSession.accessToken
+  );
+  expect(startedBooking.status).toBe("in_progress");
+
+  const completedBooking = await completeBookingByApi(
+    request,
+    jobId,
+    seekerApiSession.accessToken
+  );
+  expect(completedBooking.status).toBe("completed");
+
+  const paymentDone = await markPaymentDoneByApi(
+    request,
+    jobId,
+    seekerApiSession.accessToken
+  );
+  expect(paymentDone.status).toBe("payment_done");
+
+  const paymentReceived = await markPaymentReceivedByApi(
+    request,
+    jobId,
+    providerApiSession.accessToken
+  );
+  expect(paymentReceived.status).toBe("payment_received");
+
+  const closed = await closeBookingByApi(
+    request,
+    jobId,
+    seekerApiSession.accessToken
+  );
+  expect(closed.status).toBe("closed");
+
+  await applySessionCookie(page, providerUiSession.accessToken);
+  await page.goto("/jobs");
+  const providerJobCard = page
+    .locator("a")
+    .filter({ hasText: jobTitle })
+    .first();
+  await expect(providerJobCard).toBeVisible();
+  await expect(providerJobCard.getByText("closed").first()).toBeVisible();
+
+  await page.goto(`/jobs/${jobId}`);
+  await expect(page.getByRole("heading", { name: jobTitle }).first()).toBeVisible();
+  await expect(page.getByText("closed").first()).toBeVisible();
+
+  expect(parseUuid(jobId, "booking job id")).toBeTruthy();
+  expect(parseUuid(providerApplication.id, "booking application id")).toBeTruthy();
 });

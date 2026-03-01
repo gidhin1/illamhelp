@@ -27,6 +27,7 @@ export class ApiRequestError extends Error {
 
 export interface AuthSessionResponse {
   userId: string;
+  publicUserId: string;
   username: string;
   userType: UserType;
   roles: AppRole[];
@@ -40,6 +41,7 @@ export interface AuthSessionResponse {
 
 export interface AuthenticatedUser {
   userId: string;
+  publicUserId: string;
   roles: AppRole[];
   userType: UserType;
   tokenSubject: string;
@@ -52,8 +54,30 @@ export interface JobRecord {
   title: string;
   description: string;
   locationText: string;
-  status: "posted" | "accepted" | "in_progress" | "completed" | "cancelled";
+  visibility: "public" | "connections_only";
+  status:
+    | "posted"
+    | "accepted"
+    | "in_progress"
+    | "completed"
+    | "payment_done"
+    | "payment_received"
+    | "closed"
+    | "cancelled";
+  assignedProviderUserId: string | null;
+  acceptedApplicationId: string | null;
   createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobApplicationRecord {
+  id: string;
+  jobId: string;
+  providerUserId: string;
+  status: "applied" | "shortlisted" | "accepted" | "rejected" | "withdrawn";
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ConnectionRecord {
@@ -140,14 +164,14 @@ export interface MediaAssetRecord {
   fileSizeBytes: number;
   checksumSha256: string;
   state:
-    | "uploaded"
-    | "scanning"
-    | "ai_reviewed"
-    | "human_review_pending"
-    | "approved"
-    | "rejected"
-    | "appeal_pending"
-    | "appeal_resolved";
+  | "uploaded"
+  | "scanning"
+  | "ai_reviewed"
+  | "human_review_pending"
+  | "approved"
+  | "rejected"
+  | "appeal_pending"
+  | "appeal_resolved";
   createdAt: string;
   updatedAt: string;
 }
@@ -159,6 +183,20 @@ export interface UploadTicketRecord {
   uploadUrl: string;
   expiresAt: string;
   requiredHeaders: Record<string, string>;
+}
+
+export interface PublicMediaAssetRecord {
+  id: string;
+  ownerUserId: string;
+  jobId: string | null;
+  kind: MediaKind;
+  contentType: string;
+  fileSizeBytes: number;
+  state: "approved";
+  createdAt: string;
+  updatedAt: string;
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
 }
 
 const API_BASE_URL =
@@ -248,8 +286,41 @@ export function authMe(accessToken: string): Promise<AuthenticatedUser> {
   return apiRequest<AuthenticatedUser>("/auth/me", {}, accessToken);
 }
 
-export function listJobs(accessToken: string): Promise<JobRecord[]> {
-  return apiRequest<JobRecord[]>("/jobs", {}, accessToken);
+export function refreshSession(refreshToken: string): Promise<AuthSessionResponse> {
+  return apiRequest<AuthSessionResponse>("/auth/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken })
+  });
+}
+
+export function logoutSession(refreshToken: string): Promise<{ success: boolean }> {
+  return apiRequest<{ success: boolean }>("/auth/logout", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken })
+  });
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export function listJobs(
+  accessToken: string,
+  pagination?: { limit?: number; offset?: number }
+): Promise<PaginatedResponse<JobRecord>> {
+  const params = new URLSearchParams();
+  if (pagination?.limit != null) {
+    params.set("limit", String(pagination.limit));
+  }
+  if (pagination?.offset != null) {
+    params.set("offset", String(pagination.offset));
+  }
+  const query = params.toString();
+  const path = query ? `/jobs?${query}` : "/jobs";
+  return apiRequest<PaginatedResponse<JobRecord>>(path, {}, accessToken);
 }
 
 export function createJob(
@@ -258,6 +329,7 @@ export function createJob(
     title: string;
     description: string;
     locationText: string;
+    visibility: "public" | "connections_only";
   },
   accessToken: string
 ): Promise<JobRecord> {
@@ -271,8 +343,152 @@ export function createJob(
   );
 }
 
-export function listConnections(accessToken: string): Promise<ConnectionRecord[]> {
-  return apiRequest<ConnectionRecord[]>("/connections", {}, accessToken);
+export function applyToJob(
+  jobId: string,
+  payload: { message?: string },
+  accessToken: string
+): Promise<JobApplicationRecord> {
+  return apiRequest<JobApplicationRecord>(
+    `/jobs/${jobId}/apply`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+
+export function listJobApplications(
+  jobId: string,
+  accessToken: string
+): Promise<JobApplicationRecord[]> {
+  return apiRequest<JobApplicationRecord[]>(`/jobs/${jobId}/applications`, {}, accessToken);
+}
+
+export function listMyJobApplications(accessToken: string): Promise<JobApplicationRecord[]> {
+  return apiRequest<JobApplicationRecord[]>("/jobs/applications/mine", {}, accessToken);
+}
+
+export function acceptJobApplication(
+  applicationId: string,
+  accessToken: string
+): Promise<JobApplicationRecord> {
+  return apiRequest<JobApplicationRecord>(
+    `/jobs/applications/${applicationId}/accept`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function rejectJobApplication(
+  applicationId: string,
+  payload: { reason?: string },
+  accessToken: string
+): Promise<JobApplicationRecord> {
+  return apiRequest<JobApplicationRecord>(
+    `/jobs/applications/${applicationId}/reject`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+
+export function withdrawJobApplication(
+  applicationId: string,
+  accessToken: string
+): Promise<JobApplicationRecord> {
+  return apiRequest<JobApplicationRecord>(
+    `/jobs/applications/${applicationId}/withdraw`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function startBooking(jobId: string, accessToken: string): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/start`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function completeBooking(jobId: string, accessToken: string): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/complete`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function markPaymentDone(jobId: string, accessToken: string): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/payment-done`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function markPaymentReceived(jobId: string, accessToken: string): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/payment-received`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function closeBooking(jobId: string, accessToken: string): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/close`,
+    {
+      method: "POST"
+    },
+    accessToken
+  );
+}
+
+export function cancelBooking(
+  jobId: string,
+  payload: { reason?: string },
+  accessToken: string
+): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/cancel`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+
+export function listConnections(
+  accessToken: string,
+  pagination?: { limit?: number; offset?: number }
+): Promise<PaginatedResponse<ConnectionRecord>> {
+  const params = new URLSearchParams();
+  if (pagination?.limit != null) {
+    params.set("limit", String(pagination.limit));
+  }
+  if (pagination?.offset != null) {
+    params.set("offset", String(pagination.offset));
+  }
+  const query = params.toString();
+  const path = query ? `/connections?${query}` : "/connections";
+  return apiRequest<PaginatedResponse<ConnectionRecord>>(path, {}, accessToken);
 }
 
 export function requestConnection(
@@ -346,6 +562,30 @@ export function blockConnection(
 
 export function getMyProfile(accessToken: string): Promise<ProfileRecord> {
   return apiRequest<ProfileRecord>("/profiles/me", {}, accessToken);
+}
+
+export interface DashboardResponse {
+  profile: ProfileRecord;
+  metrics: {
+    totalJobs: number;
+    totalConnections: number;
+    pendingConnections: number;
+    consentRequests: number;
+    activeConsentGrants: number;
+    totalMedia: number;
+  };
+  recentJobs: Array<{
+    id: string;
+    title: string;
+    category: string;
+    status: string;
+    locationText: string;
+    createdAt: string;
+  }>;
+}
+
+export function getMyDashboard(accessToken: string): Promise<DashboardResponse> {
+  return apiRequest<DashboardResponse>("/profiles/me/dashboard", {}, accessToken);
 }
 
 export function updateMyProfile(
@@ -452,6 +692,12 @@ export function canViewConsent(
 
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
   return apiRequest<MediaAssetRecord[]>("/media", {}, accessToken);
+}
+
+export function listPublicApprovedMedia(ownerUserId: string): Promise<PublicMediaAssetRecord[]> {
+  return apiRequest<PublicMediaAssetRecord[]>(
+    `/media/public/${encodeURIComponent(ownerUserId)}`
+  );
 }
 
 export function createMediaUploadTicket(

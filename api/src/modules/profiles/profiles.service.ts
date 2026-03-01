@@ -20,6 +20,7 @@ interface UpsertProfileInput {
 
 interface DbProfileRow {
   user_id: string;
+  username: string | null;
   first_name: string;
   last_name: string | null;
   city: string | null;
@@ -27,6 +28,7 @@ interface DbProfileRow {
   service_categories: string[] | null;
   rating_average: number | null;
   rating_count: number | null;
+  verified: boolean;
   email_masked: string | null;
   phone_masked: string | null;
   pii_email_encrypted: Buffer | null;
@@ -61,6 +63,7 @@ export interface ProfileRecord {
   serviceCategories: string[];
   ratingAverage: number | null;
   ratingCount: number;
+  verified: boolean;
   contact: ContactPayload;
   visibility: ContactVisibility;
 }
@@ -153,6 +156,97 @@ export class ProfilesService {
     return this.getProfileForViewer(userId, userId);
   }
 
+  async getDashboard(userId: string): Promise<{
+    profile: ProfileRecord;
+    metrics: {
+      totalJobs: number;
+      totalConnections: number;
+      pendingConnections: number;
+      consentRequests: number;
+      activeConsentGrants: number;
+      totalMedia: number;
+    };
+    recentJobs: Array<{
+      id: string;
+      title: string;
+      category: string;
+      status: string;
+      locationText: string;
+      createdAt: string;
+    }>;
+  }> {
+    assertUuid(userId, "userId");
+
+    const [metricsResult, recentJobsResult, profile] = await Promise.all([
+      this.databaseService.query<{
+        total_jobs: string;
+        total_connections: string;
+        pending_connections: string;
+        consent_requests: string;
+        active_consent_grants: string;
+        total_media: string;
+      }>(
+        `
+        SELECT
+          (SELECT COUNT(*)::text FROM jobs WHERE seeker_user_id = $1::uuid) AS total_jobs,
+          (SELECT COUNT(*)::text FROM connections WHERE user_a_id = $1::uuid OR user_b_id = $1::uuid) AS total_connections,
+          (SELECT COUNT(*)::text FROM connections WHERE (user_a_id = $1::uuid OR user_b_id = $1::uuid) AND status = 'pending') AS pending_connections,
+          (SELECT COUNT(*)::text FROM pii_access_requests WHERE requester_user_id = $1::uuid OR owner_user_id = $1::uuid) AS consent_requests,
+          (SELECT COUNT(*)::text FROM pii_consent_grants WHERE (owner_user_id = $1::uuid OR grantee_user_id = $1::uuid) AND status = 'active') AS active_consent_grants,
+          (SELECT COUNT(*)::text FROM media_assets WHERE owner_user_id = $1::uuid) AS total_media
+        `,
+        [userId]
+      ),
+      this.databaseService.query<{
+        id: string;
+        title: string;
+        category: string;
+        status: string;
+        location_text: string;
+        created_at: Date;
+      }>(
+        `SELECT id, title, category, status, location_text, created_at
+         FROM jobs
+         WHERE seeker_user_id = $1::uuid
+         ORDER BY created_at DESC
+         LIMIT 3`,
+        [userId]
+      ),
+      this.getOwnProfile(userId)
+    ]);
+
+    const row = metricsResult.rows[0];
+
+    return {
+      profile,
+      metrics: {
+        totalJobs: parseInt(row?.total_jobs ?? "0", 10),
+        totalConnections: parseInt(row?.total_connections ?? "0", 10),
+        pendingConnections: parseInt(row?.pending_connections ?? "0", 10),
+        consentRequests: parseInt(row?.consent_requests ?? "0", 10),
+        activeConsentGrants: parseInt(row?.active_consent_grants ?? "0", 10),
+        totalMedia: parseInt(row?.total_media ?? "0", 10)
+      },
+      recentJobs: recentJobsResult.rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        category: r.category,
+        status: r.status,
+        locationText: r.location_text,
+        createdAt: r.created_at.toISOString()
+      }))
+    };
+  }
+
+  async setVerified(userId: string, verified: boolean): Promise<ProfileRecord> {
+    assertUuid(userId, "userId");
+    await this.databaseService.query(
+      `UPDATE users SET verified = $2, updated_at = now() WHERE id = $1::uuid`,
+      [userId, verified]
+    );
+    return this.getOwnProfile(userId);
+  }
+
   async updateOwnProfile(userId: string, payload: UpdateProfileDto): Promise<ProfileRecord> {
     assertUuid(userId, "userId");
     await this.ensureProfileRow(userId);
@@ -238,24 +332,24 @@ export class ProfilesService {
   }
 
   async getProfileForViewer(ownerUserId: string, viewerUserId: string): Promise<ProfileRecord> {
-    assertUuid(ownerUserId, "ownerUserId");
     assertUuid(viewerUserId, "viewerUserId");
+    const ownerInternalUserId = await this.resolveInternalUserId(ownerUserId, "ownerUserId");
 
-    await this.ensureProfileRow(ownerUserId);
-    const row = await this.getProfileRow(ownerUserId);
+    await this.ensureProfileRow(ownerInternalUserId);
+    const row = await this.getProfileRow(ownerInternalUserId);
     if (!row) {
       throw new NotFoundException("Profile not found");
     }
 
     const visibility =
-      ownerUserId === viewerUserId
+      ownerInternalUserId === viewerUserId
         ? {
-            email: true,
-            phone: true,
-            alternatePhone: true,
-            fullAddress: true
-          }
-        : await this.resolveContactVisibility(ownerUserId, viewerUserId);
+          email: true,
+          phone: true,
+          alternatePhone: true,
+          fullAddress: true
+        }
+        : await this.resolveContactVisibility(ownerInternalUserId, viewerUserId);
 
     return this.mapProfileRow(row, visibility);
   }
@@ -302,7 +396,7 @@ export class ProfilesService {
       .join(" ");
 
     return {
-      userId: row.user_id,
+      userId: this.toPublicUserId(row.user_id, row.username),
       firstName: row.first_name,
       lastName: row.last_name,
       displayName: displayName || "Member",
@@ -311,6 +405,7 @@ export class ProfilesService {
       serviceCategories: row.service_categories ?? [],
       ratingAverage: row.rating_average !== null ? Number(row.rating_average) : null,
       ratingCount: row.rating_count ?? 0,
+      verified: row.verified ?? false,
       contact: {
         email: visibility.email ? this.decryptOptionalPii(row.pii_email_encrypted) : null,
         phone: visibility.phone ? this.decryptOptionalPii(row.pii_phone_encrypted) : null,
@@ -343,6 +438,7 @@ export class ProfilesService {
       `
       SELECT
         p.user_id,
+        u.username,
         p.first_name,
         p.last_name,
         p.city,
@@ -355,7 +451,8 @@ export class ProfilesService {
         p.pii_email_encrypted,
         p.pii_phone_encrypted,
         p.pii_alternate_phone_encrypted,
-        p.pii_full_address_encrypted
+        p.pii_full_address_encrypted,
+        u.verified
       FROM profiles p
       JOIN users u ON u.id = p.user_id
       WHERE p.user_id = $1::uuid
@@ -368,6 +465,41 @@ export class ProfilesService {
     }
 
     return result.rows[0];
+  }
+
+  private async resolveInternalUserId(identifier: string, fieldName: string): Promise<string> {
+    const normalized = identifier.trim().toLowerCase();
+    if (!normalized) {
+      throw new NotFoundException(`${fieldName} is required`);
+    }
+
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+      return normalized;
+    }
+
+    const result = await this.databaseService.query<{ id: string }>(
+      `
+      SELECT id::text AS id
+      FROM users
+      WHERE LOWER(username) = $1::text
+      LIMIT 1
+      `,
+      [normalized]
+    );
+
+    if (!result.rowCount) {
+      throw new NotFoundException(`${fieldName} does not exist`);
+    }
+
+    return result.rows[0].id;
+  }
+
+  private toPublicUserId(internalUserId: string, username?: string | null): string {
+    const normalized = username?.trim().toLowerCase() ?? "";
+    if (normalized.length >= 3) {
+      return normalized;
+    }
+    return `member_${internalUserId.replace(/-/g, "").slice(0, 10).toLowerCase()}`;
   }
 
   private encryptOptionalPii(value: string | null | undefined): Buffer | null {

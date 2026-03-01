@@ -18,11 +18,13 @@ import {
 import {
   AccessRequestRecord,
   canViewConsent,
+  ConnectionRecord,
   CONSENT_FIELDS,
   ConsentField,
   ConsentGrantRecord,
   formatDate,
   grantConsent,
+  listConnections,
   listConsentGrants,
   listConsentRequests,
   requestConsentAccess,
@@ -52,16 +54,16 @@ const CONSENT_FIELD_LABELS: Record<ConsentField, string> = {
 };
 
 export default function ConsentPage(): JSX.Element {
-  const { accessToken } = useSession();
+  const { accessToken, user } = useSession();
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
   const [grants, setGrants] = useState<ConsentGrantRecord[]>([]);
+  const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
-  const [requestOwnerId, setRequestOwnerId] = useState("");
   const [requestConnectionId, setRequestConnectionId] = useState("");
   const [requestPurpose, setRequestPurpose] = useState("");
   const [requestFields, setRequestFields] = useState<ConsentField[]>(["phone"]);
@@ -74,7 +76,7 @@ export default function ConsentPage(): JSX.Element {
   const [revokeGrantId, setRevokeGrantId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
 
-  const [checkOwnerId, setCheckOwnerId] = useState("");
+  const [checkConnectionId, setCheckConnectionId] = useState("");
   const [checkField, setCheckField] = useState<ConsentField>("phone");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
 
@@ -87,12 +89,14 @@ export default function ConsentPage(): JSX.Element {
     setListLoading(true);
     setListError(null);
     try {
-      const [requestRows, grantRows] = await Promise.all([
+      const [requestRows, grantRows, connectionResult] = await Promise.all([
         listConsentRequests(accessToken),
-        listConsentGrants(accessToken)
+        listConsentGrants(accessToken),
+        listConnections(accessToken)
       ]);
       setRequests(requestRows);
       setGrants(grantRows);
+      setConnections(connectionResult.items);
     } catch (requestError) {
       setListError(
         requestError instanceof Error ? requestError.message : "Unable to load consent data"
@@ -117,6 +121,36 @@ export default function ConsentPage(): JSX.Element {
     };
   }, [grants, requests]);
 
+  const currentUserId = user?.publicUserId ?? null;
+  const acceptedConnections = useMemo(
+    () => connections.filter((connection) => connection.status === "accepted"),
+    [connections]
+  );
+  const connectionPeople = useMemo(
+    () =>
+      acceptedConnections.map((connection) => {
+        const memberId =
+          connection.userAId === currentUserId ? connection.userBId : connection.userAId;
+        return {
+          connectionId: connection.id,
+          memberId
+        };
+      }),
+    [acceptedConnections, currentUserId]
+  );
+  const pendingIncomingRequests = useMemo(
+    () =>
+      requests.filter(
+        (request) => request.status === "pending" && request.ownerUserId === currentUserId
+      ),
+    [requests, currentUserId]
+  );
+  const activeOwnedGrants = useMemo(
+    () =>
+      grants.filter((grant) => grant.status === "active" && grant.ownerUserId === currentUserId),
+    [grants, currentUserId]
+  );
+
   const withSubmission = async (action: () => Promise<void>): Promise<void> => {
     setSubmitting(true);
     setActionError(null);
@@ -136,10 +170,16 @@ export default function ConsentPage(): JSX.Element {
       return;
     }
     await withSubmission(async () => {
+      const selectedConnection = connectionPeople.find(
+        (connection) => connection.connectionId === requestConnectionId
+      );
+      if (!selectedConnection) {
+        throw new Error("Select a connected person first.");
+      }
       const created = await requestConsentAccess(
         {
-          ownerUserId: requestOwnerId.trim(),
-          connectionId: requestConnectionId.trim(),
+          ownerUserId: selectedConnection.memberId,
+          connectionId: selectedConnection.connectionId,
           requestedFields: requestFields,
           purpose: requestPurpose.trim()
         },
@@ -149,7 +189,6 @@ export default function ConsentPage(): JSX.Element {
       setActionSuccess("Access request submitted.");
       setRequestPurpose("");
       setRequestConnectionId("");
-      setRequestOwnerId("");
     });
   };
 
@@ -207,9 +246,15 @@ export default function ConsentPage(): JSX.Element {
       return;
     }
     await withSubmission(async () => {
+      const selectedConnection = connectionPeople.find(
+        (connection) => connection.connectionId === checkConnectionId
+      );
+      if (!selectedConnection) {
+        throw new Error("Select a connected person first.");
+      }
       const result = await canViewConsent(
         {
-          ownerUserId: checkOwnerId.trim(),
+          ownerUserId: selectedConnection.memberId,
           field: checkField
         },
         accessToken
@@ -257,21 +302,19 @@ export default function ConsentPage(): JSX.Element {
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Request access</h3>
                   <form className="stack" onSubmit={onRequestAccess}>
-                    <Field label="Person's member ID">
-                      <TextInput
-                        value={requestOwnerId}
-                        onChange={(event) => setRequestOwnerId(event.target.value)}
-                        placeholder="Member ID"
-                        required
-                      />
-                    </Field>
-                    <Field label="Connection reference ID">
-                      <TextInput
+                    <Field label="Choose person">
+                      <SelectInput
                         value={requestConnectionId}
                         onChange={(event) => setRequestConnectionId(event.target.value)}
-                        placeholder="Connection ID"
                         required
-                      />
+                      >
+                        <option value="">Select a connected person</option>
+                        {connectionPeople.map((item) => (
+                          <option key={item.connectionId} value={item.connectionId}>
+                            {item.memberId}
+                          </option>
+                        ))}
+                      </SelectInput>
                     </Field>
                     <Field label="Why you need this">
                       <TextInput
@@ -301,7 +344,12 @@ export default function ConsentPage(): JSX.Element {
                       </div>
                     </Field>
                     <div>
-                      <Button type="submit" disabled={submitting || requestFields.length === 0}>
+                      <Button
+                        type="submit"
+                        disabled={
+                          submitting || requestFields.length === 0 || requestConnectionId.length === 0
+                        }
+                      >
                         {submitting ? "Submitting..." : "Request access"}
                       </Button>
                     </div>
@@ -311,13 +359,19 @@ export default function ConsentPage(): JSX.Element {
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Grant access</h3>
                   <form className="stack" onSubmit={onGrant}>
-                    <Field label="Request reference ID">
-                      <TextInput
+                    <Field label="Pending request">
+                      <SelectInput
                         value={grantRequestId}
                         onChange={(event) => setGrantRequestId(event.target.value)}
-                        placeholder="Access request ID"
                         required
-                      />
+                      >
+                        <option value="">Select a pending request</option>
+                        {pendingIncomingRequests.map((request) => (
+                          <option key={request.id} value={request.id}>
+                            {request.requesterUserId} - {request.requestedFields.join(", ")}
+                          </option>
+                        ))}
+                      </SelectInput>
                     </Field>
                     <Field label="Why you are approving">
                       <TextInput
@@ -353,7 +407,12 @@ export default function ConsentPage(): JSX.Element {
                       </div>
                     </Field>
                     <div>
-                      <Button type="submit" disabled={submitting || grantFields.length === 0}>
+                      <Button
+                        type="submit"
+                        disabled={
+                          submitting || grantFields.length === 0 || grantRequestId.length === 0
+                        }
+                      >
                         {submitting ? "Submitting..." : "Grant"}
                       </Button>
                     </div>
@@ -365,13 +424,19 @@ export default function ConsentPage(): JSX.Element {
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Stop sharing</h3>
                   <form className="stack" onSubmit={onRevoke}>
-                    <Field label="Grant reference ID">
-                      <TextInput
+                    <Field label="Active share">
+                      <SelectInput
                         value={revokeGrantId}
                         onChange={(event) => setRevokeGrantId(event.target.value)}
-                        placeholder="Grant ID"
                         required
-                      />
+                      >
+                        <option value="">Select an active share</option>
+                        {activeOwnedGrants.map((grant) => (
+                          <option key={grant.id} value={grant.id}>
+                            {grant.granteeUserId} - {grant.grantedFields.join(", ")}
+                          </option>
+                        ))}
+                      </SelectInput>
                     </Field>
                     <Field label="Reason">
                       <TextInput
@@ -393,13 +458,19 @@ export default function ConsentPage(): JSX.Element {
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Check shared access</h3>
                   <form className="stack" onSubmit={onCanView}>
-                    <Field label="Person's member ID">
-                      <TextInput
-                        value={checkOwnerId}
-                        onChange={(event) => setCheckOwnerId(event.target.value)}
-                        placeholder="Member ID"
+                    <Field label="Choose person">
+                      <SelectInput
+                        value={checkConnectionId}
+                        onChange={(event) => setCheckConnectionId(event.target.value)}
                         required
-                      />
+                      >
+                        <option value="">Select a connected person</option>
+                        {connectionPeople.map((item) => (
+                          <option key={item.connectionId} value={item.connectionId}>
+                            {item.memberId}
+                          </option>
+                        ))}
+                      </SelectInput>
                     </Field>
                     <Field label="Contact detail">
                       <SelectInput
@@ -414,7 +485,7 @@ export default function ConsentPage(): JSX.Element {
                       </SelectInput>
                     </Field>
                     <div>
-                      <Button type="submit" disabled={submitting}>
+                      <Button type="submit" disabled={submitting || checkConnectionId.length === 0}>
                         {submitting ? "Checking..." : "Check access"}
                       </Button>
                     </div>
@@ -443,7 +514,6 @@ export default function ConsentPage(): JSX.Element {
                       {requests.map((request) => (
                         <div key={request.id} className="data-row">
                           <div className="data-title">{request.status}</div>
-                          <div className="data-meta">ID: {request.id}</div>
                           <div className="data-meta">
                             Requester: {request.requesterUserId} · Owner: {request.ownerUserId}
                           </div>
@@ -476,7 +546,6 @@ export default function ConsentPage(): JSX.Element {
                       {grants.map((grant) => (
                         <div key={grant.id} className="data-row">
                           <div className="data-title">{grant.status}</div>
-                          <div className="data-meta">ID: {grant.id}</div>
                           <div className="data-meta">
                             Owner: {grant.ownerUserId} · Grantee: {grant.granteeUserId}
                           </div>

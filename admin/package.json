@@ -2,11 +2,27 @@
   "name": "@illamhelp/admin",
   "version": "0.1.0",
   "private": true,
-  "description": "Next.js admin workspace placeholder for IllamHelp operations console",
+  "description": "IllamHelp admin operations portal",
   "scripts": {
-    "lint": "echo \"Admin workspace scaffolded. Next.js app setup is next.\"",
-    "typecheck": "echo \"Admin workspace scaffolded. Next.js app setup is next.\"",
-    "test": "echo \"Admin workspace scaffolded. Next.js app setup is next.\"",
-    "build": "echo \"Admin workspace scaffolded. Next.js app setup is next.\""
+    "dev": "next dev -p ${PORT:-3003}",
+    "build": "next build",
+    "start": "next start -p ${PORT:-3003}",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"No admin unit tests yet\""
+  },
+  "dependencies": {
+    "@illamhelp/ui-tokens": "workspace:*",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.20.0",
+    "eslint-config-next": "^16.0.0",
+    "typescript": "^5.8.2"
   }
 }

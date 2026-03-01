@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode
 } from "react";
@@ -13,10 +14,19 @@ import {
 import {
   AuthSessionResponse,
   AuthenticatedUser,
-  authMe
+  authMe,
+  logoutSession,
+  refreshSession
 } from "@/lib/api";
 
-import { clearAccessToken, readAccessToken, writeAccessToken } from "./session-storage";
+import {
+  clearAccessToken,
+  clearRefreshToken,
+  readAccessToken,
+  readRefreshToken,
+  writeAccessToken,
+  writeRefreshToken
+} from "./session-storage";
 
 interface SessionContextValue {
   accessToken: string | null;
@@ -39,12 +49,48 @@ export function SessionProvider({
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSession = useCallback(() => {
+    clearAccessToken();
+    clearRefreshToken();
+    setAccessToken(null);
+    setUser(null);
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleRefresh = useCallback((expiresInSeconds: number) => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    // Refresh 60 seconds before expiry, minimum 10 seconds
+    const refreshMs = Math.max((expiresInSeconds - 60) * 1000, 10_000);
+    refreshTimerRef.current = setTimeout(async () => {
+      const token = readRefreshToken();
+      if (!token) {
+        return;
+      }
+      try {
+        const session = await refreshSession(token);
+        writeAccessToken(session.accessToken);
+        if (session.refreshToken) {
+          writeRefreshToken(session.refreshToken);
+        }
+        setAccessToken(session.accessToken);
+        scheduleRefresh(session.expiresIn);
+      } catch {
+        // Silent refresh failed — user will be prompted to re-login on next API call
+      }
+    }, refreshMs);
+  }, []);
 
   const refreshUser = useCallback(async (): Promise<void> => {
     const token = readAccessToken();
     if (!token) {
-      setAccessToken(null);
-      setUser(null);
+      clearSession();
       setError(null);
       setLoading(false);
       return;
@@ -55,17 +101,32 @@ export function SessionProvider({
       setAccessToken(token);
       setUser(me);
       setError(null);
-    } catch (requestError) {
-      clearAccessToken();
-      setAccessToken(null);
-      setUser(null);
-      setError(
-        requestError instanceof Error ? requestError.message : "Failed to refresh session"
-      );
+    } catch {
+      // Access token expired — attempt refresh
+      const refresh = readRefreshToken();
+      if (refresh) {
+        try {
+          const session = await refreshSession(refresh);
+          writeAccessToken(session.accessToken);
+          if (session.refreshToken) {
+            writeRefreshToken(session.refreshToken);
+          }
+          setAccessToken(session.accessToken);
+          const me = await authMe(session.accessToken);
+          setUser(me);
+          setError(null);
+          scheduleRefresh(session.expiresIn);
+          return;
+        } catch {
+          // Refresh also failed — fall through to sign out
+        }
+      }
+      clearSession();
+      setError("Session expired. Please sign in again.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearSession, scheduleRefresh]);
 
   useEffect(() => {
     void refreshUser();
@@ -74,19 +135,30 @@ export function SessionProvider({
   const applyAuthSession = useCallback(
     async (session: AuthSessionResponse): Promise<void> => {
       writeAccessToken(session.accessToken);
+      if (session.refreshToken) {
+        writeRefreshToken(session.refreshToken);
+      }
       setAccessToken(session.accessToken);
       setLoading(true);
       await refreshUser();
+      if (session.expiresIn) {
+        scheduleRefresh(session.expiresIn);
+      }
     },
-    [refreshUser]
+    [refreshUser, scheduleRefresh]
   );
 
   const signOut = useCallback(() => {
-    clearAccessToken();
-    setAccessToken(null);
-    setUser(null);
+    const refresh = readRefreshToken();
+    clearSession();
     setError(null);
-  }, []);
+    // Fire-and-forget server-side logout
+    if (refresh) {
+      void logoutSession(refresh).catch(() => {
+        // Best effort — local state is already cleared
+      });
+    }
+  }, [clearSession]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -94,18 +166,38 @@ export function SessionProvider({
     }
 
     const onAuthExpired = (): void => {
-      clearAccessToken();
-      setAccessToken(null);
-      setUser(null);
-      setError("Session expired. Please sign in again.");
-      setLoading(false);
+      // Attempt silent refresh before signing out
+      const refresh = readRefreshToken();
+      if (refresh) {
+        void refreshSession(refresh)
+          .then((session) => {
+            writeAccessToken(session.accessToken);
+            if (session.refreshToken) {
+              writeRefreshToken(session.refreshToken);
+            }
+            setAccessToken(session.accessToken);
+            scheduleRefresh(session.expiresIn);
+          })
+          .catch(() => {
+            clearSession();
+            setError("Session expired. Please sign in again.");
+            setLoading(false);
+          });
+      } else {
+        clearSession();
+        setError("Session expired. Please sign in again.");
+        setLoading(false);
+      }
     };
 
     window.addEventListener("illamhelp:auth-expired", onAuthExpired);
     return () => {
       window.removeEventListener("illamhelp:auth-expired", onAuthExpired);
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
     };
-  }, []);
+  }, [clearSession, scheduleRefresh]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -130,3 +222,4 @@ export function useSession(): SessionContextValue {
   }
   return context;
 }
+

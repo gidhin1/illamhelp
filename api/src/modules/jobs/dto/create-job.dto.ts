@@ -1,5 +1,19 @@
-import { ApiProperty } from "@nestjs/swagger";
-import { IsString, MaxLength, MinLength } from "class-validator";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
+import {
+  IsEnum,
+  IsLatitude,
+  IsLongitude,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength
+} from "class-validator";
+
+export enum JobVisibilityDto {
+  Public = "public",
+  ConnectionsOnly = "connections_only"
+}
 
 export class CreateJobDto {
   @ApiProperty({
@@ -41,4 +55,30 @@ export class CreateJobDto {
   @MinLength(2)
   @MaxLength(160)
   locationText!: string;
+
+  @ApiProperty({
+    enum: JobVisibilityDto,
+    example: JobVisibilityDto.Public,
+    description: "Who can discover and request this job"
+  })
+  @IsEnum(JobVisibilityDto)
+  visibility!: JobVisibilityDto;
+
+  @ApiPropertyOptional({
+    description: "Optional geo latitude for location-based search",
+    example: 10.0159
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude()
+  locationLatitude?: number;
+
+  @ApiPropertyOptional({
+    description: "Optional geo longitude for location-based search",
+    example: 76.3419
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude()
+  locationLongitude?: number;
 }

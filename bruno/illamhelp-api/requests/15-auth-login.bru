@@ -40,10 +40,18 @@ tests {
 script:post-response {
   const userType = res.body.userType;
   const userId = res.body.userId;
+  const publicUserId = res.body.publicUserId || userId;
   const accessToken = res.body.accessToken;
+  const refreshToken = res.body.refreshToken;
+
+  if (refreshToken) {
+    bru.setEnvVar("refreshToken", refreshToken);
+  }
 
   if (userType === "provider") {
     bru.setEnvVar("providerUserId", userId);
+    bru.setEnvVar("providerInternalUserId", userId);
+    bru.setEnvVar("providerPublicUserId", publicUserId);
     bru.setEnvVar("providerAccessToken", accessToken);
     return;
   }
@@ -51,11 +59,17 @@ script:post-response {
   if (userType === "both") {
     bru.setEnvVar("seekerUserId", userId);
     bru.setEnvVar("providerUserId", userId);
+    bru.setEnvVar("seekerInternalUserId", userId);
+    bru.setEnvVar("providerInternalUserId", userId);
+    bru.setEnvVar("seekerPublicUserId", publicUserId);
+    bru.setEnvVar("providerPublicUserId", publicUserId);
     bru.setEnvVar("seekerAccessToken", accessToken);
     bru.setEnvVar("providerAccessToken", accessToken);
     return;
   }
 
   bru.setEnvVar("seekerUserId", userId);
+  bru.setEnvVar("seekerInternalUserId", userId);
+  bru.setEnvVar("seekerPublicUserId", publicUserId);
   bru.setEnvVar("seekerAccessToken", accessToken);
 }

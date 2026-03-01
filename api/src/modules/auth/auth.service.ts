@@ -49,6 +49,7 @@ interface KeycloakTokenResponse {
 
 export interface AuthSessionResponse {
   userId: string;
+  publicUserId: string;
   username: string;
   userType: UserType;
   roles: AppRole[];
@@ -59,6 +60,18 @@ export interface AuthSessionResponse {
   tokenType: string;
   scope?: string;
 }
+
+const APP_ROLE_ALIASES: Readonly<Record<string, AppRole>> = {
+  "realm-admin": "admin",
+  "manage-realm": "admin",
+  "view-realm": "admin",
+  "manage-users": "admin",
+  "view-users": "admin",
+  "query-users": "admin",
+  "manage-clients": "admin",
+  "view-clients": "admin",
+  "query-clients": "admin"
+};
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -111,7 +124,7 @@ export class AuthService implements OnModuleInit {
   }
 
   async register(input: RegisterDto): Promise<AuthSessionResponse> {
-    const username = this.resolveUsername(input.username, input.email);
+    const username = this.resolveUsername(input.username);
     const provisionalUserId = randomUUID();
     const adminAccessToken = await this.getAdminAccessToken();
     const rolesToAssign: AppRole[] = ["both"];
@@ -143,10 +156,11 @@ export class AuthService implements OnModuleInit {
     const userRoles = this.normalizeAppRoles(this.extractRoles(decodedPayload));
     const tokenUserId = this.extractUserId(decodedPayload, keycloakUserId);
 
-    await this.authUserService.syncUserFromToken(tokenUserId, userRoles);
+    await this.authUserService.syncUserFromToken(tokenUserId, userRoles, username);
 
     return {
       userId: tokenUserId,
+      publicUserId: username,
       username,
       userType: UserType.BOTH,
       roles: userRoles,
@@ -171,10 +185,11 @@ export class AuthService implements OnModuleInit {
     const userRoles = this.normalizeAppRoles(this.extractRoles(decodedPayload));
     const userId = this.extractUserId(decodedPayload);
 
-    await this.authUserService.syncUserFromToken(userId, userRoles);
+    await this.authUserService.syncUserFromToken(userId, userRoles, username);
 
     return {
       userId,
+      publicUserId: username,
       username,
       userType: this.userTypeFromRoles(userRoles),
       roles: userRoles,
@@ -187,11 +202,86 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  private resolveUsername(username: string | undefined, email: string): string {
-    if (username && username.trim().length > 0) {
-      return username.trim().toLowerCase();
+  async refreshAccessToken(refreshToken: string): Promise<AuthSessionResponse> {
+    const formData = new URLSearchParams();
+    formData.set("grant_type", "refresh_token");
+    formData.set("client_id", this.keycloakClientId);
+    formData.set("refresh_token", refreshToken);
+
+    const response = await this.keycloakFetch(
+      `${this.keycloakUrl}/realms/${this.keycloakRealm}/protocol/openid-connect/token`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData.toString()
+      },
+      "token refresh"
+    );
+
+    const responseBody = (await response.json().catch(() => ({}))) as Partial<
+      KeycloakTokenResponse
+    > & {
+      error?: string;
+      error_description?: string;
+    };
+
+    if (!response.ok || !responseBody.access_token || !responseBody.token_type) {
+      throw new UnauthorizedException(
+        responseBody.error_description ?? "Unable to refresh token. Please sign in again."
+      );
     }
-    return email.trim().toLowerCase();
+
+    const tokenResponse = responseBody as KeycloakTokenResponse;
+    const decodedPayload = this.decodeJwtPayload(tokenResponse.access_token);
+    const userRoles = this.normalizeAppRoles(this.extractRoles(decodedPayload));
+    const userId = this.extractUserId(decodedPayload);
+
+    const username = await this.authUserService.getUsernameByUserId(userId);
+    await this.authUserService.syncUserFromToken(userId, userRoles, username ?? userId);
+
+    return {
+      userId,
+      publicUserId: username ?? userId,
+      username: username ?? userId,
+      userType: this.userTypeFromRoles(userRoles),
+      roles: userRoles,
+      accessToken: tokenResponse.access_token,
+      refreshToken: tokenResponse.refresh_token,
+      expiresIn: tokenResponse.expires_in,
+      refreshExpiresIn: tokenResponse.refresh_expires_in,
+      tokenType: tokenResponse.token_type,
+      scope: tokenResponse.scope
+    };
+  }
+
+  async logout(refreshToken: string): Promise<void> {
+    const formData = new URLSearchParams();
+    formData.set("client_id", this.keycloakClientId);
+    formData.set("refresh_token", refreshToken);
+
+    const response = await this.keycloakFetch(
+      `${this.keycloakUrl}/realms/${this.keycloakRealm}/protocol/openid-connect/logout`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: formData.toString()
+      },
+      "session logout"
+    );
+
+    // Keycloak returns 204 on success; tolerate errors gracefully
+    // since we still want the client to clear local state
+    if (!response.ok && response.status !== 204) {
+      console.warn(`[AuthService] Keycloak logout returned ${response.status}`);
+    }
+  }
+
+  private resolveUsername(username: string): string {
+    return username.trim().toLowerCase();
   }
 
   private userTypeFromRoles(roles: AppRole[]): UserType {
@@ -659,10 +749,21 @@ export class AuthService implements OnModuleInit {
   private extractRoles(payload: KeycloakTokenPayload): AppRole[] {
     const realmRoles = payload.realm_access?.roles ?? [];
     const clientRoles = payload.resource_access?.[this.keycloakClientId]?.roles ?? [];
-    const allRoles = [...new Set([...realmRoles, ...clientRoles])];
+    const allClientRoles = Object.values(payload.resource_access ?? {}).flatMap(
+      (entry) => entry.roles ?? []
+    );
+    const appRoleCandidates = [...new Set([...realmRoles, ...clientRoles])];
+    const aliasCandidates = [...new Set([...realmRoles, ...allClientRoles])];
     const appRoles: AppRole[] = ["both", "seeker", "provider", "admin", "support"];
-
-    const roles = appRoles.filter((role) => allRoles.includes(role));
+    const directAppRoles: AppRole[] = appRoles.filter((role) => appRoleCandidates.includes(role));
+    const aliasMappedRoles = [
+      ...new Set(
+        aliasCandidates
+          .map((roleName) => APP_ROLE_ALIASES[roleName])
+          .filter((roleName): roleName is AppRole => Boolean(roleName))
+      )
+    ];
+    const roles = [...new Set([...directAppRoles, ...aliasMappedRoles])];
     return roles.length > 0 ? roles : ["seeker"];
   }
 

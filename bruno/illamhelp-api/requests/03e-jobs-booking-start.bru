@@ -1,0 +1,34 @@
+meta {
+  name: Jobs Booking Start
+  type: http
+  seq: 9
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs/{{jobId}}/booking/start
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+}
+
+tests {
+  test("jobs booking start returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs booking start moves job to in_progress", function () {
+    expect(res.body.id).to.equal(bru.getEnvVar("jobId"));
+    expect(res.body.status).to.equal("in_progress");
+    expect(res.body.assignedProviderUserId).to.equal(bru.getEnvVar("providerPublicUserId"));
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs Booking Complete");
+}

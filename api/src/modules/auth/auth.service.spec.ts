@@ -175,9 +175,10 @@ describe("AuthService startup and client bootstrap", () => {
 
     expect(result.userType).toBe("both");
     expect(result.userId).toBe(DEFAULT_SUB);
+    expect(result.publicUserId).toBe("test-user");
     expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(DEFAULT_SUB, [
       "both"
-    ]);
+    ], "test-user");
 
     const firstTokenAttempt = fetchMock.mock.calls[3];
     const secondTokenAttempt = fetchMock.mock.calls[7];
@@ -188,6 +189,123 @@ describe("AuthService startup and client bootstrap", () => {
     expect(firstTokenBody).not.toContain("client_secret=");
     expect(secondTokenBody).toContain("client_id=illamhelp-api");
     expect(secondTokenBody).not.toContain("client_secret=");
+  });
+
+  it("maps realm-admin token role to admin access", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: "admin-token-1",
+          expires_in: 300,
+          token_type: "Bearer"
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, [{ id: "client-internal-id", clientId: "illamhelp-api" }])
+      )
+      .mockResolvedValueOnce(emptyResponse(204))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: buildJwt({
+            sub: DEFAULT_SUB,
+            realm_access: { roles: ["realm-admin"] }
+          }),
+          expires_in: 300,
+          token_type: "Bearer"
+        })
+      );
+
+    const service = new AuthService(createConfigService(), authUserServiceMock);
+    const result = await service.login({
+      username: "ops_admin",
+      password: "Passw0rd!"
+    });
+
+    expect(result.roles).toEqual(["admin"]);
+    expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(
+      DEFAULT_SUB,
+      ["admin"],
+      "ops_admin"
+    );
+  });
+
+  it("maps realm-management realm-admin client role to admin access", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: "admin-token-1",
+          expires_in: 300,
+          token_type: "Bearer"
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, [{ id: "client-internal-id", clientId: "illamhelp-api" }])
+      )
+      .mockResolvedValueOnce(emptyResponse(204))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: buildJwt({
+            sub: DEFAULT_SUB,
+            resource_access: {
+              "realm-management": {
+                roles: ["realm-admin"]
+              }
+            }
+          }),
+          expires_in: 300,
+          token_type: "Bearer"
+        })
+      );
+
+    const service = new AuthService(createConfigService(), authUserServiceMock);
+    const result = await service.login({
+      username: "ops_admin",
+      password: "Passw0rd!"
+    });
+
+    expect(result.roles).toEqual(["admin"]);
+    expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(
+      DEFAULT_SUB,
+      ["admin"],
+      "ops_admin"
+    );
+  });
+
+  it("maps realm-management manage-users client role to admin access", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: "admin-token-1",
+          expires_in: 300,
+          token_type: "Bearer"
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(200, [{ id: "client-internal-id", clientId: "illamhelp-api" }])
+      )
+      .mockResolvedValueOnce(emptyResponse(204))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          access_token: buildJwt({
+            sub: DEFAULT_SUB,
+            resource_access: {
+              "realm-management": {
+                roles: ["manage-users"]
+              }
+            }
+          }),
+          expires_in: 300,
+          token_type: "Bearer"
+        })
+      );
+
+    const service = new AuthService(createConfigService(), authUserServiceMock);
+    const result = await service.login({
+      username: "ops_admin",
+      password: "Passw0rd!"
+    });
+
+    expect(result.roles).toEqual(["admin"]);
   });
 
   it("returns explicit client-config error when invalid_client persists", async () => {
@@ -238,5 +356,107 @@ describe("AuthService startup and client bootstrap", () => {
         password: "Passw0rd!"
       })
     ).rejects.toThrow("Invalid Keycloak client configuration");
+  });
+});
+
+describe("AuthService token refresh and logout", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let authUserServiceMock: AuthUserService;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    authUserServiceMock = {
+      syncUserFromToken: vi.fn().mockResolvedValue(undefined),
+      getUsernameByUserId: vi.fn().mockResolvedValue("test-user")
+    } as unknown as AuthUserService;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("refreshAccessToken returns new session from valid refresh token", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        access_token: buildJwt({
+          sub: DEFAULT_SUB,
+          realm_access: { roles: ["both"] }
+        }),
+        refresh_token: "new-refresh-token",
+        expires_in: 300,
+        refresh_expires_in: 1800,
+        token_type: "Bearer",
+        scope: "openid"
+      })
+    );
+
+    const service = new AuthService(
+      createConfigService({ AUTH_STARTUP_CHECK_ENABLED: "false" }),
+      authUserServiceMock
+    );
+    const result = await service.refreshAccessToken("old-refresh-token");
+
+    expect(result.userId).toBe(DEFAULT_SUB);
+    expect(result.accessToken).toBeTruthy();
+    expect(result.refreshToken).toBe("new-refresh-token");
+    expect(result.expiresIn).toBe(300);
+    expect(result.tokenType).toBe("Bearer");
+    expect(authUserServiceMock.getUsernameByUserId).toHaveBeenCalledWith(DEFAULT_SUB);
+    expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(
+      DEFAULT_SUB,
+      ["both"],
+      "test-user"
+    );
+
+    const fetchCall = fetchMock.mock.calls[0];
+    const body = fetchCall[1].body as string;
+    expect(body).toContain("grant_type=refresh_token");
+    expect(body).toContain("refresh_token=old-refresh-token");
+  });
+
+  it("refreshAccessToken throws UnauthorizedException for expired refresh token", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(400, {
+        error: "invalid_grant",
+        error_description: "Token is not active"
+      })
+    );
+
+    const service = new AuthService(
+      createConfigService({ AUTH_STARTUP_CHECK_ENABLED: "false" }),
+      authUserServiceMock
+    );
+    await expect(service.refreshAccessToken("expired-token")).rejects.toThrow(
+      "Token is not active"
+    );
+  });
+
+  it("logout calls Keycloak logout endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(emptyResponse(204));
+
+    const service = new AuthService(
+      createConfigService({ AUTH_STARTUP_CHECK_ENABLED: "false" }),
+      authUserServiceMock
+    );
+    await service.logout("refresh-token-to-revoke");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/protocol/openid-connect/logout");
+    expect((init.body as string)).toContain("refresh_token=refresh-token-to-revoke");
+  });
+
+  it("logout tolerates Keycloak errors gracefully", async () => {
+    fetchMock.mockResolvedValueOnce(emptyResponse(500));
+
+    const service = new AuthService(
+      createConfigService({ AUTH_STARTUP_CHECK_ENABLED: "false" }),
+      authUserServiceMock
+    );
+    // Should not throw
+    await service.logout("some-token");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

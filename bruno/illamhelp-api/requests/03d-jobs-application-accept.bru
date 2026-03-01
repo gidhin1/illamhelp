@@ -1,0 +1,33 @@
+meta {
+  name: Jobs Application Accept
+  type: http
+  seq: 8
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs/applications/{{applicationId}}/accept
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("jobs application accept returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs application accept marks application as accepted", function () {
+    expect(res.body.id).to.equal(bru.getEnvVar("applicationId"));
+    expect(res.body.status).to.equal("accepted");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs Booking Start");
+}

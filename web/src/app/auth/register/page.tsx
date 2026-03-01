@@ -36,8 +36,12 @@ export default function RegisterPage(): JSX.Element {
     setError(null);
 
     try {
+      const normalizedUserId = username.trim();
+      if (normalizedUserId.length < 3) {
+        throw new Error("User ID must be at least 3 characters.");
+      }
       const session = await register({
-        username: username || undefined,
+        username: normalizedUserId,
         email,
         password,
         firstName,
@@ -71,6 +75,7 @@ export default function RegisterPage(): JSX.Element {
                   onChange={(event) => setFirstName(event.target.value)}
                   placeholder="Anita"
                   required
+                  autoComplete="given-name"
                 />
               </Field>
               <Field label="Last name">
@@ -78,6 +83,7 @@ export default function RegisterPage(): JSX.Element {
                   value={lastName}
                   onChange={(event) => setLastName(event.target.value)}
                   placeholder="K"
+                  autoComplete="family-name"
                 />
               </Field>
               <Field label="Email">
@@ -87,13 +93,16 @@ export default function RegisterPage(): JSX.Element {
                   placeholder="anita@example.com"
                   type="email"
                   required
+                  autoComplete="email"
                 />
               </Field>
-              <Field label="Username (optional)">
+              <Field label="User ID" hint="This is your public member ID.">
                 <TextInput
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   placeholder="anita_worker_01"
+                  required
+                  autoComplete="username"
                 />
               </Field>
               <Field label="Phone (optional)">
@@ -101,6 +110,7 @@ export default function RegisterPage(): JSX.Element {
                   value={phone}
                   onChange={(event) => setPhone(event.target.value)}
                   placeholder="+91 98765 43210"
+                  autoComplete="tel"
                 />
               </Field>
               <Field label="Password" hint="Minimum 8 characters">
@@ -111,6 +121,7 @@ export default function RegisterPage(): JSX.Element {
                   type="password"
                   required
                   minLength={8}
+                  autoComplete="new-password"
                 />
               </Field>
               <div className="stack" style={{ alignContent: "end" }}>

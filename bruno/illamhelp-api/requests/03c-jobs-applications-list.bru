@@ -1,0 +1,36 @@
+meta {
+  name: Jobs Applications List
+  type: http
+  seq: 7
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/jobs/{{jobId}}/applications
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("jobs applications list returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("jobs applications list contains the latest application", function () {
+    expect(res.body).to.be.an("array");
+    const applicationId = bru.getEnvVar("applicationId");
+    const found = res.body.find((item) => item.id === applicationId);
+    expect(found).to.not.equal(undefined);
+    expect(found.status).to.equal("applied");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs Application Accept");
+}

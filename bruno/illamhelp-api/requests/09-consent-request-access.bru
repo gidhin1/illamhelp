@@ -35,7 +35,7 @@ tests {
   test("consent request access returns pending record", function () {
     expect(res.body.id).to.be.a("string");
     expect(res.body.status).to.equal("pending");
-    expect(res.body.ownerUserId).to.equal(bru.getEnvVar("providerUserId"));
+    expect(res.body.ownerUserId).to.equal(bru.getEnvVar("providerPublicUserId"));
   });
 }
 

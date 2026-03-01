@@ -19,7 +19,7 @@
     "e2e:detox:test:android": "DETOX_ANDROID_CONFIGURATION=android.emu.release DETOX_ANDROID_BUILD_TYPE=release bash ./scripts/detox-test-android.sh",
     "e2e:detox:android": "pnpm run e2e:detox:build:android && echo \"Starting Detox Android tests...\" && pnpm run e2e:detox:test:android",
     "e2e:detox": "pnpm run e2e:detox:ios && pnpm run e2e:detox:android",
-    "lint": "echo \"No mobile lint rules yet\"",
+    "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo \"No mobile tests yet\"",
     "build": "echo \"Use EAS or native builds when ready\""
@@ -36,9 +36,14 @@
     "react-native-web": "~0.19.13"
   },
   "devDependencies": {
+    "@eslint/js": "^9.20.0",
     "@types/jest": "^29.5.14",
     "@types/react": "~18.3.12",
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
     "detox": "^20.41.3",
+    "eslint": "^9.20.0",
+    "globals": "^15.14.0",
     "jest": "^29.7.0",
     "typescript": "^5.8.2"
   }

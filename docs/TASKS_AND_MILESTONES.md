@@ -71,10 +71,10 @@ Milestone 1 Exit Criteria:
 | Rate-limits and anti-spam controls on posting and messaging | Pending | No active API rate-limiting/messaging controls found. |
 | Implement media processing workers (FFmpeg, ClamAV, EXIF stripping) | Pending | ClamAV container exists; workers and pipelines not implemented. |
 | Implement AI moderation scoring pipeline and policy reason codes | Pending | Not implemented. |
-| Build human moderation console and mandatory review queue | Pending | Not implemented (admin workspace placeholder only). |
-| Publish-gating logic: only `approved` media visible/downloadable | In Progress | Data model/policy docs exist; public media APIs are not implemented. |
+| Build human moderation console and mandatory review queue | In Progress | Admin portal moderation queue with approve/reject workflow is implemented in `admin`; advanced moderation analytics/appeals remain pending. |
+| Publish-gating logic: only `approved` media visible/downloadable | Done | `GET /api/v1/media/public/:ownerUserId` now returns only `approved` assets and includes short-lived signed download URLs; non-approved states are excluded at query level. |
 | Add real-time revocation propagation and cache invalidation for PII grants | Pending | Not implemented. |
-| Add consent timelines to admin/support audit console | Pending | Not implemented. |
+| Add consent timelines to admin/support audit console | Done | `GET /api/v1/admin/oversight/timeline` + admin consent/audit timeline UI are implemented with role gating. |
 
 Milestone 2 Exit Criteria:
 
@@ -83,7 +83,7 @@ Milestone 2 Exit Criteria:
 | Seeker can post and complete a booking with a provider | In Progress | Job post exists; booking completion flow not implemented. |
 | Search latency and API latency meet target in staging load test | Pending | No load-test/staging benchmarks in repo. |
 | Abuse controls verified with test cases | Pending | No anti-abuse test suite found. |
-| No unreviewed media appears in any public endpoint | In Progress | No public media endpoints exist yet. |
+| No unreviewed media appears in any public endpoint | Done | Public media list endpoint is gated to `approved` state only and does not expose internal quarantine object metadata. |
 | Revoked PII is no longer retrievable in all public/internal read APIs | In Progress | Consent revoke works for consent-check path; global read path coverage pending. |
 
 ### Milestone 3: Trust, Payments, Reviews
@@ -100,6 +100,7 @@ Status: all tasks and exit criteria are `Pending` (except baseline CI/security a
 | --- | --- | --- |
 | Bruno API E2E | In Progress | Automated script covers auth/jobs/connections/consent/media and now validates consent-aware profile visibility before grant, after grant, and after revoke. |
 | Web UI E2E (Playwright) | In Progress | Full-flow spec now covers human-centric people search + connect, consent-aware profile visibility checks, and block action; profile/media web flow has dedicated automation coverage. |
+| Admin UI E2E (Playwright) | In Progress | Admin role gate behavior, moderation review workflow, and consent/audit timeline lookup are covered in `tests/playwright/admin/admin-portal.spec.ts`. |
 | Mobile UI E2E (Detox) | In Progress | Native Detox pipeline exists for iOS/Android, but stability is currently a blocker. |
 
 ### Security/Quality Gaps to Address Next
@@ -134,6 +135,45 @@ Remaining Milestone 1 gaps are provider verification/admin moderation and full a
 - Implement job applications + acceptance workflow.
 - Add search layer integration (OpenSearch indexing/query).
 - Introduce baseline rate-limits/anti-abuse on auth, jobs, connections, and consent endpoints.
+- Complete media moderation pipeline beyond upload ticket flow:
+  - Async media processing workers (technical validation, ClamAV scan, FFmpeg/metadata normalization, EXIF stripping).
+  - AI moderation scoring pipeline with policy reason codes persisted per asset.
+  - Human moderation decision workflow with approve/reject actions and moderator notes.
+  - Strict publish gating so only `approved` assets are visible/downloadable from public/client APIs.
+- Implement Admin Portal MVP (`admin` workspace) with role-gated access for `admin/support`:
+  - User lookup and profile oversight
+  - Jobs + applications operational view
+  - Media moderation queue with asset detail + decision actions (approve/reject)
+  - Consent timeline and audit-event viewer
+
+#### Phase 3 Sprint Checklist (Task IDs)
+
+Sprint 3.1 (Backend moderation + admin APIs first):
+- [x] `P3-S1-01` Add role-gated admin moderation APIs (`queue`, `details`, `process`, `review`).
+- [x] `P3-S1-02` Implement media moderation worker service (`technical_validation` -> `ai_review` -> `human_review_pending`).
+- [x] `P3-S1-03` Implement human review decision path (`approve`/`reject`) with audit trail and reason codes.
+- [x] `P3-S1-04` Add API tests for moderation queue/process/review flows.
+
+Sprint 3.2 (Applications + booking core):
+- [x] `P3-S2-01` Implement job application APIs (`apply`, `list`, `accept`, `reject`, `withdraw`).
+- [x] `P3-S2-02` Implement booking lifecycle transitions and transition guards.
+- [x] `P3-S2-03` Extend Bruno and Playwright E2E for application-to-completion flow.
+
+Sprint 3.3 (Search + abuse controls):
+- [x] `P3-S3-01` Implement OpenSearch indexing/query integration for jobs.
+- [x] `P3-S3-02` Add rate-limit and anti-abuse controls for high-risk endpoints.
+- [x] `P3-S3-03` Add regression/load test checks for search latency and abuse controls.
+
+Sprint 3.4 (Admin portal MVP UI):
+- [x] `P3-S4-01` Build admin shell with auth guard and admin/support role gating.
+- [x] `P3-S4-02` Build moderation queue UI with approve/reject workflow.
+- [x] `P3-S4-03` Build consent + audit timeline lookup UI.
+- [x] `P3-S4-04` Add Playwright admin UI coverage for moderation and audit flows.
+
+Sprint 3.5 (Approved-media publish gating):
+- [x] `P3-S5-01` Add client/public endpoint to list approved media by member-facing user ID.
+- [x] `P3-S5-02` Add short-lived signed download URLs for approved assets only.
+- [x] `P3-S5-03` Add automated API coverage for approved-media gating and user-ID resolution.
 
 ## Milestone 0: Foundation (Weeks 1-2)
 
@@ -190,6 +230,7 @@ Remaining Milestone 1 gaps are provider verification/admin moderation and full a
 - Implement media processing workers (FFmpeg, ClamAV, EXIF stripping)
 - Implement AI moderation scoring pipeline and policy reason codes
 - Build human moderation console and mandatory review queue
+- Implement admin portal foundation (auth guard, role checks, operational navigation, shared UI primitives)
 - Publish-gating logic: only `approved` media visible/downloadable
 - Add real-time revocation propagation and cache invalidation for PII grants
 - Add consent timelines to admin/support audit console
@@ -199,6 +240,8 @@ Remaining Milestone 1 gaps are provider verification/admin moderation and full a
 - Seeker can post and complete a booking with a provider
 - Search latency and API latency meet target in staging load test
 - Abuse controls verified with test cases
+- Admin/support can complete operational workflows from admin portal (moderation queue + consent/audit lookup)
+- Media upload lifecycle reaches terminal moderation state (`approved`/`rejected`) with full audit trail and reason codes
 - No unreviewed media appears in any public endpoint
 - Revoked PII is no longer retrievable in all public/internal read APIs
 

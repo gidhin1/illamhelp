@@ -13,6 +13,7 @@ import {
   EmptyState,
   Field,
   SectionHeader,
+  SelectInput,
   TextArea,
   TextInput
 } from "@/components/ui/primitives";
@@ -23,13 +24,15 @@ interface CreateJobFormState {
   title: string;
   description: string;
   locationText: string;
+  visibility: "public" | "connections_only";
 }
 
 const initialCreateJobForm: CreateJobFormState = {
   category: "",
   title: "",
   description: "",
-  locationText: ""
+  locationText: "",
+  visibility: "public"
 };
 
 export default function JobsPage(): JSX.Element {
@@ -50,8 +53,8 @@ export default function JobsPage(): JSX.Element {
     setListLoading(true);
     setListError(null);
     try {
-      const records = await listJobs(accessToken);
-      setJobs(records);
+      const result = await listJobs(accessToken);
+      setJobs(result.items);
     } catch (requestError) {
       setListError(requestError instanceof Error ? requestError.message : "Unable to load jobs");
     } finally {
@@ -167,6 +170,23 @@ export default function JobsPage(): JSX.Element {
                       minLength={10}
                     />
                   </Field>
+                  <Field
+                    label="Visibility"
+                    hint="Public is visible to everyone. Connections only is visible to accepted connections."
+                  >
+                    <SelectInput
+                      value={form.visibility}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          visibility: event.target.value as "public" | "connections_only"
+                        }))
+                      }
+                    >
+                      <option value="public">Public</option>
+                      <option value="connections_only">Connections only</option>
+                    </SelectInput>
+                  </Field>
                   <div>
                     <Button type="submit" disabled={createLoading}>
                       {createLoading ? "Posting..." : "Post job"}
@@ -178,7 +198,7 @@ export default function JobsPage(): JSX.Element {
               <Card className="stack">
                 <h3 style={{ fontFamily: "var(--font-display)" }}>Open jobs</h3>
                 {listError ? <Banner tone="error">{listError}</Banner> : null}
-                {listLoading ? <p className="muted-text">Loading jobs...</p> : null}
+                {listLoading ? <p className="muted-text" aria-live="polite">Loading jobs...</p> : null}
                 {!listLoading && jobs.length === 0 ? (
                   <EmptyState
                     title="No jobs yet"
@@ -194,6 +214,9 @@ export default function JobsPage(): JSX.Element {
                           <h4>{job.title}</h4>
                           <p className="muted-text">
                             {job.category} · {job.locationText}
+                          </p>
+                          <p className="muted-text">
+                            Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
                           </p>
                           <p className="muted-text">{job.description}</p>
                           <p className="field-hint">Created: {formatDate(job.createdAt)}</p>

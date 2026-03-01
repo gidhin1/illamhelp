@@ -22,6 +22,8 @@ interface KeycloakTokenPayload extends JWTPayload {
   sub?: string;
   azp?: string;
   aud?: string | string[];
+  preferred_username?: string;
+  email?: string;
   realm_access?: {
     roles?: string[];
   };
@@ -33,6 +35,17 @@ interface RequestWithUser extends FastifyRequest {
 }
 
 const APP_ROLES: AppRole[] = ["both", "seeker", "provider", "admin", "support"];
+const APP_ROLE_ALIASES: Readonly<Record<string, AppRole>> = {
+  "realm-admin": "admin",
+  "manage-realm": "admin",
+  "view-realm": "admin",
+  "manage-users": "admin",
+  "view-users": "admin",
+  "query-users": "admin",
+  "manage-clients": "admin",
+  "view-clients": "admin",
+  "query-clients": "admin"
+};
 
 @Injectable()
 export class KeycloakJwtGuard implements CanActivate {
@@ -74,14 +87,16 @@ export class KeycloakJwtGuard implements CanActivate {
       this.assertTokenSubject(payload.sub);
 
       const roles = this.normalizeAppRoles(this.extractRoles(payload));
+      const publicUserId = this.resolvePublicUserId(payload);
       const user: AuthenticatedUser = {
         userId: payload.sub as string,
+        publicUserId,
         roles,
         userType: this.resolveUserType(roles),
         tokenSubject: payload.sub as string
       };
 
-      await this.authUserService.syncUserFromToken(user.userId, roles);
+      await this.authUserService.syncUserFromToken(user.userId, roles, publicUserId);
       request.user = user;
 
       return true;
@@ -133,9 +148,22 @@ export class KeycloakJwtGuard implements CanActivate {
   private extractRoles(payload: KeycloakTokenPayload): AppRole[] {
     const realmRoles = payload.realm_access?.roles ?? [];
     const clientRoles = payload.resource_access?.[this.clientId]?.roles ?? [];
-    const allRoles = [...new Set([...realmRoles, ...clientRoles])];
+    const allClientRoles = Object.values(payload.resource_access ?? {}).flatMap(
+      (entry) => entry.roles ?? []
+    );
 
-    const mappedRoles = APP_ROLES.filter((role) => allRoles.includes(role));
+    const appRoleCandidates = [...new Set([...realmRoles, ...clientRoles])];
+    const aliasCandidates = [...new Set([...realmRoles, ...allClientRoles])];
+
+    const directAppRoles = APP_ROLES.filter((role) => appRoleCandidates.includes(role));
+    const aliasMappedRoles = [
+      ...new Set(
+        aliasCandidates
+          .map((roleName) => APP_ROLE_ALIASES[roleName])
+          .filter((roleName): roleName is AppRole => Boolean(roleName))
+      )
+    ];
+    const mappedRoles = [...new Set([...directAppRoles, ...aliasMappedRoles])];
     return mappedRoles.length > 0 ? mappedRoles : ["seeker"];
   }
 
@@ -161,5 +189,36 @@ export class KeycloakJwtGuard implements CanActivate {
       return UserType.BOTH;
     }
     return UserType.BOTH;
+  }
+
+  private resolvePublicUserId(payload: KeycloakTokenPayload): string {
+    const candidates = [
+      payload.preferred_username,
+      payload.email?.split("@")[0]
+    ];
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizePublicUserIdCandidate(candidate);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    const fallbackSource = (payload.sub ?? "").replace(/-/g, "").toLowerCase();
+    return `member_${fallbackSource.slice(0, 10)}`;
+  }
+
+  private normalizePublicUserIdCandidate(value: string | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+    const normalized = value.trim().toLowerCase();
+    if (normalized.length < 3 || normalized.length > 40) {
+      return null;
+    }
+    if (!/^[a-z0-9._-]+$/.test(normalized)) {
+      return null;
+    }
+    return normalized;
   }
 }

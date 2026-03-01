@@ -4,6 +4,7 @@ COMPOSE_FILE := infra/docker-compose.yml
 ENV_FILE := .env
 COMPOSE_PROJECT ?= illamhelp
 WEB_PORT ?= 3001
+ACT_ARTIFACTS_DIR ?= .act-artifacts
 COMPOSE := docker compose --project-name $(COMPOSE_PROJECT) --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 
 VOLUME_BASENAMES := postgres_data redis_data minio_data nats_data opensearch_data clamav_data
@@ -19,11 +20,11 @@ KNOWN_CONTAINERS := \
 	illamhelp-opa \
 	illamhelp-clamav
 
-.PHONY: init-env doctor preflight deps up up-core up-auth up-full keycloak-bootstrap down reset-backend logs
+.PHONY: init-env doctor preflight deps unit-test up up-core up-auth up-full keycloak-bootstrap down reset-backend logs
 .PHONY: api-dev api-build api-start migrate bruno-cli-install bruno-e2e
-.PHONY: dev dev-web dev-mobile dev-mobile-clear dev-mobile-reset dev-mobile-android dev-mobile-ios dev-mobile-web health
+.PHONY: dev dev-web dev-admin dev-mobile dev-mobile-clear dev-mobile-reset dev-mobile-android dev-mobile-ios dev-mobile-web health
 .PHONY: backend backend-start
-.PHONY: mobile-native-init ui-install ui-test-web ui-test-mobile ui-test-mobile-ios ui-test-mobile-android ui-test
+.PHONY: mobile-native-init ui-install ui-test-web ui-test-admin ui-test-mobile ui-test-mobile-ios ui-test-mobile-android ui-test
 .PHONY: ci-local
 .PHONY: clean clean-build
 
@@ -79,7 +80,7 @@ logs:
 	$(COMPOSE) logs -f --tail=200
 
 api-dev:
-	CORS_ORIGINS="$${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001}" pnpm --filter @illamhelp/api dev
+	CORS_ORIGINS="$${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003}" pnpm --filter @illamhelp/api dev
 
 api-build:
 	pnpm --filter @illamhelp/api build
@@ -91,8 +92,16 @@ backend: backend-start
 
 backend-start: preflight up-core migrate api-dev
 
-dev: preflight
+dev: preflight unit-test
 	bash ./scripts/dev.sh
+
+unit-test:
+	@if [[ "$${SKIP_UNIT_TESTS:-0}" == "1" ]]; then \
+		echo "Skipping unit tests (SKIP_UNIT_TESTS=1)."; \
+	else \
+		echo "Running unit tests before startup..."; \
+		pnpm test; \
+	fi
 
 dev-web:
 	@LOCK_FILE="$(CURDIR)/web/.next/dev/lock"; \
@@ -100,8 +109,14 @@ dev-web:
 		LOCK_HOLDERS="$$(lsof -t "$$LOCK_FILE" 2>/dev/null | tr '\n' ' ' | xargs || true)"; \
 		if [[ -n "$$LOCK_HOLDERS" ]]; then \
 			echo "Next dev lock is held by PID(s): $$LOCK_HOLDERS"; \
-			echo "Stop existing web dev process(es) and retry: kill $$LOCK_HOLDERS"; \
-			exit 1; \
+			echo "Stopping existing web dev process(es)..."; \
+			kill $$LOCK_HOLDERS >/dev/null 2>&1 || true; \
+			sleep 1; \
+			STILL_HOLDING="$$(lsof -t "$$LOCK_FILE" 2>/dev/null | tr '\n' ' ' | xargs || true)"; \
+			if [[ -n "$$STILL_HOLDING" ]]; then \
+				echo "Could not release Next dev lock. Force stop required: kill -9 $$STILL_HOLDING"; \
+				exit 1; \
+			fi; \
 		fi; \
 		echo "Removing stale Next lock: $$LOCK_FILE"; \
 		rm -f "$$LOCK_FILE"; \
@@ -114,6 +129,33 @@ dev-web:
 		echo "Port $(WEB_PORT) is busy; using $$PORT for web dev server."; \
 	fi; \
 	PORT="$$PORT" pnpm --filter @illamhelp/web dev
+
+dev-admin:
+	@LOCK_FILE="$(CURDIR)/admin/.next/dev/lock"; \
+	if [[ -f "$$LOCK_FILE" ]]; then \
+		LOCK_HOLDERS="$$(lsof -t "$$LOCK_FILE" 2>/dev/null | tr '\n' ' ' | xargs || true)"; \
+		if [[ -n "$$LOCK_HOLDERS" ]]; then \
+			echo "Next admin dev lock is held by PID(s): $$LOCK_HOLDERS"; \
+			echo "Stopping existing admin dev process(es)..."; \
+			kill $$LOCK_HOLDERS >/dev/null 2>&1 || true; \
+			sleep 1; \
+			STILL_HOLDING="$$(lsof -t "$$LOCK_FILE" 2>/dev/null | tr '\n' ' ' | xargs || true)"; \
+			if [[ -n "$$STILL_HOLDING" ]]; then \
+				echo "Could not release Next admin lock. Force stop required: kill -9 $$STILL_HOLDING"; \
+				exit 1; \
+			fi; \
+		fi; \
+		echo "Removing stale Next admin lock: $$LOCK_FILE"; \
+		rm -f "$$LOCK_FILE"; \
+	fi; \
+	PORT="$${ADMIN_PORT:-3003}"; \
+	while lsof -iTCP:"$$PORT" -sTCP:LISTEN -n -P >/dev/null 2>&1; do \
+		PORT=$$((PORT + 1)); \
+	done; \
+	if [[ "$$PORT" != "$${ADMIN_PORT:-3003}" ]]; then \
+		echo "Port $${ADMIN_PORT:-3003} is busy; using $$PORT for admin dev server."; \
+	fi; \
+	PORT="$$PORT" pnpm --filter @illamhelp/admin dev
 
 dev-mobile:
 	pnpm --filter @illamhelp/mobile start
@@ -160,7 +202,12 @@ migrate:
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0002_add_access_request_id_to_consent_grants.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0003_scale_indexes_and_constraints.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0004_internal_event_outbox.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0005_user_role_default_both.sql
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0005_user_role_default_both.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0006_job_applications_and_booking_lifecycle.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0007_jobs_geo_search_fields.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0008_users_public_user_id.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0009_add_verified_column.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0010_jobs_visibility_and_extended_lifecycle.sql
 
 bruno-e2e:
 	bash ./scripts/run-bruno-e2e.sh
@@ -170,6 +217,9 @@ ui-install:
 
 ui-test-web: preflight up-core migrate
 	pnpm run test:ui:web
+
+ui-test-admin: preflight
+	pnpm run test:ui:admin
 
 ui-test-mobile: preflight up-core migrate
 	pnpm run test:ui:mobile
@@ -188,7 +238,10 @@ ci-local:
 		echo "'act' is required. Install it first (https://github.com/nektos/act)."; \
 		exit 1; \
 	}
-	act push -W .github/workflows/ci.yml
+	@docker ps -aq --filter "name=act-" | xargs -r docker rm -f >/dev/null 2>&1 || true
+	@mkdir -p "$(ACT_ARTIFACTS_DIR)"
+	act push -W .github/workflows/ci.yml --artifact-server-path "$(ACT_ARTIFACTS_DIR)" --rm
+	@echo "Local CI artifacts saved in: $(ACT_ARTIFACTS_DIR)"
 
 clean: clean-build
 
@@ -199,12 +252,15 @@ clean-build:
 		dist \
 		test-results \
 		tests/playwright/reports \
+		.act-artifacts \
+		admin/.next \
 		web/.next \
 		mobile/.expo \
 		mobile/artifacts \
 		mobile/android/build \
 		mobile/ios/build \
 		api/tsconfig.tsbuildinfo \
+		admin/tsconfig.tsbuildinfo \
 		web/tsconfig.tsbuildinfo \
 		mobile/tsconfig.tsbuildinfo
 	@echo "Clean complete."

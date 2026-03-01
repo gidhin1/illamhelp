@@ -24,7 +24,10 @@ tests {
 
   test("auth me provider returns user id and captures providerUserId", function () {
     expect(res.body.userId).to.be.a("string");
+    expect(res.body.publicUserId).to.be.a("string");
     bru.setEnvVar("providerUserId", res.body.userId);
+    bru.setEnvVar("providerInternalUserId", res.body.userId);
+    bru.setEnvVar("providerPublicUserId", res.body.publicUserId);
     expect(res.body.roles).to.be.an("array");
   });
 }

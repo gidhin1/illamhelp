@@ -9,18 +9,17 @@ import {
 } from "class-validator";
 
 export class RegisterDto {
-  @ApiPropertyOptional({
+  @ApiProperty({
     example: "anita_worker_01",
     minLength: 3,
     maxLength: 64,
     pattern: "^[a-zA-Z0-9._-]+$"
   })
-  @IsOptional()
   @IsString()
   @MinLength(3)
   @MaxLength(64)
   @Matches(/^[a-zA-Z0-9._-]+$/)
-  username?: string;
+  username!: string;
 
   @ApiProperty({
     example: "anita.worker@example.com",

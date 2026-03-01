@@ -16,7 +16,10 @@ vi.mock("jose", () => ({
   jwtVerify: jwtVerifyMock
 }));
 
-function buildExecutionContext(authorizationHeader?: string): ExecutionContext {
+function buildExecutionContext(authorizationHeader?: string): {
+  context: ExecutionContext;
+  request: { headers: { authorization?: string }; user?: unknown };
+} {
   const request = {
     headers: {
       authorization: authorizationHeader
@@ -27,17 +30,20 @@ function buildExecutionContext(authorizationHeader?: string): ExecutionContext {
   };
   class TestController {}
 
-  return {
+  const context = {
     switchToHttp: () => ({
       getRequest: () => request
     }),
     getHandler: () => handler,
     getClass: () => TestController
   } as unknown as ExecutionContext;
+
+  return { context, request };
 }
 
 describe("KeycloakJwtGuard token verification", () => {
   let guard: KeycloakJwtGuard;
+  let syncUserFromTokenMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     jwtVerifyMock.mockReset();
@@ -53,8 +59,9 @@ describe("KeycloakJwtGuard token verification", () => {
       }
     };
 
+    syncUserFromTokenMock = vi.fn().mockResolvedValue(undefined);
     const authUserService: Pick<AuthUserService, "syncUserFromToken"> = {
-      syncUserFromToken: vi.fn().mockResolvedValue(undefined)
+      syncUserFromToken: syncUserFromTokenMock
     };
 
     guard = new KeycloakJwtGuard(
@@ -71,9 +78,78 @@ describe("KeycloakJwtGuard token verification", () => {
   it("maps low-level jose errors to UnauthorizedException", async () => {
     jwtVerifyMock.mockRejectedValue(new Error("JWS Protected Header is invalid"));
 
-    const context = buildExecutionContext("Bearer malformed-token");
+    const { context } = buildExecutionContext("Bearer malformed-token");
     const activation = guard.canActivate(context);
     await expect(activation).rejects.toThrow(UnauthorizedException);
     await expect(activation).rejects.toThrow("Invalid or expired bearer token");
+  });
+
+  it("maps realm-admin role to admin user role", async () => {
+    jwtVerifyMock.mockResolvedValue({
+      payload: {
+        sub: "11111111-1111-4111-8111-111111111111",
+        aud: "illamhelp-api",
+        realm_access: { roles: ["realm-admin"] },
+        preferred_username: "ops_admin"
+      }
+    });
+
+    const { context, request } = buildExecutionContext("Bearer valid-token");
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toMatchObject({
+      roles: ["admin"]
+    });
+    expect(syncUserFromTokenMock).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      ["admin"],
+      "ops_admin"
+    );
+  });
+
+  it("maps realm-management realm-admin client role to admin user role", async () => {
+    jwtVerifyMock.mockResolvedValue({
+      payload: {
+        sub: "11111111-1111-4111-8111-111111111111",
+        aud: "illamhelp-api",
+        resource_access: {
+          "realm-management": {
+            roles: ["realm-admin"]
+          }
+        },
+        preferred_username: "ops_admin"
+      }
+    });
+
+    const { context, request } = buildExecutionContext("Bearer valid-token");
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toMatchObject({
+      roles: ["admin"]
+    });
+    expect(syncUserFromTokenMock).toHaveBeenCalledWith(
+      "11111111-1111-4111-8111-111111111111",
+      ["admin"],
+      "ops_admin"
+    );
+  });
+
+  it("maps realm-management manage-users client role to admin user role", async () => {
+    jwtVerifyMock.mockResolvedValue({
+      payload: {
+        sub: "11111111-1111-4111-8111-111111111111",
+        aud: "illamhelp-api",
+        resource_access: {
+          "realm-management": {
+            roles: ["manage-users"]
+          }
+        },
+        preferred_username: "ops_admin"
+      }
+    });
+
+    const { context, request } = buildExecutionContext("Bearer valid-token");
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toMatchObject({
+      roles: ["admin"]
+    });
   });
 });

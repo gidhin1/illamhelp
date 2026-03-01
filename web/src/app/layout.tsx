@@ -27,7 +27,9 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
   return (
     <html lang="en" className={`${sora.variable} ${fraunces.variable}`}>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <main id="main-content">{children}</main>
+        </SessionProvider>
       </body>
     </html>
   );

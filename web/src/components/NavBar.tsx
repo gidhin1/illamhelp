@@ -19,12 +19,13 @@ export function NavBar(): JSX.Element {
 
   return (
     <header className="nav-wrap">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       <div className="container nav">
         <Link href="/" className="brand-mark">
           <span className="brand-dot" />
           IllamHelp
         </Link>
-        <nav className="nav-links">
+        <nav className="nav-links" aria-label="Main navigation">
           {links.map((link) => {
             const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
             return (

@@ -16,7 +16,13 @@ export class DatabaseService implements OnModuleDestroy {
       );
     }
 
-    this.pool = new Pool({ connectionString });
+    this.pool = new Pool({
+      connectionString,
+      max: parseInt(configService.get<string>("DB_POOL_MAX", "20"), 10),
+      idleTimeoutMillis: parseInt(configService.get<string>("DB_POOL_IDLE_TIMEOUT_MS", "30000"), 10),
+      connectionTimeoutMillis: parseInt(configService.get<string>("DB_POOL_CONNECT_TIMEOUT_MS", "5000"), 10),
+      statement_timeout: parseInt(configService.get<string>("DB_STATEMENT_TIMEOUT_MS", "30000"), 10)
+    });
   }
 
   query<T extends QueryResultRow>(
@@ -24,6 +30,30 @@ export class DatabaseService implements OnModuleDestroy {
     params: unknown[] = []
   ): Promise<QueryResult<T>> {
     return this.pool.query<T>(sql, params);
+  }
+
+  /**
+   * Execute a callback inside a database transaction.
+   * Acquires a dedicated client, runs BEGIN, calls the callback,
+   * then COMMIT on success or ROLLBACK on error.
+   */
+  async transaction<T>(
+    callback: (query: <R extends QueryResultRow>(sql: string, params?: unknown[]) => Promise<QueryResult<R>>) => Promise<T>
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await callback(<R extends QueryResultRow>(sql: string, params: unknown[] = []) =>
+        client.query<R>(sql, params)
+      );
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async onModuleDestroy(): Promise<void> {

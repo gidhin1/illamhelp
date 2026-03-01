@@ -1,0 +1,33 @@
+meta {
+  name: Jobs Booking Close
+  type: http
+  seq: 13
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/jobs/{{jobId}}/booking/close
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("jobs booking close returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("jobs booking close moves status to closed", function () {
+    expect(res.body.id).to.equal(bru.getEnvVar("jobId"));
+    expect(res.body.status).to.equal("closed");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Connections Request");
+}
