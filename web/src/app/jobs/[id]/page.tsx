@@ -13,8 +13,7 @@ import {
   Card,
   Field,
   SectionHeader,
-  SelectInput,
-  TextInput
+  SelectInput
 } from "@/components/ui/primitives";
 import {
   canViewConsent,

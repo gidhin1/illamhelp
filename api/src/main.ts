@@ -322,15 +322,17 @@ async function bootstrap(): Promise<void> {
   for (const signal of signals) {
     process.on(signal, () => {
       console.log(`[bootstrap] Received ${signal}, draining connections (${shutdownTimeoutMs}ms)...`);
-      setTimeout(async () => {
-        try {
-          await app.close();
-          console.log("[bootstrap] Graceful shutdown complete.");
-        } catch (error) {
-          console.error("[bootstrap] Error during shutdown:", error);
-        } finally {
-          process.exit(0);
-        }
+      setTimeout(() => {
+        void (async () => {
+          try {
+            await app.close();
+            console.log("[bootstrap] Graceful shutdown complete.");
+          } catch (error) {
+            console.error("[bootstrap] Error during shutdown:", error);
+          } finally {
+            process.exit(0);
+          }
+        })();
       }, shutdownTimeoutMs);
     });
   }

@@ -27,7 +27,6 @@ import {
   DashboardResponse,
   formatDate,
   getMyDashboard,
-  getMyProfile,
   listMyMedia,
   listPublicApprovedMedia,
   MediaAssetRecord,

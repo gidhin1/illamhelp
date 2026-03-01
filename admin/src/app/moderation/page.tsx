@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
 import { PageShell } from "@/components/PageShell";
@@ -323,12 +324,17 @@ function ModerationContent(): React.JSX.Element {
                 <div className="data-row" data-testid="moderation-media-preview">
                   <div className="data-title">Preview</div>
                   {details.media.kind === "image" ? (
-                    <img
+                    <Image
                       data-testid="moderation-preview-image"
                       src={details.media.previewUrl}
                       alt={`Media preview ${details.media.id}`}
+                      width={1200}
+                      height={800}
+                      unoptimized
                       style={{
                         maxWidth: "100%",
+                        width: "auto",
+                        height: "auto",
                         maxHeight: "320px",
                         borderRadius: "12px",
                         border: "1px solid rgba(27, 31, 36, 0.12)"

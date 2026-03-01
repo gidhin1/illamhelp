@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { PageShell } from "@/components/PageShell";
 import { useSession } from "@/components/session/SessionProvider";
-import { Button, Card } from "@/components/ui/primitives";
+import { Card } from "@/components/ui/primitives";
 
 const pillars = [
   {
