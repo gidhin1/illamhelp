@@ -213,7 +213,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${REPORT_ROOT}/trivy"
           {
-            VERSION="${TRIVY_VERSION:-0.57.2}"
+            VERSION="${TRIVY_VERSION:-latest}"
             ARCH="$(uname -m)"
             case "${ARCH}" in
               x86_64|amd64) ASSET_ARCH="64bit" ;;
@@ -224,10 +224,77 @@ jobs:
                 ;;
             esac
 
-            ASSET="trivy_${VERSION}_Linux-${ASSET_ARCH}.tar.gz"
-            URL="https://github.com/aquasecurity/trivy/releases/download/v${VERSION}/${ASSET}"
+            export TRIVY_VERSION_INPUT="${VERSION}"
+            export TRIVY_ASSET_ARCH="${ASSET_ARCH}"
+            export TRIVY_GITHUB_TOKEN="${{ secrets.GITHUB_TOKEN }}"
+
+            RESOLVED="$(python - <<'PY'
+import json
+import os
+import sys
+import urllib.request
+from typing import Optional, Tuple
+
+repo = "aquasecurity/trivy"
+version_input = os.environ.get("TRIVY_VERSION_INPUT", "latest").strip().lower()
+asset_arch = os.environ.get("TRIVY_ASSET_ARCH", "64bit")
+token = os.environ.get("TRIVY_GITHUB_TOKEN", "").strip()
+
+def fetch(url: str) -> Optional[dict]:
+    headers = {"Accept": "application/vnd.github+json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+
+def pick_asset(release: dict, arch: str) -> Optional[Tuple[str, str]]:
+    tag = (release.get("tag_name") or "").lstrip("v")
+    assets = release.get("assets") or []
+    if not tag or not assets:
+        return None
+    preferred = f"trivy_{tag}_Linux-{arch}.tar.gz"
+    for asset in assets:
+        if asset.get("name") == preferred:
+            return tag, asset.get("browser_download_url")
+    suffix = f"Linux-{arch}.tar.gz"
+    for asset in assets:
+        name = asset.get("name") or ""
+        if name.endswith(suffix):
+            return tag, asset.get("browser_download_url")
+    return None
+
+release_candidates = []
+if version_input and version_input != "latest":
+    release_candidates.append(f"https://api.github.com/repos/{repo}/releases/tags/v{version_input}")
+release_candidates.append(f"https://api.github.com/repos/{repo}/releases/latest")
+
+for endpoint in release_candidates:
+    data = fetch(endpoint)
+    if not data:
+        continue
+    picked = pick_asset(data, asset_arch)
+    if picked and picked[1]:
+        print(picked[0])
+        print(picked[1])
+        sys.exit(0)
+
+sys.exit(1)
+PY
+            )"
+
+            RESOLVED_VERSION="$(printf "%s\n" "${RESOLVED}" | sed -n '1p')"
+            URL="$(printf "%s\n" "${RESOLVED}" | sed -n '2p')"
+            if [[ -n "${RESOLVED_VERSION}" && -n "${URL}" ]]; then
+              ASSET="trivy_${RESOLVED_VERSION}_Linux-${ASSET_ARCH}.tar.gz"
+            else
+              ASSET="trivy_Linux-${ASSET_ARCH}.tar.gz"
+            fi
             echo "Trying Trivy binary download: ${URL}"
-            if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 "${URL}" -o "/tmp/${ASSET}"; then
+            if [[ -n "${URL}" ]] && curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 "${URL}" -o "/tmp/${ASSET}"; then
               tar -xzf "/tmp/${ASSET}" -C /tmp trivy
               mkdir -p "${HOME}/.local/bin"
               install -m 0755 /tmp/trivy "${HOME}/.local/bin/trivy"
