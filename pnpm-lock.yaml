@@ -14,8 +14,8 @@ overrides:
   glob@10>minimatch: 9.0.7
   glob@11>minimatch: 10.2.3
   glob@13>minimatch: 10.2.3
-  '@expo/cli>tar': 7.5.8
-  cacache>tar: 7.5.8
+  '@expo/cli>tar': 7.5.10
+  cacache>tar: 7.5.10
 
 importers:
 
@@ -6315,8 +6315,8 @@ packages:
     resolution: {integrity: sha512-g9ljZiwki/LfxmQADO3dEY1CbpmXT5Hm2fJ+QaGKwSXUylMybePR7/67YW7jOrrvjEgL1Fmz5kzyAjWVWLlucg==}
     engines: {node: '>=6'}
 
-  tar@7.5.8:
-    resolution: {integrity: sha512-SYkBtK99u0yXa+IWL0JRzzcl7RxNpvX/U08Z+8DKnysfno7M+uExnTZH8K+VGgShf2qFPKtbNr9QBl8n7WBP6Q==}
+  tar@7.5.10:
+    resolution: {integrity: sha512-8mOPs1//5q/rlkNSPcCegA6hiHJYDmSLEI8aMH/CdSQJNWztHC9WHNam5zdQlfpTwB9Xp7IBEsHfV5LKMJGVAw==}
     engines: {node: '>=18'}
 
   telnet-client@1.2.8:
@@ -8120,7 +8120,7 @@ snapshots:
       source-map-support: 0.5.21
       stacktrace-parser: 0.1.11
       structured-headers: 0.4.1
-      tar: 7.5.8
+      tar: 7.5.10
       temp-dir: 2.0.0
       tempy: 0.7.1
       terminal-link: 2.1.1
@@ -10308,7 +10308,7 @@ snapshots:
       minipass-pipeline: 1.2.4
       p-map: 4.0.0
       ssri: 10.0.6
-      tar: 7.5.8
+      tar: 7.5.10
       unique-filename: 3.0.0
 
   caf@15.0.1: {}
@@ -14327,7 +14327,7 @@ snapshots:
 
   tapable@2.3.0: {}
 
-  tar@7.5.8:
+  tar@7.5.10:
     dependencies:
       '@isaacs/fs-minipass': 4.0.1
       chownr: 3.0.0
