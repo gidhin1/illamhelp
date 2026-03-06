@@ -4,6 +4,7 @@ import { DatabaseService } from "../../common/database/database.service";
 import { assertUuid } from "../../common/utils/uuid";
 import { escapeIlikeLiteral } from "../../common/utils/sql";
 import { ConsentService } from "../consent/consent.service";
+import { NotificationService } from "../notifications/notification.service";
 
 type ConnectionStatus = "pending" | "accepted" | "declined" | "blocked";
 
@@ -60,7 +61,8 @@ export class ConnectionsService {
 
   constructor(
     private readonly databaseService: DatabaseService,
-    private readonly consentService: ConsentService
+    private readonly consentService: ConsentService,
+    private readonly notificationService: NotificationService
   ) { }
 
   async request(input: CreateConnectionRequest): Promise<ConnectionRecord> {
@@ -141,7 +143,18 @@ export class ConnectionsService {
       [userAId, userBId, input.requesterUserId]
     );
 
-    return this.mapRow(inserted.rows[0]);
+    const record = this.mapRow(inserted.rows[0]);
+
+    // Fire-and-forget: notify the target user about the connection request
+    this.notificationService.create({
+      userId: targetUserId,
+      type: "connection_request_received",
+      title: "New connection request",
+      body: "Someone wants to connect with you.",
+      data: { requesterUserId: input.requesterUserId, connectionId: record.id }
+    }).catch((err) => this.logger.warn(`Notification failed: ${err.message}`));
+
+    return record;
   }
 
   async accept(connectionId: string, actorUserId: string): Promise<ConnectionRecord> {
@@ -192,7 +205,18 @@ export class ConnectionsService {
       [connectionId]
     );
 
-    return this.mapRow(updated.rows[0]);
+    const record = this.mapRow(updated.rows[0]);
+
+    // Fire-and-forget: notify the requester that their connection was accepted
+    this.notificationService.create({
+      userId: connection.requested_by_user_id,
+      type: "connection_request_accepted",
+      title: "Connection accepted",
+      body: "Your connection request was accepted!",
+      data: { acceptedByUserId: actorUserId, connectionId }
+    }).catch((err) => this.logger.warn(`Notification failed: ${err.message}`));
+
+    return record;
   }
 
   async decline(connectionId: string, actorUserId: string): Promise<ConnectionRecord> {
@@ -219,7 +243,18 @@ export class ConnectionsService {
       [connectionId]
     );
 
-    return this.mapRow(updated.rows[0]);
+    const record = this.mapRow(updated.rows[0]);
+
+    // Fire-and-forget: notify the requester that their connection was declined
+    this.notificationService.create({
+      userId: connection.requested_by_user_id,
+      type: "connection_request_declined",
+      title: "Connection declined",
+      body: "Your connection request was declined.",
+      data: { declinedByUserId: actorUserId, connectionId }
+    }).catch((err) => this.logger.warn(`Notification failed: ${err.message}`));
+
+    return record;
   }
 
   async block(connectionId: string, actorUserId: string): Promise<ConnectionRecord> {

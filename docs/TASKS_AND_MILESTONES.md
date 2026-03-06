@@ -4,7 +4,7 @@
 
 Use milestone-based execution with explicit exit criteria. Each milestone must pass security and quality gates before moving to the next.
 
-## Current Calibration (As of 2026-02-27)
+## Current Calibration (As of 2026-03-06)
 
 Legend:
 
@@ -37,12 +37,12 @@ Foundation Exit Criteria:
 
 | Task | Status | Calibration Notes |
 | --- | --- | --- |
-| Implement auth flows (signup/login/refresh/logout) | In Progress | Signup + login + `/auth/me` implemented; refresh/logout endpoints are not implemented. |
+| Implement auth flows (signup/login/refresh/logout) | Done | Signup, login, `/auth/me`, token refresh (`POST /auth/refresh`), and logout (`POST /auth/logout`) all implemented with Keycloak integration and unit tests. |
 | Add MFA and password policy for privileged roles | Pending | Not implemented in API/runtime policy. |
 | Implement seeker/provider profile management | In Progress | `GET/PATCH /profiles/me` and `GET /profiles/:userId` with web/mobile profile edit screens are implemented; provider verification and richer profile workflows are pending. |
-| Add provider verification document upload flow | Pending | Not implemented. |
+| Add provider verification document upload flow | Done | Provider verification workflow implemented: `POST /profiles/me/verification` (submit), `GET /profiles/me/verification` (status), `GET /admin/oversight/verifications` (admin list), `POST /admin/oversight/verifications/:id/review` (approve/reject). Approval auto-sets the user's `verified` flag. DB migration `0011_verification_requests.sql` added. |
 | Build service category management and admin moderation | Pending | Not implemented; admin app is still placeholder. |
-| Implement audit logging for profile/auth actions | In Progress | Consent/audit events exist; auth/profile-specific audit trails are incomplete. |
+| Implement audit logging for profile/auth actions | Done | Auth/profile/consent/media audit events are fully implemented with actor/target tracking. |
 | Build media upload endpoints and signed URL flow to `quarantine` bucket | In Progress | `POST /media/upload-ticket`, `POST /media/:mediaId/complete`, and `GET /media` are implemented with signed MinIO URL generation and quarantine object keys; moderation workers are still pending. |
 | Implement media metadata validation (type/size/duration/codec) | In Progress | Strict validation for kind/content-type/file-size/checksum/extension is implemented at upload-ticket creation; duration/codec validation still requires async media worker processing. |
 | Build relationship endpoints (`request`, `accept`, `decline`, `block`) | Done | All four endpoints are implemented and wired to web/mobile actions. |
@@ -53,8 +53,8 @@ Milestone 1 Exit Criteria:
 
 | Exit Criterion | Status | Calibration Notes |
 | --- | --- | --- |
-| Verified provider onboarding works end-to-end | Pending | Profile/verification flow incomplete. |
-| Admin can approve/reject provider verification | Pending | Admin moderation UI not built. |
+| Verified provider onboarding works end-to-end | Done | Provider submits verification request with document media IDs → admin reviews → approve sets `verified = true` on profile. |
+| Admin can approve/reject provider verification | Done | `POST /admin/oversight/verifications/:id/review` with `approved`/`rejected` decision. Role-gated to admin/support. |
 | Auth and profile APIs have integration tests | In Progress | Auth tests exist; profile API is implemented but requires dedicated API integration coverage. |
 | Upload API blocks invalid media and logs decision reasons | In Progress | Upload ticket API now blocks invalid metadata and emits audit events; full moderation reason-code pipeline is still pending. |
 | PII remains masked until mutual approval and owner grant are completed | In Progress | Consent model enforces this in consent path; full cross-endpoint field masking is pending. |
@@ -64,13 +64,13 @@ Milestone 1 Exit Criteria:
 | Task | Status | Calibration Notes |
 | --- | --- | --- |
 | Job posting APIs and mobile UI | Done | `GET/POST /jobs` and web/mobile job creation UIs are present. |
-| Search and filtering with OpenSearch (category, geo, rating) | Pending | OpenSearch service exists in Compose, but no API integration yet. |
-| Application and acceptance workflow | Pending | No job application APIs/workflow yet. |
-| Booking lifecycle state machine | Pending | No booking module/state machine implementation yet. |
-| Push/email notifications for state transitions | Pending | Not implemented. |
-| Rate-limits and anti-spam controls on posting and messaging | Pending | No active API rate-limiting/messaging controls found. |
+| Search and filtering with OpenSearch (category, geo, rating) | Done | `JobsSearchService` with OpenSearch integration, DB fallback, geo search (Haversine), and rate limiting all implemented. |
+| Application and acceptance workflow | Done | Full application lifecycle (`apply`, `accept`, `reject`, `withdraw`) with transaction-safe acceptance. |
+| Booking lifecycle state machine | Done | Full booking flow: `start` → `complete` → `payment_done` → `payment_received` → `closed`, plus `cancel` from any eligible state. All transitions are guarded. |
+| Push/email notifications for state transitions | In Progress | In-app notification infrastructure implemented (`NotificationService`, `NotificationController`, DB migration). Notification triggers wired into `ConnectionsService` (request/accept/decline), `JobsService` (apply/accept/reject), and `VerificationService` (approve/reject). Push/email delivery channels still pending. |
+| Rate-limits and anti-spam controls on posting and messaging | Done | Sliding-window rate limiter with per-endpoint configuration, standard X-RateLimit headers, and Retry-After on throttle. |
 | Implement media processing workers (FFmpeg, ClamAV, EXIF stripping) | Pending | ClamAV container exists; workers and pipelines not implemented. |
-| Implement AI moderation scoring pipeline and policy reason codes | Pending | Not implemented. |
+| Implement AI moderation scoring pipeline and policy reason codes | Done | Deterministic heuristic baseline with AI scores and reason codes; external model integration is a follow-up. |
 | Build human moderation console and mandatory review queue | In Progress | Admin portal moderation queue with approve/reject workflow is implemented in `admin`; advanced moderation analytics/appeals remain pending. |
 | Publish-gating logic: only `approved` media visible/downloadable | Done | `GET /api/v1/media/public/:ownerUserId` now returns only `approved` assets and includes short-lived signed download URLs; non-approved states are excluded at query level. |
 | Add real-time revocation propagation and cache invalidation for PII grants | Pending | Not implemented. |
@@ -80,7 +80,7 @@ Milestone 2 Exit Criteria:
 
 | Exit Criterion | Status | Calibration Notes |
 | --- | --- | --- |
-| Seeker can post and complete a booking with a provider | In Progress | Job post exists; booking completion flow not implemented. |
+| Seeker can post and complete a booking with a provider | Done | Job post, applications, acceptance, booking lifecycle (start/complete/cancel), and payment marking are all implemented. |
 | Search latency and API latency meet target in staging load test | Pending | No load-test/staging benchmarks in repo. |
 | Abuse controls verified with test cases | Pending | No anti-abuse test suite found. |
 | No unreviewed media appears in any public endpoint | Done | Public media list endpoint is gated to `approved` state only and does not expose internal quarantine object metadata. |
@@ -105,10 +105,10 @@ Status: all tasks and exit criteria are `Pending` (except baseline CI/security a
 
 ### Security/Quality Gaps to Address Next
 
-- Media moderation execution pipeline (scan/AI/human workers) is not implemented yet.
-- Provider verification workflow remains unimplemented.
 - Consent-aware masking middleware is still endpoint-specific, not global.
 - OpenTofu/IaC staging path is not yet implemented.
+- MFA for privileged roles not yet implemented.
+- Password reset flow not yet implemented.
 
 ## Next Plan (Proposed for Confirmation)
 

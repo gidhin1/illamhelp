@@ -6,6 +6,7 @@ import { ApplyJobDto } from "./dto/apply-job.dto";
 import { CancelBookingDto } from "./dto/cancel-booking.dto";
 import { CreateJobDto } from "./dto/create-job.dto";
 import { RejectJobApplicationDto } from "./dto/reject-job-application.dto";
+import { RevokeAssignmentDto } from "./dto/revoke-assignment.dto";
 import { SearchJobsDto } from "./dto/search-jobs.dto";
 import {
   JobApplicationRecord,
@@ -176,6 +177,19 @@ export class JobsController {
     return this.jobsService.closeBooking({
       jobId,
       actorUserId: user.userId
+    });
+  }
+
+  @Post(":id/booking/revoke-assignment")
+  revokeAssignment(
+    @Param("id") jobId: string,
+    @Body() body: RevokeAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<JobRecord> {
+    return this.jobsService.revokeAssignment({
+      jobId,
+      actorUserId: user.userId,
+      reason: body.reason
     });
   }
 

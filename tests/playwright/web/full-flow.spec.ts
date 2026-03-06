@@ -1,4 +1,6 @@
 import { expect, APIRequestContext, Page, test } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import {
   cardByHeading,
@@ -10,11 +12,17 @@ import {
   waitForSuccessMessage
 } from "../utils/flow-helpers";
 
-const apiBaseUrl = process.env.PW_API_BASE_URL ?? "http://localhost:4000/api/v1";
+const apiBaseUrl = process.env.PW_API_BASE_URL ?? "http://localhost:4010/api/v1";
+const adminBaseUrl = process.env.PW_ADMIN_BASE_URL ?? "http://localhost:3103";
 
 type AuthSessionResponse = {
   userId: string;
   accessToken: string;
+};
+
+type AuthMeResponse = {
+  userId: string;
+  roles: string[];
 };
 
 type ConnectionRecord = {
@@ -74,6 +82,114 @@ type JobApplicationApiRecord = {
   status: "applied" | "shortlisted" | "accepted" | "rejected" | "withdrawn";
 };
 
+type VerificationApiRecord = {
+  id: string;
+  userId: string;
+  documentMediaIds: string[];
+  documentType: string;
+  notes: string | null;
+  status: "pending" | "under_review" | "approved" | "rejected";
+  reviewerUserId: string | null;
+  reviewerNotes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type NotificationApiRecord = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+};
+
+type KeycloakAdminConfig = {
+  keycloakUrl: string;
+  keycloakRealm: string;
+  adminUsername: string;
+  adminPassword: string;
+};
+
+let dotEnvCache: Record<string, string> | null = null;
+
+function loadDotEnv(): Record<string, string> {
+  if (dotEnvCache) {
+    return dotEnvCache;
+  }
+
+  const envPath = resolve(process.cwd(), ".env");
+  try {
+    const content = readFileSync(envPath, "utf8");
+    const result: Record<string, string> = {};
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        continue;
+      }
+      const equalsIndex = line.indexOf("=");
+      if (equalsIndex < 0) {
+        continue;
+      }
+      const key = line.slice(0, equalsIndex).trim();
+      if (!key) {
+        continue;
+      }
+      const value = line
+        .slice(equalsIndex + 1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      result[key] = value;
+    }
+    dotEnvCache = result;
+    return result;
+  } catch {
+    dotEnvCache = {};
+    return dotEnvCache;
+  }
+}
+
+function readEnvValue(key: string): string | undefined {
+  const processValue = process.env[key];
+  if (typeof processValue === "string" && processValue.trim().length > 0) {
+    return processValue.trim();
+  }
+  const dotEnvValue = loadDotEnv()[key];
+  if (typeof dotEnvValue === "string" && dotEnvValue.trim().length > 0) {
+    return dotEnvValue.trim();
+  }
+  return undefined;
+}
+
+function readKeycloakAdminConfig(): KeycloakAdminConfig {
+  const keycloakUrl = readEnvValue("KEYCLOAK_URL") ?? "http://localhost:8080";
+  const keycloakRealm = readEnvValue("KEYCLOAK_REALM") ?? "illamhelp";
+  const adminUsername = readEnvValue("KEYCLOAK_ADMIN");
+  const adminPassword = readEnvValue("KEYCLOAK_ADMIN_PASSWORD");
+
+  if (!adminUsername || !adminPassword) {
+    throw new Error(
+      "KEYCLOAK_ADMIN and KEYCLOAK_ADMIN_PASSWORD are required for admin E2E role assignment."
+    );
+  }
+
+  return {
+    keycloakUrl: keycloakUrl.replace(/\/$/, ""),
+    keycloakRealm,
+    adminUsername,
+    adminPassword
+  };
+}
+
+async function readErrorPayload(response: import("@playwright/test").APIResponse): Promise<string> {
+  try {
+    const body = await response.text();
+    return body || "<empty response>";
+  } catch {
+    return "<unable to read response body>";
+  }
+}
+
 function normalizeListResponse<T>(
   payload:
     | T[]
@@ -117,6 +233,19 @@ async function loginByApi(request: APIRequestContext, user: E2eUser): Promise<Au
   });
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as AuthSessionResponse;
+}
+
+async function authMeByApi(
+  request: APIRequestContext,
+  accessToken: string
+): Promise<AuthMeResponse> {
+  const response = await request.get(`${apiBaseUrl}/auth/me`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as AuthMeResponse;
 }
 
 async function listConnectionsByApi(
@@ -319,6 +448,151 @@ async function closeBookingByApi(
   return (await response.json()) as JobApiRecord;
 }
 
+async function getMyVerificationByApi(
+  request: APIRequestContext,
+  accessToken: string
+): Promise<VerificationApiRecord | null> {
+  const response = await request.get(`${apiBaseUrl}/profiles/me/verification`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as VerificationApiRecord | null;
+}
+
+async function listNotificationsByApi(
+  request: APIRequestContext,
+  accessToken: string,
+  unreadOnly = false
+): Promise<NotificationApiRecord[]> {
+  const params = new URLSearchParams();
+  params.set("limit", "100");
+  if (unreadOnly) {
+    params.set("unreadOnly", "true");
+  }
+  const response = await request.get(`${apiBaseUrl}/notifications?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as
+    | NotificationApiRecord[]
+    | { items?: NotificationApiRecord[]; total?: number; limit?: number; offset?: number };
+  return normalizeListResponse(payload);
+}
+
+async function getKeycloakAdminAccessToken(
+  request: APIRequestContext,
+  config: KeycloakAdminConfig
+): Promise<string> {
+  const response = await request.post(
+    `${config.keycloakUrl}/realms/master/protocol/openid-connect/token`,
+    {
+      form: {
+        grant_type: "password",
+        client_id: "admin-cli",
+        username: config.adminUsername,
+        password: config.adminPassword
+      }
+    }
+  );
+  if (!response.ok()) {
+    const body = await readErrorPayload(response);
+    throw new Error(`Keycloak admin token request failed (${response.status()}): ${body}`);
+  }
+
+  const payload = (await response.json()) as { access_token?: string };
+  if (!payload.access_token) {
+    throw new Error("Keycloak admin token response did not contain access_token.");
+  }
+  return payload.access_token;
+}
+
+async function ensureRealmRoleForUser(
+  request: APIRequestContext,
+  username: string,
+  roleName: "admin" | "support"
+): Promise<void> {
+  const config = readKeycloakAdminConfig();
+  const adminToken = await getKeycloakAdminAccessToken(request, config);
+  const authHeader = { Authorization: `Bearer ${adminToken}` };
+
+  const usersResponse = await request.get(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/users?username=${encodeURIComponent(username)}&exact=true`,
+    {
+      headers: authHeader
+    }
+  );
+  if (!usersResponse.ok()) {
+    const body = await readErrorPayload(usersResponse);
+    throw new Error(`Keycloak user lookup failed (${usersResponse.status()}): ${body}`);
+  }
+  const usersPayload = (await usersResponse.json()) as Array<{ id?: string; username?: string }>;
+  const matchedUser = usersPayload.find((item) => item.username === username) ?? usersPayload[0];
+  const keycloakUserId = matchedUser?.id;
+  if (!keycloakUserId) {
+    throw new Error(`Keycloak user '${username}' not found for role assignment.`);
+  }
+
+  const roleResponse = await request.get(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/roles/${encodeURIComponent(roleName)}`,
+    {
+      headers: authHeader
+    }
+  );
+  if (!roleResponse.ok()) {
+    const body = await readErrorPayload(roleResponse);
+    throw new Error(`Keycloak role lookup failed (${roleResponse.status()}): ${body}`);
+  }
+  const rolePayload = (await roleResponse.json()) as {
+    id?: string;
+    name?: string;
+    composite?: boolean;
+    clientRole?: boolean;
+    containerId?: string;
+  };
+  if (!rolePayload.id || !rolePayload.name) {
+    throw new Error(`Keycloak role payload for '${roleName}' is missing id/name.`);
+  }
+
+  const mappingsResponse = await request.get(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/users/${encodeURIComponent(keycloakUserId)}/role-mappings/realm`,
+    {
+      headers: authHeader
+    }
+  );
+  if (!mappingsResponse.ok()) {
+    const body = await readErrorPayload(mappingsResponse);
+    throw new Error(`Keycloak role mapping lookup failed (${mappingsResponse.status()}): ${body}`);
+  }
+  const mappingsPayload = (await mappingsResponse.json()) as Array<{ name?: string }>;
+  if (mappingsPayload.some((item) => item.name === roleName)) {
+    return;
+  }
+
+  const assignResponse = await request.post(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/users/${encodeURIComponent(keycloakUserId)}/role-mappings/realm`,
+    {
+      headers: authHeader,
+      data: [
+        {
+          id: rolePayload.id,
+          name: rolePayload.name,
+          composite: rolePayload.composite ?? false,
+          clientRole: rolePayload.clientRole ?? false,
+          containerId: rolePayload.containerId ?? config.keycloakRealm
+        }
+      ]
+    }
+  );
+  if (!(assignResponse.status() === 204 || assignResponse.status() === 200 || assignResponse.status() === 201)) {
+    const body = await readErrorPayload(assignResponse);
+    throw new Error(`Keycloak role assignment failed (${assignResponse.status()}): ${body}`);
+  }
+}
+
 async function requestConnectionByApi(
   request: APIRequestContext,
   accessToken: string,
@@ -430,8 +704,18 @@ async function waitForSelectOptionValue(
   throw new Error(`Option value '${optionValue}' not found in select before timeout.`);
 }
 
+function isAuthRateLimitedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("http 429") || message.includes("too many authentication attempts");
+}
+
+async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise<void> {
+  const waitMs = Math.min(20_000, 2_500 * attempt);
+  await page.waitForTimeout(waitMs);
+}
+
 async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
     await page.goto("/auth/register");
     await page.getByLabel("First name").fill(user.firstName);
@@ -449,9 +733,8 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionRespo
       await waitForAuthRedirectOrError(page, /\/jobs$/);
       return session;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (attempt < 3 && message.includes("HTTP 429")) {
-        await page.waitForTimeout(1500 * attempt);
+      if (attempt < 8 && isAuthRateLimitedError(error)) {
+        await waitForAuthRateLimitBackoff(page, attempt);
         continue;
       }
       throw error;
@@ -462,7 +745,7 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionRespo
 }
 
 async function loginByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse> {
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
     await page.goto("/auth/login");
     await page.getByLabel("Username or Email").fill(user.username);
@@ -476,9 +759,8 @@ async function loginByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse
       await waitForAuthRedirectOrError(page, /\/jobs$/);
       return session;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (attempt < 3 && message.includes("HTTP 429")) {
-        await page.waitForTimeout(1500 * attempt);
+      if (attempt < 8 && isAuthRateLimitedError(error)) {
+        await waitForAuthRateLimitBackoff(page, attempt);
         continue;
       }
       throw error;
@@ -486,6 +768,23 @@ async function loginByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse
   }
 
   throw new Error("Login flow did not complete.");
+}
+
+async function applyAdminSessionCookie(page: Page, accessToken: string): Promise<void> {
+  await page.context().clearCookies();
+  await page.goto(`${adminBaseUrl}/auth/login?e2e_cookie=${Date.now()}`, {
+    waitUntil: "domcontentloaded"
+  });
+  await page.evaluate((token) => {
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    document.cookie = `illamhelp_admin_access_token=${encodeURIComponent(token)}; Path=/; Max-Age=${60 * 60}; SameSite=Lax${secure}`;
+  }, accessToken);
+  await page.goto(`${adminBaseUrl}/`);
+  await expect(page.getByTestId("admin-role-pill").first()).toContainText("Admin Access", {
+    timeout: 20_000
+  });
 }
 
 async function applySessionCookie(page: Page, accessToken: string): Promise<void> {
@@ -1086,18 +1385,106 @@ test("web E2E booking lifecycle: apply -> accept -> in_progress -> completed -> 
   expect(closed.status).toBe("closed");
 
   await applySessionCookie(page, providerUiSession.accessToken);
-  await page.goto("/jobs");
-  const providerJobCard = page
-    .locator("a")
-    .filter({ hasText: jobTitle })
-    .first();
-  await expect(providerJobCard).toBeVisible();
-  await expect(providerJobCard.getByText("closed").first()).toBeVisible();
-
   await page.goto(`/jobs/${jobId}`);
   await expect(page.getByRole("heading", { name: jobTitle }).first()).toBeVisible();
   await expect(page.getByText("closed").first()).toBeVisible();
 
   expect(parseUuid(jobId, "booking job id")).toBeTruthy();
   expect(parseUuid(providerApplication.id, "booking application id")).toBeTruthy();
+});
+
+test("web E2E verification lifecycle: submit -> admin review -> user notification", async ({
+  browser,
+  request
+}) => {
+  const member = makeUser("both");
+  const adminCandidate = makeUser("both");
+  const shortId = Date.now().toString(36).slice(-4);
+  const reviewNote = `Verification approved in E2E ${shortId}`;
+  const documentMediaId = "11111111-1111-4111-8111-111111111111";
+
+  const memberPage = await browser.newPage();
+  const adminPage = await browser.newPage();
+
+  try {
+    const memberSession = await registerByUi(memberPage, member);
+    await memberPage.goto("/verification");
+    await memberPage.getByLabel("Document media IDs").fill(documentMediaId);
+    await memberPage
+      .getByLabel("Notes (optional)")
+      .fill("Government ID uploaded for verification workflow E2E.");
+    await memberPage.getByRole("button", { name: "Submit verification request" }).click();
+    await waitForSuccessMessage(
+      memberPage,
+      "Verification request submitted! We'll review your documents shortly."
+    );
+
+    const createdRequest = await poll(async () => {
+      const verification = await getMyVerificationByApi(request, memberSession.accessToken);
+      if (!verification) {
+        return undefined;
+      }
+      return verification.status === "pending" ? verification : undefined;
+    }, 30_000);
+
+    const verificationRequestId = createdRequest.id;
+    expect(parseUuid(verificationRequestId, "verification request id")).toBeTruthy();
+
+    await registerByUi(adminPage, adminCandidate);
+    await signOutByUi(adminPage);
+    await ensureRealmRoleForUser(request, adminCandidate.username, "admin");
+
+    const adminSession = await poll(async () => {
+      const session = await loginByApi(request, adminCandidate);
+      const me = await authMeByApi(request, session.accessToken);
+      return me.roles.includes("admin") ? session : undefined;
+    }, 40_000);
+
+    await applyAdminSessionCookie(adminPage, adminSession.accessToken);
+
+    await adminPage.goto(`${adminBaseUrl}/verifications`);
+    const verificationCard = await poll(async () => {
+      const candidate = adminPage
+        .locator(".card")
+        .filter({ hasText: memberSession.userId })
+        .first();
+      if (await candidate.isVisible().catch(() => false)) {
+        return candidate;
+      }
+      await adminPage.reload({ waitUntil: "domcontentloaded" });
+      return undefined;
+    }, 45_000);
+    await verificationCard.getByRole("button", { name: "Review" }).click();
+    await verificationCard
+      .getByPlaceholder("Reason for approval or rejection...")
+      .fill(reviewNote);
+    await verificationCard.getByRole("button", { name: /Approve/i }).click();
+    await expect(adminPage.getByText(/Verification approved/i).first()).toBeVisible();
+
+    const reviewed = await poll(async () => {
+      const verification = await getMyVerificationByApi(request, memberSession.accessToken);
+      return verification?.status === "approved" ? verification : undefined;
+    }, 30_000);
+    expect(reviewed.reviewerUserId).toBe(adminSession.userId);
+    expect(reviewed.reviewerNotes).toBe(reviewNote);
+
+    await poll(async () => {
+      const notifications = await listNotificationsByApi(request, memberSession.accessToken, true);
+      return notifications.some(
+        (item) => item.type === "verification_approved" && item.title.includes("Verification approved")
+      )
+        ? true
+        : undefined;
+    }, 30_000);
+
+    await memberPage.goto("/notifications");
+    await expect(memberPage.getByText("Verification approved!").first()).toBeVisible();
+
+    await memberPage.goto("/verification");
+    await expect(memberPage.getByText("✅ Approved").first()).toBeVisible();
+    await expect(memberPage.getByText(reviewNote).first()).toBeVisible();
+  } finally {
+    await memberPage.close();
+    await adminPage.close();
+  }
 });

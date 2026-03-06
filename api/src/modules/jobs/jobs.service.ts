@@ -9,6 +9,7 @@ import { DatabaseService } from "../../common/database/database.service";
 import { assertUuid } from "../../common/utils/uuid";
 import { escapeIlikeLiteral } from "../../common/utils/sql";
 import { AuditService } from "../audit/audit.service";
+import { NotificationService } from "../notifications/notification.service";
 import {
   JobsSearchService,
   type SearchIndexedJobInput
@@ -132,9 +133,13 @@ interface DbApplicationWithJobRow extends DbJobApplicationRow {
 
 @Injectable()
 export class JobsService {
+  private searchSyncMutedUntilMs = 0;
+  private readonly searchSyncMuteDurationMs = 120_000;
+
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly auditService: AuditService,
+    private readonly notificationService: NotificationService,
     @Optional() private readonly jobsSearchService?: JobsSearchService
   ) { }
 
@@ -364,7 +369,14 @@ export class JobsService {
         message = EXCLUDED.message,
         updated_at = now()
       WHERE job_applications.status = 'withdrawn'::application_status
-      RETURNING id, job_id, provider_user_id, status, message, created_at, updated_at
+      RETURNING
+        id,
+        job_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+        status,
+        message,
+        created_at,
+        updated_at
       `,
       [input.jobId, input.providerUserId, input.message?.trim() || null]
     );
@@ -384,6 +396,15 @@ export class JobsService {
       }
     });
 
+    // Notify the job owner about the new application
+    this.notificationService.create({
+      userId: job.seeker_user_id,
+      type: "job_application_received",
+      title: "New job application",
+      body: "A provider applied to your job.",
+      data: { jobId: application.jobId, applicationId: application.id }
+    }).catch(() => { /* fire-and-forget */ });
+
     return application;
   }
 
@@ -396,7 +417,14 @@ export class JobsService {
 
     const result = await this.databaseService.query<DbJobApplicationRow>(
       `
-      SELECT id, job_id, provider_user_id, status, message, created_at, updated_at
+      SELECT
+        id,
+        job_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+        status,
+        message,
+        created_at,
+        updated_at
       FROM job_applications
       WHERE job_id = $1::uuid
         AND (
@@ -416,7 +444,14 @@ export class JobsService {
 
     const result = await this.databaseService.query<DbJobApplicationRow>(
       `
-      SELECT id, job_id, provider_user_id, status, message, created_at, updated_at
+      SELECT
+        id,
+        job_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+        status,
+        message,
+        created_at,
+        updated_at
       FROM job_applications
       WHERE provider_user_id = $1::uuid
       ORDER BY created_at DESC
@@ -450,7 +485,14 @@ export class JobsService {
           status = 'accepted'::application_status,
           updated_at = now()
         WHERE id = $1::uuid
-        RETURNING id, job_id, provider_user_id, status, message, created_at, updated_at
+        RETURNING
+          id,
+          job_id,
+          COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+          status,
+          message,
+          created_at,
+          updated_at
         `,
         [input.applicationId]
       );
@@ -501,6 +543,28 @@ export class JobsService {
       }
     });
 
+    // Notify the provider their application was accepted
+    this.notificationService.create({
+      userId: application.provider_user_id,
+      type: "job_application_accepted",
+      title: "Application accepted!",
+      body: "Your job application has been accepted.",
+      data: { jobId: application.job_id, applicationId: input.applicationId }
+    }).catch(() => { /* fire-and-forget */ });
+
+    // Notify the job owner that assignment is now active and booking can start
+    this.notificationService.create({
+      userId: input.seekerUserId,
+      type: "job_application_accepted",
+      title: "Provider assigned",
+      body: "You assigned a provider. Booking can start now.",
+      data: {
+        jobId: application.job_id,
+        applicationId: input.applicationId,
+        providerUserId: application.provider_user_id
+      }
+    }).catch(() => { /* fire-and-forget */ });
+
     return this.mapApplicationRow(accepted.rows[0]);
   }
 
@@ -513,7 +577,7 @@ export class JobsService {
       throw new BadRequestException("Only job owner can reject applications");
     }
     if (application.status === "rejected") {
-      return this.mapApplicationRow(application);
+      return this.getPublicApplicationById(application.id);
     }
     if (application.status === "withdrawn") {
       throw new BadRequestException("Cannot reject an application already withdrawn");
@@ -529,7 +593,14 @@ export class JobsService {
         status = 'rejected'::application_status,
         updated_at = now()
       WHERE id = $1::uuid
-      RETURNING id, job_id, provider_user_id, status, message, created_at, updated_at
+      RETURNING
+        id,
+        job_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+        status,
+        message,
+        created_at,
+        updated_at
       `,
       [input.applicationId]
     );
@@ -545,6 +616,15 @@ export class JobsService {
       }
     });
 
+    // Notify the provider their application was rejected
+    this.notificationService.create({
+      userId: application.provider_user_id,
+      type: "job_application_rejected",
+      title: "Application not selected",
+      body: "Your job application was not selected this time.",
+      data: { jobId: application.job_id, applicationId: input.applicationId }
+    }).catch(() => { /* fire-and-forget */ });
+
     return this.mapApplicationRow(updated.rows[0]);
   }
 
@@ -557,7 +637,7 @@ export class JobsService {
       throw new BadRequestException("Only applicant can withdraw this application");
     }
     if (application.status === "withdrawn") {
-      return this.mapApplicationRow(application);
+      return this.getPublicApplicationById(application.id);
     }
     if (application.status === "accepted") {
       throw new BadRequestException(
@@ -575,7 +655,14 @@ export class JobsService {
         status = 'withdrawn'::application_status,
         updated_at = now()
       WHERE id = $1::uuid
-      RETURNING id, job_id, provider_user_id, status, message, created_at, updated_at
+      RETURNING
+        id,
+        job_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+        status,
+        message,
+        created_at,
+        updated_at
       `,
       [input.applicationId]
     );
@@ -946,6 +1033,126 @@ export class JobsService {
     return this.getPublicJobById(internalRecord.id);
   }
 
+  async revokeAssignment(input: UpdateBookingInput): Promise<JobRecord> {
+    assertUuid(input.jobId, "jobId");
+    assertUuid(input.actorUserId, "actorUserId");
+
+    const job = await this.getJobOrThrow(input.jobId);
+    if (job.status !== "accepted") {
+      throw new BadRequestException(
+        "Assignment can be revoked only while the job is accepted and before work starts"
+      );
+    }
+    if (job.seeker_user_id !== input.actorUserId) {
+      throw new BadRequestException("Only job owner can revoke assignment");
+    }
+    if (!job.accepted_application_id || !job.assigned_provider_user_id) {
+      throw new BadRequestException("No active assignment found for this job");
+    }
+
+    const acceptedApplication = await this.getApplicationWithJobOrThrow(
+      job.accepted_application_id
+    );
+    const revokeWindowMinutes = this.getAssignmentRevokeWindowMinutes();
+    const revokeDeadlineEpochMs =
+      acceptedApplication.updated_at.getTime() + revokeWindowMinutes * 60 * 1000;
+    if (Date.now() > revokeDeadlineEpochMs) {
+      throw new BadRequestException(
+        `Assignment can be revoked only within ${revokeWindowMinutes} minutes of approval`
+      );
+    }
+
+    const updated = await this.databaseService.transaction(async (query) => {
+      const applicationResult = await query(
+        `
+        UPDATE job_applications
+        SET
+          status = 'rejected'::application_status,
+          updated_at = now()
+        WHERE id = $1::uuid
+          AND status = 'accepted'::application_status
+        `,
+        [job.accepted_application_id]
+      );
+      if (!applicationResult.rowCount) {
+        throw new BadRequestException(
+          "Accepted assignment is no longer active and cannot be revoked"
+        );
+      }
+
+      const jobResult = await query<DbJobRow>(
+        `
+        UPDATE jobs
+        SET
+          status = 'posted'::job_status,
+          assigned_provider_user_id = NULL,
+          accepted_application_id = NULL,
+          updated_at = now()
+        WHERE id = $1::uuid
+          AND status = 'accepted'::job_status
+        RETURNING
+          id,
+          seeker_user_id,
+          category,
+          title,
+          description,
+          location_text,
+          visibility,
+          location_latitude,
+          location_longitude,
+          status,
+          assigned_provider_user_id,
+          accepted_application_id,
+          created_at,
+          updated_at
+        `,
+        [job.id]
+      );
+      if (!jobResult.rowCount) {
+        throw new BadRequestException("Job assignment state changed; retry the operation");
+      }
+
+      return jobResult;
+    });
+
+    const internalRecord = this.mapJobRow(updated.rows[0]);
+    await this.auditService.logEvent({
+      actorUserId: input.actorUserId,
+      targetUserId: job.assigned_provider_user_id,
+      eventType: "job_assignment_revoked",
+      metadata: {
+        jobId: internalRecord.id,
+        revokedApplicationId: job.accepted_application_id,
+        reason: input.reason?.trim() || null
+      }
+    });
+
+    this.notificationService.create({
+      userId: job.assigned_provider_user_id,
+      type: "job_application_rejected",
+      title: "Assignment revoked",
+      body: "The job owner revoked your assignment before work started.",
+      data: {
+        jobId: internalRecord.id,
+        applicationId: job.accepted_application_id
+      }
+    }).catch(() => { /* fire-and-forget */ });
+
+    this.notificationService.create({
+      userId: input.actorUserId,
+      type: "job_application_accepted",
+      title: "Assignment revoked",
+      body: "Assignment was revoked. You can pick another applicant.",
+      data: {
+        jobId: internalRecord.id
+      }
+    }).catch(() => { /* fire-and-forget */ });
+
+    await this.syncSearchIndex(internalRecord);
+
+    return this.getPublicJobById(internalRecord.id);
+  }
+
   private normalizeSearchInput(input: SearchJobsInput): SearchJobsInput {
     const normalizedQuery = input.q?.trim();
     const normalizedCategory = input.category?.trim();
@@ -1155,6 +1362,11 @@ export class JobsService {
       return;
     }
 
+    const now = Date.now();
+    if (now < this.searchSyncMutedUntilMs) {
+      return;
+    }
+
     const payload: SearchIndexedJobInput = {
       id: job.id,
       seekerUserId: job.seekerUserId,
@@ -1172,10 +1384,14 @@ export class JobsService {
     try {
       await this.jobsSearchService.indexJob(payload);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.searchSyncMutedUntilMs = now + this.searchSyncMuteDurationMs;
+
       console.warn(
-        "[JobsService] Search index sync failed for job %s: %s",
+        "[JobsService] Search index sync failed for job %s: %s (muting for %d seconds)",
         job.id,
-        error instanceof Error ? error.message : String(error)
+        message,
+        Math.trunc(this.searchSyncMuteDurationMs / 1000)
       );
     }
   }
@@ -1260,6 +1476,30 @@ export class JobsService {
     return result.rows[0];
   }
 
+  private async getPublicApplicationById(applicationId: string): Promise<JobApplicationRecord> {
+    const result = await this.databaseService.query<DbJobApplicationRow>(
+      `
+      SELECT
+        id,
+        job_id,
+        COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
+        status,
+        message,
+        created_at,
+        updated_at
+      FROM job_applications
+      WHERE id = $1::uuid
+      `,
+      [applicationId]
+    );
+
+    if (!result.rowCount) {
+      throw new NotFoundException("Job application not found");
+    }
+
+    return this.mapApplicationRow(result.rows[0]);
+  }
+
   private mapJobRow(row: DbJobRow): JobRecord {
     return {
       id: row.id,
@@ -1289,5 +1529,16 @@ export class JobsService {
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString()
     };
+  }
+
+  private getAssignmentRevokeWindowMinutes(): number {
+    const parsed = Number.parseInt(
+      process.env.JOB_ASSIGNMENT_REVOKE_WINDOW_MINUTES ?? "30",
+      10
+    );
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 30;
+    }
+    return Math.min(parsed, 24 * 60);
   }
 }

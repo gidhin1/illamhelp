@@ -68,14 +68,14 @@ services:
     image: nats:2.11-alpine
     container_name: illamhelp-nats
     restart: unless-stopped
-    command: ["-js", "-sd", "/data"]
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
       - "4222:4222"
       - "8222:8222"
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD", "nats-server", "--signal", "ldm"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -88,6 +88,7 @@ services:
     environment:
       discovery.type: single-node
       plugins.security.disabled: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
       OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms384m -Xmx384m}
     ulimits:
       memlock:

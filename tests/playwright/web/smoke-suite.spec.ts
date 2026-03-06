@@ -1,6 +1,15 @@
 import { expect, Page, test } from "@playwright/test";
 
-import { E2eUser, makeUser, waitForSuccessMessage } from "../utils/flow-helpers";
+import {
+  cardByHeading,
+  E2eUser,
+  makeUser,
+  parseMemberId,
+  readTextByTestId,
+  waitForSuccessMessage
+} from "../utils/flow-helpers";
+
+const apiBaseUrl = process.env.PW_API_BASE_URL ?? "http://localhost:4010/api/v1";
 
 interface AuthUiSession {
   accessToken: string;
@@ -8,6 +17,16 @@ interface AuthUiSession {
 
 let sharedUser: E2eUser | null = null;
 let sharedSession: AuthUiSession | null = null;
+
+function isAuthRateLimitedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("http 429") || message.includes("too many authentication attempts");
+}
+
+async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise<void> {
+  const waitMs = Math.min(20_000, 2_500 * attempt);
+  await page.waitForTimeout(waitMs);
+}
 
 async function waitForAuthResponse(
   page: Page,
@@ -77,7 +96,7 @@ async function resetBrowserSession(page: Page): Promise<void> {
 }
 
 async function registerByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
     await page.goto("/auth/register");
     await page.getByLabel("First name").fill(user.firstName);
@@ -94,9 +113,8 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
       await expect(page).toHaveURL(/\/jobs$/);
       return session;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (attempt < 5 && message.includes("HTTP 429")) {
-        await page.waitForTimeout(2500 * attempt);
+      if (attempt < 8 && isAuthRateLimitedError(error)) {
+        await waitForAuthRateLimitBackoff(page, attempt);
         continue;
       }
       throw error;
@@ -107,7 +125,7 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
 }
 
 async function loginByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
-  for (let attempt = 1; attempt <= 5; attempt += 1) {
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
     await page.goto("/auth/login");
     await page.getByLabel("Username or Email").fill(user.username);
@@ -120,9 +138,8 @@ async function loginByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
       await expect(page).toHaveURL(/\/jobs$/);
       return session;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (attempt < 5 && message.includes("HTTP 429")) {
-        await page.waitForTimeout(2500 * attempt);
+      if (attempt < 8 && isAuthRateLimitedError(error)) {
+        await waitForAuthRateLimitBackoff(page, attempt);
         continue;
       }
       throw error;
@@ -143,6 +160,55 @@ async function applySessionCookie(page: Page, accessToken: string): Promise<void
   await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible({
     timeout: 20_000
   });
+}
+
+async function requestConnectionByApi(
+  request: import("@playwright/test").APIRequestContext,
+  accessToken: string,
+  targetUserId: string
+): Promise<void> {
+  const response = await request.post(`${apiBaseUrl}/connections/request`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    },
+    data: {
+      targetUserId
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+}
+
+async function getUnreadNotificationsCountByApi(
+  request: import("@playwright/test").APIRequestContext,
+  accessToken: string
+): Promise<number> {
+  const response = await request.get(`${apiBaseUrl}/notifications/unread-count`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  expect(response.ok()).toBeTruthy();
+  const payload = (await response.json()) as { unreadCount?: number };
+  return typeof payload.unreadCount === "number" ? payload.unreadCount : 0;
+}
+
+async function waitForUnreadNotificationsByApi(
+  request: import("@playwright/test").APIRequestContext,
+  accessToken: string,
+  minimumUnread: number,
+  timeoutMs = 30_000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const unreadCount = await getUnreadNotificationsCountByApi(request, accessToken);
+    if (unreadCount >= minimumUnread) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  throw new Error(
+    `Timed out waiting for unread notifications >= ${minimumUnread}.`
+  );
 }
 
 async function ensureSharedSession(page: Page): Promise<{ user: E2eUser; session: AuthUiSession }> {
@@ -248,6 +314,33 @@ test("web jobs page posts a valid job", async ({ page }) => {
   await expect(page.getByText(jobTitle).first()).toBeVisible();
 });
 
+test("web jobs page shows posted job under 'Jobs posted by me' with applicant-management action", async ({
+  page
+}) => {
+  const { session } = await ensureSharedSession(page);
+  const shortId = Date.now().toString(36).slice(-5);
+  const jobTitle = `Posted by me ${shortId}`;
+  await applySessionCookie(page, session.accessToken);
+  await page.goto("/jobs");
+
+  await page.getByLabel("Category").fill("plumber");
+  await page.getByLabel("Location text").fill("Kakkanad, Kochi");
+  await page.getByLabel("Title").fill(jobTitle);
+  await page
+    .getByLabel("Description")
+    .fill("Need support for leaking sink valve replacement in kitchen.");
+  await page.getByRole("button", { name: "Post job" }).click();
+  await waitForSuccessMessage(page, "Job posted successfully.");
+
+  const postedByMeCard = await cardByHeading(page, "Jobs posted by me");
+  const targetJobCard = postedByMeCard
+    .locator(".card")
+    .filter({ hasText: jobTitle })
+    .first();
+  await expect(targetJobCard).toBeVisible();
+  await expect(targetJobCard.getByRole("button", { name: "Manage applicants" })).toBeVisible();
+});
+
 test("web connections page validates empty query", async ({ page }) => {
   const { session } = await ensureSharedSession(page);
   await applySessionCookie(page, session.accessToken);
@@ -256,6 +349,48 @@ test("web connections page validates empty query", async ({ page }) => {
   await page.getByLabel("Find a person").fill("   ");
   await page.getByRole("button", { name: "Send request" }).click();
   await expect(page.getByText("Enter a name, member ID, service, or location.").first()).toBeVisible();
+});
+
+test("web notifications page lists unread connection alert and allows mark-read", async ({
+  page,
+  request
+}) => {
+  const { session: ownerSession } = await ensureSharedSession(page);
+  const unreadBefore = await getUnreadNotificationsCountByApi(request, ownerSession.accessToken);
+  await applySessionCookie(page, ownerSession.accessToken);
+  await page.goto("/profile");
+  const ownerUserId = parseMemberId(
+    await readTextByTestId(page, "profile-user-id"),
+    "notifications owner profile user id"
+  );
+
+  const requester = makeUser("both");
+  const requesterSession = await registerByUi(page, requester);
+  await requestConnectionByApi(request, requesterSession.accessToken, ownerUserId);
+
+  await waitForUnreadNotificationsByApi(
+    request,
+    ownerSession.accessToken,
+    unreadBefore + 1
+  );
+
+  await applySessionCookie(page, ownerSession.accessToken);
+  await page.goto("/notifications");
+
+  await page.getByRole("button", { name: "Show unread only" }).click();
+  const markReadButtons = page.getByRole("button", { name: "Mark read" });
+  await expect
+    .poll(async () => markReadButtons.count(), { timeout: 20_000 })
+    .toBeGreaterThan(0);
+  const unreadCountBeforeMarkRead = await getUnreadNotificationsCountByApi(
+    request,
+    ownerSession.accessToken
+  );
+
+  await markReadButtons.first().click();
+  await expect.poll(async () => {
+    return getUnreadNotificationsCountByApi(request, ownerSession.accessToken);
+  }).toBeLessThan(unreadCountBeforeMarkRead);
 });
 
 test("web connections search finds a member by service/location query", async ({ page }) => {

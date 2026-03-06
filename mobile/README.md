@@ -52,6 +52,34 @@ make ui-test-mobile-android
 make ui-test-mobile
 ```
 
+Detox iOS speed modes:
+
+- Fast local default (reuses app instance between tests, reloads React Native):
+  `make ui-test-mobile-ios`
+- Strict isolation (new app instance per test, slower but highest isolation):
+  `DETOX_NEW_INSTANCE_PER_TEST=true DETOX_RELOAD_REACT_NATIVE=false make ui-test-mobile-ios`
+- Default speed profile now uses:
+  `DETOX_POLL_INTERVAL_MS=450`, `DETOX_TYPE_RETRIES=1`, `DETOX_VERIFY_TYPED_INPUT=false`
+  and `DETOX_HANDLE_IOS_PASSWORD_PROMPTS=true` on iOS (`false` on Android)
+- Optional backend polling override (lower can be faster but less stable on slow machines):
+  `DETOX_POLL_INTERVAL_MS=350 make ui-test-mobile-ios`
+- Optional iOS password-sheet probe tune:
+  `DETOX_IOS_PROMPT_CHECK_TIMEOUT_MS=60 make ui-test-mobile-ios`
+- If iOS Save Password sheet appears in your simulator, enable explicit handling:
+  `DETOX_HANDLE_IOS_PASSWORD_PROMPTS=true make ui-test-mobile-ios`
+
+Detox Android speed modes:
+
+- Fast local default:
+  `make ui-test-mobile-android`
+- Strict isolation:
+  `DETOX_NEW_INSTANCE_PER_TEST=true DETOX_RELOAD_REACT_NATIVE=false make ui-test-mobile-android`
+- Default speed profile now uses:
+  `DETOX_POLL_INTERVAL_MS=450`, `DETOX_TYPE_RETRIES=1`, `DETOX_VERIFY_TYPED_INPUT=false`
+- Android log capture defaults to failure-only (`DETOX_ANDROID_CAPTURE_LOGS=on_fail`) for speed.
+  Force full logs on successful runs with:
+  `DETOX_ANDROID_CAPTURE_LOGS=always make ui-test-mobile-android`
+
 This suite runs against native iOS Simulator and Android Emulator builds.
 Android Detox uses the release APK by default, so Metro is not required.
 If you intentionally run Android debug build, keep Metro running (`make dev-mobile`) or you'll get `Unable to load script`.

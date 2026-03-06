@@ -90,7 +90,7 @@ describe("KeycloakJwtGuard token verification", () => {
         sub: "11111111-1111-4111-8111-111111111111",
         aud: "illamhelp-api",
         realm_access: { roles: ["realm-admin"] },
-        preferred_username: "ops_admin"
+        preferred_username: "admin"
       }
     });
 
@@ -102,7 +102,7 @@ describe("KeycloakJwtGuard token verification", () => {
     expect(syncUserFromTokenMock).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
       ["admin"],
-      "ops_admin"
+      "admin"
     );
   });
 
@@ -116,7 +116,7 @@ describe("KeycloakJwtGuard token verification", () => {
             roles: ["realm-admin"]
           }
         },
-        preferred_username: "ops_admin"
+        preferred_username: "admin"
       }
     });
 
@@ -128,7 +128,7 @@ describe("KeycloakJwtGuard token verification", () => {
     expect(syncUserFromTokenMock).toHaveBeenCalledWith(
       "11111111-1111-4111-8111-111111111111",
       ["admin"],
-      "ops_admin"
+      "admin"
     );
   });
 
@@ -142,7 +142,7 @@ describe("KeycloakJwtGuard token verification", () => {
             roles: ["manage-users"]
           }
         },
-        preferred_username: "ops_admin"
+        preferred_username: "admin"
       }
     });
 

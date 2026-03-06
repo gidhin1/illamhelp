@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/primitives";
 const links = [
   { href: "/", label: "Dashboard" },
   { href: "/moderation", label: "Moderation" },
+  { href: "/verifications", label: "Verifications" },
   { href: "/audit", label: "Consent + Audit" }
 ];
 

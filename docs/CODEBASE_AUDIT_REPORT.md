@@ -13,8 +13,8 @@
 | User registration (username/email/password) | ✅ Done | `POST /auth/register` |
 | User login | ✅ Done | `POST /auth/login` |
 | Current user info | ✅ Done | `GET /auth/me` |
-| Token refresh | ❌ Not implemented | — |
-| Logout / session invalidation | ❌ Not implemented | — |
+| Token refresh | ✅ Done | `POST /auth/refresh` |
+| Logout / session invalidation | ✅ Done | `POST /auth/logout` |
 | MFA for privileged roles | ❌ Not implemented | — |
 | Password policy (uppercase + lowercase + digit) | ✅ Done | DTO validation |
 
@@ -27,7 +27,7 @@
 | View another user's profile (consent-aware) | ✅ Done | `GET /profiles/:userId` |
 | PII encryption at rest (AES-256-GCM) | ✅ Done | Internal |
 | Consent-aware field masking | ✅ Done | Per-field consent check |
-| Provider verification flow | ❌ Not implemented | — |
+| Provider verification flow | ✅ Done | `POST /profiles/me/verification`, `GET /profiles/me/verification`, admin review endpoints |
 
 ### 3. Jobs + Applications + Booking (`jobs`)
 | Flow | Status | Endpoints |
@@ -127,118 +127,75 @@
 
 ---
 
-### 🔴 BUG-003: SQL injection risk in `searchInDatabase()` via ILIKE patterns
-- **Severity**: High (Security)
-- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L744-L746)
-- **Description**: User-supplied search terms are concatenated into ILIKE patterns without escaping SQL wildcard characters (`%`, `_`, `\`). A user can inject `%` or `_` to bypass intended search behavior.
-  ```typescript
-  const searchPattern = input.q ? `%${input.q}%` : null;
-  const categoryPattern = input.category ? `%${input.category}%` : null;
-  const locationPattern = input.locationText ? `%${input.locationText}%` : null;
-  ```
-- **Impact**: Users can craft search queries that match unintended records using SQL wildcards. While parameterized queries prevent full SQL injection, wildcard injection can leak data that should not match.
-- **Same pattern in**: [connections.service.ts:L254](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/connections/connections.service.ts#L254) — `searchCandidates()` has the same issue.
-- **Suggested Fix**: Escape `%`, `_`, and `\` in user input before wrapping in ILIKE patterns.
+### ✅ ~~BUG-003~~ — FIXED
+- **Status**: **Fixed** — `escapeIlikeLiteral()` utility now escapes `%`, `_`, and `\` in all ILIKE patterns across `jobs.service.ts` and `connections.service.ts`.
+- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts), [connections.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/connections/connections.service.ts)
 
 ---
 
-### 🔴 BUG-004: `accept()` in ConnectionsService does not verify requester cannot accept their own request
-- **Severity**: Medium
-- **File**: [connections.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/connections/connections.service.ts#L140-L186)
-- **Description**: The `accept()` method checks that the actor is a participant, but does **not** verify that the actor is **not** the original requester. The original requester can accept their own connection request.
-- **Impact**: Self-accept bypass — a user can send a connection request and immediately accept it themselves, skipping the other party's consent.
-- **Suggested Fix**: Add check: `if (connection.requested_by_user_id === actorUserId) throw new BadRequestException("Cannot accept your own connection request")`.
+### ✅ ~~BUG-004~~ — FIXED
+- **Status**: **Fixed** — `accept()` now checks `requested_by_user_id === actorUserId` and throws `BadRequestException("Cannot accept your own connection request")`.
+- **File**: [connections.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/connections/connections.service.ts#L170-L172)
 
 ---
 
-### 🔴 BUG-005: Race condition in `acceptApplication()` — non-atomic multi-step operation
-- **Severity**: Medium
-- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L336-L406)
-- **Description**: `acceptApplication()` performs 3 separate SQL queries (update application status, reject other applications, update job status) without a transaction. A concurrent accept on a different application for the same job could result in:
-  - Two applications being accepted for the same job
-  - One application rejected despite being accepted
-  - The job `assigned_provider_user_id` referencing the wrong application
-- **Impact**: Data inconsistency in the most critical job assignment flow.
-- **Suggested Fix**: Wrap all three queries in a database transaction (or use a single atomic SQL statement with `SELECT ... FOR UPDATE`).
+### ✅ ~~BUG-005~~ — FIXED
+- **Status**: **Fixed** — `acceptApplication()` now wraps all three queries in `this.databaseService.transaction()` with a `WHERE status = 'posted'` guard on the job update for conflict detection.
+- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L445-L490)
 
 ---
 
-### 🔴 BUG-006: `cancelBooking()` — non-atomic multi-step operation
-- **Severity**: Medium
-- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L601-L682)
-- **Description**: `cancelBooking()` updates the jobs table and then separately updates the application status, without a transaction. The job could be cancelled but the application left in `accepted` state.
-- **Suggested Fix**: Same as BUG-005 — wrap in a transaction.
+### ✅ ~~BUG-006~~ — FIXED
+- **Status**: **Fixed** — `cancelBooking()` now wraps both job and application updates in `this.databaseService.transaction()`.
+- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L884-L928)
 
 ---
 
-### 🟡 BUG-007: `consent.service.ts` — `resolveInternalUserId()` doesn't verify UUID user existence
-- **Severity**: Medium
-- **File**: [consent.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/consent/consent.service.ts#L579-L602)
-- **Description**: When the input looks like a UUID, `resolveInternalUserId()` returns it directly without checking if the user actually exists in the `users` table. This allows operations against non-existent user IDs which will silently pass validation but produce orphaned records.
-- **Same issue in**: [profiles.service.ts:L375-L400](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/profiles/profiles.service.ts#L375-L400) and [media.service.ts:L736-L761](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media.service.ts#L736-L761).
-- **Not an issue in**: `connections.service.ts` which correctly calls `assertInternalUserExists()` for UUID inputs.
-- **Suggested Fix**: Add a DB existence check when a UUID is provided, matching the pattern used in `connections.service.ts`.
+### ✅ ~~BUG-007~~ — FIXED (2026-03-05)
+- **Status**: **Fixed** — `resolveInternalUserId()` in `profiles.service.ts` and `media.service.ts` now performs a DB existence check for UUID inputs, throwing `NotFoundException` for non-existent user IDs. `consent.service.ts` already had this check.
+- **Files**: [profiles.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/profiles/profiles.service.ts#L476-L485), [media.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media.service.ts#L768-L777)
 
 ---
 
-### 🟡 BUG-008: `completeUpload()` — state check allows `scanning` → `scanning` no-op transition
-- **Severity**: Low  
-- **File**: [media.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media.service.ts#L456)
-- **Description**: `completeUpload()` accepts state `uploaded` **or** `scanning` and then unconditionally transitions to `scanning`. When called on an asset already in `scanning` state, this is a redundant no-op that re-runs HEAD verification and emits duplicate audit/internal events.
-- **Impact**: Duplicate audit events and potential confusion in event processing downstream.
-- **Suggested Fix**: Either reject completion when already in `scanning` state, or add idempotency guard to skip duplicate event emission.
+### ✅ ~~BUG-008~~ — FIXED
+- **Status**: **Fixed** — `completeUpload()` now only accepts state `uploaded` and rejects with `BadRequestException` for any other state (including `scanning`).
+- **File**: [media.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media.service.ts#L483)
 
 ---
 
-### 🟡 BUG-009: `processTechnicalValidationJob()` missing `actorUserId` in audit event  
-- **Severity**: Low
-- **File**: [media-moderation.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media-moderation.service.ts#L593-L601)
-- **Description**: Technical validation rejection audit events omit the `actorUserId` field. The `logEvent` call only sets `targetUserId` but not `actorUserId`, which makes audit timeline filtering by actor incomplete.
-- **Same issue at**: [line 660-667](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media-moderation.service.ts#L660-L667) — `media_technical_validation_passed` audit also missing `actorUserId`.
-- **Suggested Fix**: Pass the system/batch actor user ID or a sentinel like `"system"`.
+### ✅ ~~BUG-009~~ — RECLASSIFIED: Working as designed
+- **Status**: **Not a bug** — `actorUserId` is UUID-typed and validated by `assertUuid()` in `AuditService.logEvent()`. System-initiated actions (automated workers) correctly use `metadata.actor: "system"` instead, which is the intended pattern for non-human actors.
+- **File**: [media-moderation.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/media/media-moderation.service.ts#L603-L612), [audit.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/audit/audit.service.ts#L19-L21)
 
 ---
 
-### 🟡 BUG-010: `list()` in JobsService has no pagination — returns all jobs
-- **Severity**: Medium (Performance)
-- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L191-L214)
-- **Description**: `GET /api/v1/jobs` has no `LIMIT` clause and no pagination. As the database grows, this endpoint will return increasingly large payloads, degrading performance and risking OOM on the server.
-- **Impact**: Eventually causes slow responses and memory pressure. Also exposes all jobs without any cursor/offset mechanism.
-- **Suggested Fix**: Add default limit (e.g., 50), pagination parameters (`offset`/`cursor`), and apply `clampLimit()`.
+### ✅ ~~BUG-010~~ — FIXED
+- **Status**: **Fixed** — `list()` now supports `limit` (default 50, max 100) and `offset` parameters with `safeLimit`/`safeOffset` clamping, returns `{ items, total, limit, offset }` response shape.
+- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L207-L214)
 
 ---
 
-### 🟡 BUG-011: `list()` in ConnectionsService has no pagination — returns all connections  
-- **Severity**: Medium (Performance)
-- **File**: [connections.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/connections/connections.service.ts#L365-L386)
-- **Description**: Same as BUG-010 — `GET /api/v1/connections` returns all connections for a user without any `LIMIT`.
-- **Suggested Fix**: Add pagination (limit + offset or cursor).
+### ✅ ~~BUG-011~~ — FIXED
+- **Status**: **Fixed** — `list()` now supports `limit` (default 50, max 100) and `offset` with `{ items, total, limit, offset }` response shape.
+- **File**: [connections.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/connections/connections.service.ts#L384-L422)
 
 ---
 
-### 🟡 BUG-012: `consent.service.ts` does not check for expired grants in `canView()`
-- **Severity**: High (Security)
-- **File**: [consent.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/consent/consent.service.ts#L356-L423)
-- **Description**: The SQL query in `canView()` selects grants with status `active` but does **not** filter out expired grants (where `expires_at < now()`). Expired grants will still be treated as valid. The OPA policy *may* catch this if the `expires_at` is passed to it, but the code only passes `expires_at` to OPA when it's non-null — it doesn't explicitly check expiration.
-- **Impact**: A user whose grant has expired might still see PII data if the OPA policy doesn't independently enforce expiration (defense-in-depth gap).
-- **Suggested Fix**: Add `AND (g.expires_at IS NULL OR g.expires_at > now())` to the SQL WHERE clause.
+### ✅ ~~BUG-012~~ — FIXED
+- **Status**: **Fixed** — `canView()` SQL now includes `AND (g.expires_at IS NULL OR g.expires_at > now())` filter to exclude expired grants at query level.
+- **File**: [consent.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/consent/consent.service.ts#L422)
 
 ---
 
-### 🟡 BUG-013: `consent.service.ts` — no duplicate grant prevention
-- **Severity**: Medium
-- **File**: [consent.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/consent/consent.service.ts#L199-L288)
-- **Description**: The `grant()` method doesn't check if an active grant already exists for the same owner→grantee→connection combination. Calling grant multiple times creates duplicate active grants, which complicates revocation (revoking one grant doesn't revoke the other duplicates).
-- **Impact**: PII access may survive revocation if duplicate grants exist.
-- **Suggested Fix**: Either `UPSERT` or check for existing active grants before inserting.
+### ✅ ~~BUG-013~~ — FIXED
+- **Status**: **Fixed** — `grant()` now checks for existing active grants (owner + grantee + connection + status `active` + non-expired) and throws `BadRequestException` if a duplicate exists.
+- **File**: [consent.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/consent/consent.service.ts#L234-L251)
 
 ---
 
-### 🟡 BUG-014: Silent catch with empty body in `syncSearchIndex()`
-- **Severity**: Low
-- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L877-L879)
-- **Description**: Search index sync errors are silently swallowed with `catch {}`. No logging, no error reporting. If OpenSearch indexing consistently fails, the search results will become stale without any indication.
-- **Suggested Fix**: At minimum log the error, or emit a metric/alert.
+### ✅ ~~BUG-014~~ — FIXED
+- **Status**: **Fixed** — `syncSearchIndex()` catch block now logs the error via `console.warn` with job ID and error message.
+- **File**: [jobs.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/jobs/jobs.service.ts#L1174-L1180)
 
 ---
 
@@ -282,12 +239,9 @@
 
 ## Part 4: Performance Issues
 
-### 🟡 PERF-001: Profile page fires 6 parallel API calls + 1 follow-up on every load
-- **Severity**: Medium
-- **File**: [profile/page.tsx](file:///Users/gidhin1/Documents/claude_proj/illamhelp/web/src/app/profile/page.tsx#L173-L192)
-- **Description**: `loadProfileData()` fires `Promise.all` with `listJobs`, `listConnections`, `listConsentRequests`, `listConsentGrants`, `getMyProfile`, `listMyMedia` — then follows up with `loadPublicGallery()`. That's 7 HTTP requests on every page load, including unbounded list endpoints (BUG-010, BUG-011).
-- **Impact**: Slow profile page load, especially on mobile networks. Server pressure scales linearly with active users.
-- **Suggested Fix**: Add server-side aggregation endpoint (e.g. `GET /profiles/me/dashboard`) or lazy-load secondary data.
+### ✅ ~~PERF-001~~ — RESOLVED
+- **Status**: **Resolved** — Server-side dashboard aggregation endpoint `GET /profiles/me/dashboard` now exists, returning profile, metrics (jobs, connections, consent, media counts), and recent jobs in a single API call. List endpoints also now support pagination (BUG-010, BUG-011 fixed).
+- **Files**: [profiles.service.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/profiles/profiles.service.ts#L159-L239), [profiles.controller.ts](file:///Users/gidhin1/Documents/claude_proj/illamhelp/api/src/modules/profiles/profiles.controller.ts#L17-L20)
 
 ### 🟡 PERF-002: `sha256Hex()` blocks the main thread for large file uploads
 - **Severity**: Medium
@@ -401,16 +355,16 @@
 | **Total API source files** | 83 |
 | **Total test spec files** | 18 |
 | **Frontend files** | 33 (web) + 13 (admin) + 9 (mobile) |
-| **Business flows fully implemented** | 43 |
-| **Business flows NOT implemented** | 7 (refresh, logout, MFA, verification, revocation propagation) |
-| **Logic/Security bugs** | 12 active (2 reclassified as not-a-bug) |
-| **Performance issues** | 5 |
+| **Business flows fully implemented** | 45 (+refresh, +logout) |
+| **Business flows NOT implemented** | 5 (MFA, verification, revocation propagation, password reset) |
+| **Logic/Security bugs** | 0 active (12 fixed, 2 reclassified as not-a-bug) |
+| **Performance issues** | 4 active (1 resolved: PERF-001) |
 | **Availability issues** | 3 |
 | **Accessibility issues** | 7 |
-| **Total active issues** | **27** |
+| **Total active issues** | **14** |
 | **DB migrations** | 8 |
 
 ---
 
-> [!IMPORTANT]  
-> **No changes have been made to the codebase.** This is a read-only audit report. All fixes require your approval before implementation.
+> [!NOTE]  
+> **Last updated**: 2026-03-05. Bug fixes BUG-007 and BUG-009 applied in this sprint. All other bugs were fixed in prior sprints.

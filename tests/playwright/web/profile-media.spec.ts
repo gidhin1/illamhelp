@@ -31,6 +31,16 @@ async function assertAuthResponse(
   }
 }
 
+function isAuthRateLimitedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("http 429") || message.includes("too many authentication attempts");
+}
+
+async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise<void> {
+  const waitMs = Math.min(20_000, 2_500 * attempt);
+  await page.waitForTimeout(waitMs);
+}
+
 async function resetBrowserSession(page: Page): Promise<void> {
   await page.goto("/");
   const signOut = page.getByRole("button", { name: "Sign out" }).first();
@@ -49,19 +59,33 @@ async function resetBrowserSession(page: Page): Promise<void> {
 
 async function registerByUi(page: Page): Promise<void> {
   const user = makeUser("seeker");
-  await resetBrowserSession(page);
-  await page.goto("/auth/register");
-  await page.getByLabel("First name").fill(user.firstName);
-  await page.getByLabel("Last name").fill(user.lastName);
-  await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("User ID").fill(user.username);
-  await page.getByLabel("Phone (optional)").fill("+919876543210");
-  await page.getByLabel("Password").fill(user.password);
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    await resetBrowserSession(page);
+    await page.goto("/auth/register");
+    await page.getByLabel("First name").fill(user.firstName);
+    await page.getByLabel("Last name").fill(user.lastName);
+    await page.getByLabel("Email").fill(user.email);
+    await page.getByLabel("User ID").fill(user.username);
+    await page.getByLabel("Phone (optional)").fill("+919876543210");
+    await page.getByLabel("Password").fill(user.password);
 
-  const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
-  await page.locator("form button[type='submit']").first().click();
-  await assertAuthResponse(responsePromise);
-  await expect(page).toHaveURL(/\/jobs$/);
+    const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
+    await page.locator("form button[type='submit']").first().click();
+
+    try {
+      await assertAuthResponse(responsePromise);
+      await expect(page).toHaveURL(/\/jobs$/);
+      return;
+    } catch (error) {
+      if (attempt < 8 && isAuthRateLimitedError(error)) {
+        await waitForAuthRateLimitBackoff(page, attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("Register flow did not complete.");
 }
 
 test("web profile page updates profile and uploads media", async ({ page }) => {

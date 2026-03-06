@@ -76,7 +76,11 @@ describe("ProfilesService consent-aware reads", () => {
 
   it("returns full contact details to profile owner", async () => {
     queryMock
+      // resolveInternalUserId → UUID existence check
+      .mockResolvedValueOnce(queryResult([{ id: OWNER_USER_ID }]))
+      // ensureProfileRow
       .mockResolvedValueOnce(queryResult([]))
+      // getProfileRow
       .mockResolvedValueOnce(queryResult([profileRow()]));
 
     const profile = await service.getOwnProfile(OWNER_USER_ID);
@@ -97,7 +101,11 @@ describe("ProfilesService consent-aware reads", () => {
 
   it("masks all contact fields when viewer has no consent", async () => {
     queryMock
+      // resolveInternalUserId → UUID existence check
+      .mockResolvedValueOnce(queryResult([{ id: OWNER_USER_ID }]))
+      // ensureProfileRow
       .mockResolvedValueOnce(queryResult([]))
+      // getProfileRow
       .mockResolvedValueOnce(queryResult([profileRow()]));
     canViewMock.mockResolvedValue({ allowed: false });
 
@@ -144,7 +152,11 @@ describe("ProfilesService consent-aware reads", () => {
 
   it("reveals only consented field(s) for non-owner viewers", async () => {
     queryMock
+      // resolveInternalUserId → UUID existence check
+      .mockResolvedValueOnce(queryResult([{ id: OWNER_USER_ID }]))
+      // ensureProfileRow
       .mockResolvedValueOnce(queryResult([]))
+      // getProfileRow
       .mockResolvedValueOnce(queryResult([profileRow()]));
     canViewMock
       .mockResolvedValueOnce({ allowed: false })
@@ -210,6 +222,8 @@ describe("ProfilesService setVerified", () => {
     queryMock
       // UPDATE users SET verified
       .mockResolvedValueOnce(queryResult([]))
+      // resolveInternalUserId → UUID existence check
+      .mockResolvedValueOnce(queryResult([{ id: OWNER_USER_ID }]))
       // ensureProfileRow check
       .mockResolvedValueOnce(queryResult([]))
       // getProfileRow

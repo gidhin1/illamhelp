@@ -1,6 +1,7 @@
 import { expect, Page, test } from "@playwright/test";
 
 const ADMIN_TOKEN = "admin-e2e-token";
+const KEYCLOAK_ADMIN_USERNAME = process.env.KEYCLOAK_ADMIN ?? "admin";
 
 async function setAdminCookie(page: Page, token = ADMIN_TOKEN): Promise<void> {
   await page.goto("/");
@@ -17,7 +18,7 @@ function mockAuthMe(page: Page, roles: string[]): Promise<void> {
       contentType: "application/json",
       body: JSON.stringify({
         userId: "11111111-1111-4111-8111-111111111111",
-        publicUserId: "ops_admin",
+        publicUserId: KEYCLOAK_ADMIN_USERNAME,
         tokenSubject: "11111111-1111-4111-8111-111111111111",
         roles,
         userType: "both"
@@ -33,8 +34,8 @@ test("admin sign-in form submits and opens dashboard", async ({ page }) => {
       contentType: "application/json",
       body: JSON.stringify({
         userId: "11111111-1111-4111-8111-111111111111",
-        publicUserId: "ops_admin",
-        username: "ops_admin",
+        publicUserId: KEYCLOAK_ADMIN_USERNAME,
+        username: KEYCLOAK_ADMIN_USERNAME,
         roles: ["admin"],
         accessToken: ADMIN_TOKEN,
         expiresIn: 3600,
@@ -52,7 +53,7 @@ test("admin sign-in form submits and opens dashboard", async ({ page }) => {
   });
 
   await page.goto("/auth/login");
-  await page.getByLabel("Username or email").fill("ops_admin");
+  await page.getByLabel("Username or email").fill(KEYCLOAK_ADMIN_USERNAME);
   await page.getByLabel("Password").fill("admin_password");
   await page.getByRole("main").getByRole("button", { name: "Sign in" }).click();
 
@@ -74,7 +75,7 @@ test("admin sign-in shows API error for invalid credentials", async ({ page }) =
   });
 
   await page.goto("/auth/login");
-  await page.getByLabel("Username or email").fill("ops_admin");
+  await page.getByLabel("Username or email").fill(KEYCLOAK_ADMIN_USERNAME);
   await page.getByLabel("Password").fill("wrong-password");
   await page.getByRole("main").getByRole("button", { name: "Sign in" }).click();
 
@@ -164,7 +165,7 @@ test("admin moderation queue supports review workflow", async ({ page }) => {
             mediaAssetId: "media-1",
             stage: "human_review",
             status: itemStatus,
-            assignedModeratorUserId: "ops_admin",
+            assignedModeratorUserId: KEYCLOAK_ADMIN_USERNAME,
             reasonCode: itemStatus === "approved" ? "policy_safe_service_media" : null,
             details: {},
             createdAt: "2026-02-28T08:00:00.000Z",
@@ -279,7 +280,7 @@ test("admin moderation queue supports rejection workflow", async ({ page }) => {
             mediaAssetId: "media-2",
             stage: "human_review",
             status: itemStatus,
-            assignedModeratorUserId: "ops_admin",
+            assignedModeratorUserId: KEYCLOAK_ADMIN_USERNAME,
             reasonCode: itemStatus === "rejected" ? "policy_prohibited_content" : null,
             details: {},
             createdAt: "2026-02-28T10:00:00.000Z",

@@ -191,6 +191,22 @@ export interface PublicMediaAssetRecord {
   downloadUrlExpiresAt: string;
 }
 
+export type VerificationStatus = "pending" | "under_review" | "approved" | "rejected";
+
+export interface VerificationRecord {
+  id: string;
+  userId: string;
+  documentMediaIds: string[];
+  documentType: string;
+  notes: string | null;
+  status: VerificationStatus;
+  reviewerUserId: string | null;
+  reviewerNotes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 function defaultApiBaseUrl(): string {
   if (Platform.OS === "android") {
     return "http://10.0.2.2:4000/api/v1";
@@ -469,6 +485,21 @@ export function closeBooking(jobId: string, accessToken: string): Promise<JobRec
   );
 }
 
+export function revokeJobAssignment(
+  jobId: string,
+  payload: { reason?: string },
+  accessToken: string
+): Promise<JobRecord> {
+  return apiRequest<JobRecord>(
+    `/jobs/${jobId}/booking/revoke-assignment`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+
 export function cancelBooking(
   jobId: string,
   payload: { reason?: string },
@@ -559,6 +590,17 @@ export function blockConnection(
 
 export function getMyProfile(accessToken: string): Promise<ProfileRecord> {
   return apiRequest<ProfileRecord>("/profiles/me", {}, accessToken);
+}
+
+export function getProfileByUserId(
+  targetUserId: string,
+  accessToken: string
+): Promise<ProfileRecord> {
+  return apiRequest<ProfileRecord>(
+    `/profiles/${encodeURIComponent(targetUserId)}`,
+    {},
+    accessToken
+  );
 }
 
 export function updateMyProfile(
@@ -705,6 +747,94 @@ export function completeMediaUpload(
       method: "POST",
       body: JSON.stringify(payload)
     },
+    accessToken
+  );
+}
+
+export function submitVerification(
+  payload: {
+    documentType: string;
+    documentMediaIds: string[];
+    notes?: string;
+  },
+  accessToken: string
+): Promise<VerificationRecord> {
+  return apiRequest<VerificationRecord>(
+    "/profiles/me/verification",
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+
+export function getMyVerification(accessToken: string): Promise<VerificationRecord | null> {
+  return apiRequest<VerificationRecord | null>("/profiles/me/verification", {}, accessToken);
+}
+
+export interface NotificationRecord {
+  id: string;
+  userId: string;
+  type: string;
+  title: string;
+  body: string;
+  data: Record<string, unknown>;
+  read: boolean;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationListResponse {
+  items: NotificationRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  unreadCount: number;
+}
+
+export function listNotifications(
+  params: { unreadOnly?: boolean; limit?: number; offset?: number },
+  accessToken: string
+): Promise<NotificationListResponse> {
+  const query = new URLSearchParams();
+  if (params.unreadOnly) {
+    query.set("unreadOnly", "true");
+  }
+  if (typeof params.limit === "number") {
+    query.set("limit", String(params.limit));
+  }
+  if (typeof params.offset === "number") {
+    query.set("offset", String(params.offset));
+  }
+  const queryString = query.toString();
+  const path = queryString ? `/notifications?${queryString}` : "/notifications";
+  return apiRequest<NotificationListResponse>(path, {}, accessToken);
+}
+
+export function getUnreadNotificationCount(
+  accessToken: string
+): Promise<{ unreadCount: number }> {
+  return apiRequest<{ unreadCount: number }>("/notifications/unread-count", {}, accessToken);
+}
+
+export function markNotificationRead(
+  notificationId: string,
+  accessToken: string
+): Promise<NotificationRecord> {
+  return apiRequest<NotificationRecord>(
+    `/notifications/${notificationId}/read`,
+    { method: "PATCH" },
+    accessToken
+  );
+}
+
+export function markAllNotificationsRead(
+  accessToken: string
+): Promise<{ updated: number }> {
+  return apiRequest<{ updated: number }>(
+    "/notifications/read-all",
+    { method: "PATCH" },
     accessToken
   );
 }

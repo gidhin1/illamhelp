@@ -11,6 +11,7 @@ import { ConnectionsModule } from "./modules/connections/connections.module";
 import { ConsentModule } from "./modules/consent/consent.module";
 import { JobsModule } from "./modules/jobs/jobs.module";
 import { MediaModule } from "./modules/media/media.module";
+import { NotificationModule } from "./modules/notifications/notification.module";
 import { ProfilesModule } from "./modules/profiles/profiles.module";
 
 @Module({
@@ -33,7 +34,8 @@ import { ProfilesModule } from "./modules/profiles/profiles.module";
     ConnectionsModule,
     ConsentModule,
     MediaModule,
+    NotificationModule,
     AuditModule
   ]
 })
-export class AppModule {}
+export class AppModule { }

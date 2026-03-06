@@ -5,6 +5,7 @@ ENV_FILE := .env
 COMPOSE_PROJECT ?= illamhelp
 WEB_PORT ?= 3001
 ACT_ARTIFACTS_DIR ?= .act-artifacts
+EXPO_HOST_MODE ?= localhost
 COMPOSE := docker compose --project-name $(COMPOSE_PROJECT) --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 
 VOLUME_BASENAMES := postgres_data redis_data minio_data nats_data opensearch_data clamav_data
@@ -158,14 +159,14 @@ dev-admin:
 	PORT="$$PORT" pnpm --filter @illamhelp/admin dev
 
 dev-mobile:
-	pnpm --filter @illamhelp/mobile start
+	pnpm --filter @illamhelp/mobile start -- --$(EXPO_HOST_MODE)
 
 dev-mobile-clear:
-	pnpm --filter @illamhelp/mobile start -- --clear
+	pnpm --filter @illamhelp/mobile start -- --clear --$(EXPO_HOST_MODE)
 
 dev-mobile-reset:
 	rm -rf mobile/.expo
-	pnpm --filter @illamhelp/mobile start -- --clear
+	pnpm --filter @illamhelp/mobile start -- --clear --$(EXPO_HOST_MODE)
 
 dev-mobile-android:
 	pnpm --filter @illamhelp/mobile android
@@ -207,7 +208,9 @@ migrate:
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0007_jobs_geo_search_fields.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0008_users_public_user_id.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0009_add_verified_column.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0010_jobs_visibility_and_extended_lifecycle.sql
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0010_jobs_visibility_and_extended_lifecycle.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0011_verification_requests.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0012_notifications.sql
 
 bruno-e2e:
 	bash ./scripts/run-bruno-e2e.sh
@@ -216,19 +219,19 @@ ui-install:
 	pnpm run test:ui:install
 
 ui-test-web: preflight up-core migrate
-	pnpm run test:ui:web
+	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:web
 
-ui-test-admin: preflight
-	pnpm run test:ui:admin
+ui-test-admin: preflight up-core migrate
+	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:admin
 
 ui-test-mobile: preflight up-core migrate
-	pnpm run test:ui:mobile
+	DETOX_POLL_INTERVAL_MS="$${DETOX_POLL_INTERVAL_MS:-450}" DETOX_TYPE_RETRIES="$${DETOX_TYPE_RETRIES:-1}" DETOX_VERIFY_TYPED_INPUT="$${DETOX_VERIFY_TYPED_INPUT:-false}" DETOX_HANDLE_IOS_PASSWORD_PROMPTS="$${DETOX_HANDLE_IOS_PASSWORD_PROMPTS:-true}" pnpm run test:ui:mobile
 
 ui-test-mobile-ios: preflight up-core migrate
-	pnpm run test:ui:mobile:ios
+	DETOX_POLL_INTERVAL_MS="$${DETOX_POLL_INTERVAL_MS:-450}" DETOX_TYPE_RETRIES="$${DETOX_TYPE_RETRIES:-1}" DETOX_VERIFY_TYPED_INPUT="$${DETOX_VERIFY_TYPED_INPUT:-false}" DETOX_HANDLE_IOS_PASSWORD_PROMPTS="$${DETOX_HANDLE_IOS_PASSWORD_PROMPTS:-true}" pnpm run test:ui:mobile:ios
 
 ui-test-mobile-android: preflight up-core migrate
-	pnpm run test:ui:mobile:android
+	DETOX_POLL_INTERVAL_MS="$${DETOX_POLL_INTERVAL_MS:-450}" DETOX_TYPE_RETRIES="$${DETOX_TYPE_RETRIES:-1}" DETOX_VERIFY_TYPED_INPUT="$${DETOX_VERIFY_TYPED_INPUT:-false}" DETOX_HANDLE_IOS_PASSWORD_PROMPTS="$${DETOX_HANDLE_IOS_PASSWORD_PROMPTS:-false}" pnpm run test:ui:mobile:android
 
 ui-test: preflight up-core migrate
 	pnpm run test:ui

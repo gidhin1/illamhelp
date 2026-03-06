@@ -1,11 +1,12 @@
 import { Module } from "@nestjs/common";
 
 import { ConsentModule } from "../consent/consent.module";
+import { NotificationModule } from "../notifications/notification.module";
 import { ConnectionsController } from "./connections.controller";
 import { ConnectionsService } from "./connections.service";
 
 @Module({
-  imports: [ConsentModule],
+  imports: [ConsentModule, NotificationModule],
   controllers: [ConnectionsController],
   providers: [ConnectionsService],
   exports: [ConnectionsService]

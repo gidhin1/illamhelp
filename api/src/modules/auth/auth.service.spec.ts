@@ -217,7 +217,7 @@ describe("AuthService startup and client bootstrap", () => {
 
     const service = new AuthService(createConfigService(), authUserServiceMock);
     const result = await service.login({
-      username: "ops_admin",
+      username: "admin",
       password: "Passw0rd!"
     });
 
@@ -225,7 +225,7 @@ describe("AuthService startup and client bootstrap", () => {
     expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(
       DEFAULT_SUB,
       ["admin"],
-      "ops_admin"
+      "admin"
     );
   });
 
@@ -259,7 +259,7 @@ describe("AuthService startup and client bootstrap", () => {
 
     const service = new AuthService(createConfigService(), authUserServiceMock);
     const result = await service.login({
-      username: "ops_admin",
+      username: "admin",
       password: "Passw0rd!"
     });
 
@@ -267,7 +267,7 @@ describe("AuthService startup and client bootstrap", () => {
     expect(authUserServiceMock.syncUserFromToken).toHaveBeenCalledWith(
       DEFAULT_SUB,
       ["admin"],
-      "ops_admin"
+      "admin"
     );
   });
 
@@ -301,7 +301,7 @@ describe("AuthService startup and client bootstrap", () => {
 
     const service = new AuthService(createConfigService(), authUserServiceMock);
     const result = await service.login({
-      username: "ops_admin",
+      username: "admin",
       password: "Passw0rd!"
     });
 

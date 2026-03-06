@@ -56,6 +56,7 @@ export PATH="$sdk_dir/platform-tools:$sdk_dir/emulator:$PATH"
 ANDROID_CONFIGURATION="${DETOX_ANDROID_CONFIGURATION:-android.emu.release}"
 ANDROID_BUILD_TYPE="${DETOX_ANDROID_BUILD_TYPE:-release}"
 DETOX_LOGLEVEL="${DETOX_LOGLEVEL:-info}"
+DETOX_ANDROID_CAPTURE_LOGS="${DETOX_ANDROID_CAPTURE_LOGS:-on_fail}"
 APP_PACKAGE="${DETOX_ANDROID_APP_PACKAGE:-com.anonymous.illamhelp}"
 LOGCAT_FILE="artifacts/detox/android-logcat.log"
 APP_LOG_FILE="artifacts/detox/android-app.log"
@@ -67,6 +68,7 @@ echo "Using Android SDK for Detox test: $sdk_dir"
 echo "Using Detox Android configuration: $ANDROID_CONFIGURATION"
 echo "Using Android build type: $ANDROID_BUILD_TYPE"
 echo "Detox log level: $DETOX_LOGLEVEL"
+echo "Android log capture mode: $DETOX_ANDROID_CAPTURE_LOGS"
 echo "Android app package: $APP_PACKAGE"
 
 if [[ "$ANDROID_BUILD_TYPE" == "debug" ]]; then
@@ -110,6 +112,10 @@ prepare_emulator() {
 
 LOGCAT_PID=""
 start_logcat() {
+  if [[ "$DETOX_ANDROID_CAPTURE_LOGS" == "off" || "$DETOX_ANDROID_CAPTURE_LOGS" == "on_fail" ]]; then
+    return
+  fi
+
   if [[ -n "$ANDROID_SERIAL" && -x "$ADB_BIN" ]]; then
     : >"$LOGCAT_FILE"
     "$ADB_BIN" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
@@ -158,9 +164,14 @@ pnpm exec detox test -c "$ANDROID_CONFIGURATION" --cleanup --loglevel "$DETOX_LO
 TEST_EXIT=$?
 set -e
 stop_logcat
-dump_log_artifacts
+if [[ "$DETOX_ANDROID_CAPTURE_LOGS" == "always" ]]; then
+  dump_log_artifacts
+fi
 
 if [[ $TEST_EXIT -ne 0 ]]; then
+  if [[ "$DETOX_ANDROID_CAPTURE_LOGS" != "off" ]]; then
+    dump_log_artifacts
+  fi
   if [[ -f "$LOGCAT_FILE" ]]; then
     echo "Detox test failed. Last 120 lines from $LOGCAT_FILE:"
     tail -n 120 "$LOGCAT_FILE" || true
@@ -176,8 +187,10 @@ if [[ $TEST_EXIT -ne 0 ]]; then
   exit $TEST_EXIT
 fi
 
-echo "Android logs saved:"
-echo "- $LOGCAT_FILE"
-echo "- $APP_LOG_FILE"
-echo "- $CRASH_LOG_FILE"
-echo "- $ANR_LOG_FILE"
+if [[ "$DETOX_ANDROID_CAPTURE_LOGS" == "always" ]]; then
+  echo "Android logs saved:"
+  echo "- $LOGCAT_FILE"
+  echo "- $APP_LOG_FILE"
+  echo "- $CRASH_LOG_FILE"
+  echo "- $ANR_LOG_FILE"
+fi

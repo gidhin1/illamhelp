@@ -5,6 +5,7 @@ import { Pool, QueryResult, QueryResultRow } from "pg";
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
   private readonly pool: Pool;
+  private closePromise: Promise<void> | null = null;
 
   constructor(configService: ConfigService) {
     const connectionString =
@@ -57,7 +58,16 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.pool.end();
+    if (!this.closePromise) {
+      this.closePromise = this.pool.end().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message.toLowerCase() : "";
+        if (message.includes("called end on pool more than once")) {
+          return;
+        }
+        throw error;
+      });
+    }
+    await this.closePromise;
   }
 
   private buildConnectionStringFromParts(

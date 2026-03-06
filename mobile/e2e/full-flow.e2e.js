@@ -1,7 +1,23 @@
+const { readFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+
 const API_BASE_URL = process.env.E2E_API_BASE_URL ?? "http://localhost:4000/api/v1";
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
 const MEMBER_ID_PATTERN = /[a-z0-9._-]{3,40}/i;
 const E2E_TIMEOUT_MS = Number(process.env.DETOX_TEST_TIMEOUT_MS ?? "480000");
+const DETOX_POLL_INTERVAL_MS = Number(process.env.DETOX_POLL_INTERVAL_MS ?? "450");
+const DETOX_VERIFY_TYPED_INPUT = /^(1|true)$/i.test(
+  process.env.DETOX_VERIFY_TYPED_INPUT ?? "false"
+);
+const DETOX_TYPE_RETRIES = Number(process.env.DETOX_TYPE_RETRIES ?? "1");
+const DETOX_SCROLL_STEP_PX = Number(process.env.DETOX_SCROLL_STEP_PX ?? "220");
+const DETOX_VISIBLE_CHECK_TIMEOUT_MS = Number(process.env.DETOX_VISIBLE_CHECK_TIMEOUT_MS ?? "200");
+const DETOX_IOS_PROMPT_CHECK_TIMEOUT_MS = Number(
+  process.env.DETOX_IOS_PROMPT_CHECK_TIMEOUT_MS ?? "80"
+);
+const DETOX_HANDLE_IOS_PASSWORD_PROMPTS = !/^(0|false)$/i.test(
+  process.env.DETOX_HANDLE_IOS_PASSWORD_PROMPTS ?? "true"
+);
 
 function logStep(message) {
   // Keep logs concise; these markers make timeout root-cause visible in CI/local output.
@@ -102,6 +118,17 @@ async function loginByApi(user) {
   });
 }
 
+async function registerByApi(user) {
+  return apiRequest("POST", "/auth/register", {
+    username: user.username,
+    email: user.email,
+    password: user.password,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    phone: "+919812345678"
+  });
+}
+
 async function listConnectionsByApi(accessToken) {
   const payload = await apiRequest("GET", "/connections", undefined, accessToken);
   return normalizeListResponse(payload);
@@ -120,6 +147,245 @@ async function listAccessRequestsByApi(accessToken) {
 async function listGrantsByApi(accessToken) {
   const payload = await apiRequest("GET", "/consent/grants", undefined, accessToken);
   return normalizeListResponse(payload);
+}
+
+async function listNotificationsByApi(accessToken, unreadOnly = false) {
+  const query = unreadOnly ? "?unreadOnly=true&limit=50" : "?limit=50";
+  const payload = await apiRequest("GET", `/notifications${query}`, undefined, accessToken);
+  if (payload && Array.isArray(payload.items)) {
+    return payload.items;
+  }
+  return normalizeListResponse(payload);
+}
+
+async function getUnreadNotificationCountByApi(accessToken) {
+  const payload = await apiRequest(
+    "GET",
+    "/notifications/unread-count",
+    undefined,
+    accessToken
+  );
+  return typeof payload.unreadCount === "number" ? payload.unreadCount : 0;
+}
+
+let dotEnvCache = null;
+
+function loadDotEnv() {
+  if (dotEnvCache) {
+    return dotEnvCache;
+  }
+
+  const envPath = resolve(process.cwd(), ".env");
+  try {
+    const content = readFileSync(envPath, "utf8");
+    const values = {};
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        continue;
+      }
+      const equalsIndex = line.indexOf("=");
+      if (equalsIndex < 0) {
+        continue;
+      }
+      const key = line.slice(0, equalsIndex).trim();
+      if (!key) {
+        continue;
+      }
+      values[key] = line
+        .slice(equalsIndex + 1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
+    }
+    dotEnvCache = values;
+    return values;
+  } catch {
+    dotEnvCache = {};
+    return dotEnvCache;
+  }
+}
+
+function readEnvValue(key) {
+  const processValue = process.env[key];
+  if (typeof processValue === "string" && processValue.trim().length > 0) {
+    return processValue.trim();
+  }
+  const dotEnvValue = loadDotEnv()[key];
+  if (typeof dotEnvValue === "string" && dotEnvValue.trim().length > 0) {
+    return dotEnvValue.trim();
+  }
+  return undefined;
+}
+
+function readKeycloakAdminConfig() {
+  const keycloakUrl = (readEnvValue("KEYCLOAK_URL") ?? "http://localhost:8080").replace(/\/$/, "");
+  const keycloakRealm = readEnvValue("KEYCLOAK_REALM") ?? "illamhelp";
+  const adminUsername = readEnvValue("KEYCLOAK_ADMIN");
+  const adminPassword = readEnvValue("KEYCLOAK_ADMIN_PASSWORD");
+
+  if (!adminUsername || !adminPassword) {
+    throw new Error(
+      "KEYCLOAK_ADMIN and KEYCLOAK_ADMIN_PASSWORD are required for admin role assignment in Detox."
+    );
+  }
+
+  return {
+    keycloakUrl,
+    keycloakRealm,
+    adminUsername,
+    adminPassword
+  };
+}
+
+async function getKeycloakAdminToken() {
+  const config = readKeycloakAdminConfig();
+  const form = new URLSearchParams();
+  form.set("grant_type", "password");
+  form.set("client_id", "admin-cli");
+  form.set("username", config.adminUsername);
+  form.set("password", config.adminPassword);
+
+  const response = await fetch(`${config.keycloakUrl}/realms/master/protocol/openid-connect/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: form.toString()
+  });
+
+  const raw = await response.text();
+  let payload = {};
+  if (raw) {
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = { raw };
+    }
+  }
+
+  if (!response.ok || !payload.access_token) {
+    throw new Error(
+      `Failed to get Keycloak admin token (${response.status}): ${JSON.stringify(payload)}`
+    );
+  }
+
+  return {
+    config,
+    accessToken: payload.access_token
+  };
+}
+
+async function ensureRealmRoleForUserByUsername(username, roleName) {
+  const { config, accessToken } = await getKeycloakAdminToken();
+  const authHeaders = {
+    Authorization: `Bearer ${accessToken}`
+  };
+
+  const usersResponse = await fetch(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/users?username=${encodeURIComponent(username)}&exact=true`,
+    {
+      method: "GET",
+      headers: authHeaders
+    }
+  );
+  const usersPayload = await usersResponse.json();
+  if (!usersResponse.ok || !Array.isArray(usersPayload)) {
+    throw new Error(
+      `Failed to lookup user '${username}' in Keycloak (${usersResponse.status}): ${JSON.stringify(usersPayload)}`
+    );
+  }
+  const matchedUser = usersPayload.find((item) => item.username === username) ?? usersPayload[0];
+  const keycloakUserId = matchedUser?.id;
+  if (!keycloakUserId) {
+    throw new Error(`Keycloak user '${username}' not found for role assignment.`);
+  }
+
+  const roleResponse = await fetch(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/roles/${encodeURIComponent(roleName)}`,
+    {
+      method: "GET",
+      headers: authHeaders
+    }
+  );
+  const rolePayload = await roleResponse.json();
+  if (!roleResponse.ok || !rolePayload?.id || !rolePayload?.name) {
+    throw new Error(
+      `Failed to lookup realm role '${roleName}' (${roleResponse.status}): ${JSON.stringify(rolePayload)}`
+    );
+  }
+
+  const mappingsResponse = await fetch(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/users/${encodeURIComponent(keycloakUserId)}/role-mappings/realm`,
+    {
+      method: "GET",
+      headers: authHeaders
+    }
+  );
+  const mappingsPayload = await mappingsResponse.json();
+  if (!mappingsResponse.ok || !Array.isArray(mappingsPayload)) {
+    throw new Error(
+      `Failed to read role mappings for '${username}' (${mappingsResponse.status}): ${JSON.stringify(mappingsPayload)}`
+    );
+  }
+  if (mappingsPayload.some((role) => role.name === roleName)) {
+    return;
+  }
+
+  const assignResponse = await fetch(
+    `${config.keycloakUrl}/admin/realms/${encodeURIComponent(config.keycloakRealm)}/users/${encodeURIComponent(keycloakUserId)}/role-mappings/realm`,
+    {
+      method: "POST",
+      headers: {
+        ...authHeaders,
+        "content-type": "application/json"
+      },
+      body: JSON.stringify([
+        {
+          id: rolePayload.id,
+          name: rolePayload.name,
+          composite: Boolean(rolePayload.composite),
+          clientRole: Boolean(rolePayload.clientRole),
+          containerId: rolePayload.containerId ?? config.keycloakRealm
+        }
+      ])
+    }
+  );
+
+  if (![200, 201, 204].includes(assignResponse.status)) {
+    const assignPayload = await assignResponse.text();
+    throw new Error(
+      `Failed to assign role '${roleName}' to '${username}' (${assignResponse.status}): ${assignPayload}`
+    );
+  }
+}
+
+async function getMyVerificationByApi(accessToken) {
+  return apiRequest("GET", "/profiles/me/verification", undefined, accessToken);
+}
+
+async function listVerificationsByApi(accessToken, status) {
+  const query = new URLSearchParams();
+  query.set("limit", "100");
+  if (status) {
+    query.set("status", status);
+  }
+  const payload = await apiRequest(
+    "GET",
+    `/admin/oversight/verifications?${query.toString()}`,
+    undefined,
+    accessToken
+  );
+  return normalizeListResponse(payload);
+}
+
+async function reviewVerificationByApi(requestId, accessToken, decision, notes) {
+  return apiRequest(
+    "POST",
+    `/admin/oversight/verifications/${requestId}/review`,
+    {
+      decision,
+      notes
+    },
+    accessToken
+  );
 }
 
 async function applyToJobByApi(jobId, accessToken, message) {
@@ -208,7 +474,7 @@ async function poll(action, timeoutMs = 30000) {
     if (value !== undefined && value !== null) {
       return value;
     }
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    await new Promise((resolve) => setTimeout(resolve, DETOX_POLL_INTERVAL_MS));
   }
   throw new Error("Timed out while polling backend state.");
 }
@@ -221,50 +487,107 @@ async function scrollToTop(scrollId) {
   }
 }
 
-async function ensureVisible(targetId, scrollId) {
-  if (scrollId) {
-    try {
-      await waitFor(element(by.id(targetId)))
-        .toBeVisible()
-        .whileElement(by.id(scrollId))
-        .scroll(180, "down");
-      return;
-    } catch {
-      // fallback below
-    }
+async function isVisibleById(targetId, timeoutMs = DETOX_VISIBLE_CHECK_TIMEOUT_MS) {
+  try {
+    await waitFor(element(by.id(targetId))).toBeVisible().withTimeout(timeoutMs);
+    return true;
+  } catch {
+    return false;
   }
-  await waitFor(element(by.id(targetId))).toBeVisible().withTimeout(45000);
 }
 
-async function typeById(targetId, value, scrollId) {
-  await dismissIosPasswordPromptIfPresent();
-  await ensureVisible(targetId, scrollId);
+async function ensureVisible(targetId, scrollId) {
+  if (!scrollId) {
+    await waitFor(element(by.id(targetId))).toBeVisible().withTimeout(20000);
+    return;
+  }
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await element(by.id(targetId)).tap();
-    await element(by.id(targetId)).replaceText(value);
+  if (await isVisibleById(targetId)) {
+    return;
+  }
 
+  await dismissKeyboardOverlay();
+  await scrollToTop(scrollId);
+
+  try {
+    // Prime the scroll view once so we always perform an actual scroll gesture.
+    await element(by.id(scrollId)).scroll(DETOX_SCROLL_STEP_PX, "down");
+  } catch {
+    // no-op
+  }
+
+  try {
+    await waitFor(element(by.id(targetId)))
+      .toBeVisible()
+      .withTimeout(20000)
+      .whileElement(by.id(scrollId))
+      .scroll(DETOX_SCROLL_STEP_PX, "down");
+    return;
+  } catch (downError) {
+    // Deterministic fallback for bottom-pinned actions like submit buttons.
     try {
-      const current = await readElementTextById(targetId);
-      if (current === value) {
-        await new Promise((resolve) => setTimeout(resolve, 120));
+      await element(by.id(scrollId)).scrollTo("bottom");
+      if (await isVisibleById(targetId, 1500)) {
         return;
       }
     } catch {
-      // no-op, retry below
+      // no-op
     }
+    throw downError;
+  }
+}
 
-    await new Promise((resolve) => setTimeout(resolve, 150));
+async function typeById(targetId, value, scrollId) {
+  if (DETOX_HANDLE_IOS_PASSWORD_PROMPTS) {
+    await dismissIosPasswordPromptIfPresent();
+  }
+  await dismissKeyboardOverlay();
+  const expected = String(value);
+  const attempts = Math.max(1, DETOX_TYPE_RETRIES);
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    await ensureVisible(targetId, scrollId);
+    try {
+      await element(by.id(targetId)).tap();
+      await element(by.id(targetId)).replaceText(expected);
+
+      if (!DETOX_VERIFY_TYPED_INPUT) {
+        return;
+      }
+
+      const current = await readElementTextById(targetId);
+      if (current === expected) {
+        return;
+      }
+    } catch (error) {
+      if (attempt >= attempts) {
+        throw error;
+      }
+    }
   }
 
   const finalValue = await readElementTextById(targetId);
-  throw new Error(`Failed to set input ${targetId}. Expected "${value}", got "${finalValue}"`);
+  throw new Error(`Failed to set input ${targetId}. Expected "${expected}", got "${finalValue}"`);
 }
 
 async function tapById(targetId, scrollId) {
-  await dismissIosPasswordPromptIfPresent();
-  await ensureVisible(targetId, scrollId);
-  await element(by.id(targetId)).tap();
+  if (DETOX_HANDLE_IOS_PASSWORD_PROMPTS) {
+    await dismissIosPasswordPromptIfPresent();
+  }
+  await dismissKeyboardOverlay();
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await ensureVisible(targetId, scrollId);
+    try {
+      await dismissKeyboardOverlay();
+      await element(by.id(targetId)).tap();
+      return;
+    } catch (error) {
+      if (attempt >= 3) {
+        throw error;
+      }
+    }
+  }
 }
 
 async function waitForAnyVisible(matchers, timeoutMs) {
@@ -297,19 +620,13 @@ async function dismissIosPasswordPromptIfPresent() {
     return false;
   }
 
-  const promptMatchers = [
-    by.text("Save Password?"),
-    by.label("Save Password?"),
-    by.text("Save Password"),
-    by.label("Save Password"),
-    by.text("Use Strong Password?"),
-    by.label("Use Strong Password?"),
-    by.text("Use Strong Password"),
-    by.label("Use Strong Password")
-  ];
-  const promptVisible = await waitForAnyVisible(promptMatchers, 180);
+  // Fast-path: avoid checking many text/label permutations on every field interaction.
+  const alertVisible = await waitForAnyVisible(
+    [by.type("XCUIElementTypeAlert"), by.type("_UIAlertControllerView")],
+    DETOX_IOS_PROMPT_CHECK_TIMEOUT_MS
+  );
 
-  if (!promptVisible) {
+  if (!alertVisible) {
     return false;
   }
 
@@ -328,8 +645,7 @@ async function dismissIosPasswordPromptIfPresent() {
     by.label("Cancel")
   ];
 
-  if (await tapFirstVisible(dismissButtonMatchers, 220)) {
-    await new Promise((resolve) => setTimeout(resolve, 150));
+  if (await tapFirstVisible(dismissButtonMatchers, 120)) {
     return true;
   }
 
@@ -337,17 +653,11 @@ async function dismissIosPasswordPromptIfPresent() {
     by.type("_UIAlertControllerActionView").atIndex(0),
     by.type("XCUIElementTypeButton").atIndex(0)
   ];
-  if (await tapFirstVisible(fallbackMatchers, 120)) {
-    await new Promise((resolve) => setTimeout(resolve, 150));
+  if (await tapFirstVisible(fallbackMatchers, 80)) {
     return true;
   }
 
-  const stillVisible = await waitForAnyVisible(promptMatchers, 300);
-  if (stillVisible) {
-    throw new Error("iOS password prompt was detected but could not be dismissed.");
-  }
-
-  return false;
+  throw new Error("iOS password prompt detected but could not be dismissed.");
 }
 
 async function settleIosPasswordPromptIfPresent() {
@@ -368,7 +678,7 @@ async function settleIosPasswordPromptIfPresent() {
         return;
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 80));
   }
 }
 
@@ -376,6 +686,7 @@ async function dismissKeyboardOverlay() {
   const surfaces = [
     "auth-scroll",
     "home-scroll",
+    "notifications-scroll",
     "jobs-scroll",
     "connections-scroll",
     "consent-scroll",
@@ -385,7 +696,6 @@ async function dismissKeyboardOverlay() {
   for (const surfaceId of surfaces) {
     try {
       await element(by.id(surfaceId)).tap({ x: 6, y: 6 });
-      await new Promise((resolve) => setTimeout(resolve, 120));
       return;
     } catch {
       // no-op
@@ -402,14 +712,13 @@ async function tapTab(tabKey) {
       await settleIosPasswordPromptIfPresent();
       await dismissKeyboardOverlay();
       await settleIosPasswordPromptIfPresent();
-      await waitFor(element(by.id(tabId))).toBeVisible().withTimeout(10000);
-      await element(by.id(tabId)).tap();
+      await tapById(tabId);
       await settleIosPasswordPromptIfPresent();
       return;
     } catch (error) {
       lastError = error;
       await settleIosPasswordPromptIfPresent();
-      await new Promise((resolve) => setTimeout(resolve, 220));
+      await new Promise((resolve) => setTimeout(resolve, 120));
     }
   }
 
@@ -623,7 +932,7 @@ async function signOutIfVisible() {
   await dismissIosPasswordPromptIfPresent();
   try {
     await waitFor(element(by.id("app-signout"))).toBeVisible().withTimeout(3000);
-    await element(by.id("app-signout")).tap();
+    await tapById("app-signout");
     await dismissIosPasswordPromptIfPresent();
     await waitFor(element(by.id("auth-mode-login"))).toBeVisible().withTimeout(15000);
   } catch {
@@ -634,7 +943,7 @@ async function signOutIfVisible() {
 async function waitForAuthEntryPoint() {
   await dismissIosPasswordPromptIfPresent();
   try {
-    await waitFor(element(by.id("auth-mode-register"))).toBeVisible().withTimeout(60000);
+    await waitFor(element(by.id("auth-mode-register"))).toBeVisible().withTimeout(30000);
     return;
   } catch {
     // fallback below
@@ -665,8 +974,7 @@ async function registerByUi(user) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await waitForAuthEntryPoint();
     await settleIosPasswordPromptIfPresent();
-    await ensureVisible("auth-mode-register", "auth-scroll");
-    await element(by.id("auth-mode-register")).tap();
+    await tapById("auth-mode-register", "auth-scroll");
     await typeById("auth-register-first-name", user.firstName, "auth-scroll");
     await typeById("auth-register-last-name", user.lastName, "auth-scroll");
     await typeById("auth-register-email", user.email, "auth-scroll");
@@ -692,12 +1000,32 @@ async function registerByUi(user) {
   }
 }
 
+async function seedUserAndLoginByUi(user) {
+  await signOutIfVisible();
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await registerByApi(user);
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        attempt < 3 &&
+        /too many authentication attempts|http 429|try again shortly/i.test(message)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 1200 * attempt));
+        continue;
+      }
+      throw error;
+    }
+  }
+  await loginByUi(user);
+}
+
 async function loginByUi(user) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     await waitForAuthEntryPoint();
     await settleIosPasswordPromptIfPresent();
-    await ensureVisible("auth-mode-login", "auth-scroll");
-    await element(by.id("auth-mode-login")).tap();
+    await tapById("auth-mode-login", "auth-scroll");
     await typeById("auth-login-username", user.username, "auth-scroll");
     await typeById("auth-login-password", user.password, "auth-scroll");
     await tapById("auth-login-submit", "auth-scroll");
@@ -757,7 +1085,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
 
   it("login with wrong password shows auth error", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
     await signOutIfVisible();
     await waitForAuthEntryPoint();
     await tapById("auth-mode-login", "auth-scroll");
@@ -769,7 +1097,10 @@ describe("IllamHelp mobile full flow (Detox)", () => {
 
   it("tab navigation works after sign in", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
+
+    await tapTab("notifications");
+    await waitForText("Stay updated");
 
     await tapTab("jobs");
     await waitForText("Post new work");
@@ -787,9 +1118,22 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await waitForText("Your activity at a glance");
   });
 
+  it("notifications page shows empty state for a new user", async () => {
+    const user = makeUser("both");
+    await seedUserAndLoginByUi(user);
+
+    await tapTab("notifications");
+    await waitForText("Stay updated");
+    await waitFor(element(by.id("notifications-empty"))).toBeVisible().withTimeout(20000);
+    const unreadBadgeText = await readElementTextById("notifications-unread-count");
+    if (!/^\d+\s+unread$/i.test(unreadBadgeText)) {
+      throw new Error(`Unexpected unread badge text: ${unreadBadgeText}`);
+    }
+  });
+
   it("jobs form shows validation error for short payload", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
 
     await tapTab("jobs");
     await scrollToTop("jobs-scroll");
@@ -805,7 +1149,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     const user = makeUser("both");
     const shortId = Date.now().toString(36).slice(-4);
     const title = `Leak fix ${shortId}`;
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
 
     await tapTab("jobs");
     await scrollToTop("jobs-scroll");
@@ -825,16 +1169,116 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     await waitForText(title);
   });
 
+  it("jobs posted by me shows no-applicants state and disables applicant management when empty", async () => {
+    const user = makeUser("both");
+    const shortId = Date.now().toString(36).slice(-4);
+    const title = `Manage applicants ${shortId}`;
+    await seedUserAndLoginByUi(user);
+    const userId = await readProfileUserId();
+    const apiSession = await loginByApi(user);
+
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await typeById("jobs-category", "plumber", "jobs-scroll");
+    await typeById("jobs-title", title, "jobs-scroll");
+    await typeById(
+      "jobs-description",
+      "Need plumbing support for bathroom leakage diagnostics.",
+      "jobs-scroll"
+    );
+    await typeById("jobs-location", "Kakkanad, Kochi", "jobs-scroll");
+    await tapById("jobs-submit", "jobs-scroll");
+    await waitForSuccessOrError("jobs-success-banner", [
+      "jobs-submit-error-banner",
+      "jobs-error-banner"
+    ]);
+
+    const jobId = await poll(async () => {
+      const jobs = await listJobsByApi(apiSession.accessToken);
+      const found = jobs.find((item) => item.seekerUserId === userId && item.title === title);
+      return found?.id;
+    }, 30000);
+    parseUuid(jobId, "jobs manage applicants job id");
+
+    await waitFor(element(by.id(`jobs-no-applicants-${jobId}`)))
+      .toBeVisible()
+      .withTimeout(20000);
+    const manageAttrs = await element(by.id(`jobs-manage-${jobId}`)).getAttributes();
+    if (manageAttrs.enabled !== false) {
+      throw new Error(`Expected jobs-manage-${jobId} to be disabled when no applicants.`);
+    }
+  });
+
+  it("jobs posted by me opens applicant manager view when applicants exist", async () => {
+    const seeker = makeUser("both");
+    const provider = makeUser("both");
+    const shortId = Date.now().toString(36).slice(-4);
+    const title = `Applicant review ${shortId}`;
+
+    await seedUserAndLoginByUi(seeker);
+    const seekerUserId = await readProfileUserId();
+    const seekerApiSession = await loginByApi(seeker);
+
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await typeById("jobs-category", "plumber", "jobs-scroll");
+    await typeById("jobs-title", title, "jobs-scroll");
+    await typeById(
+      "jobs-description",
+      "Need support for kitchen pipeline pressure issue.",
+      "jobs-scroll"
+    );
+    await typeById("jobs-location", "Kakkanad, Kochi", "jobs-scroll");
+    await tapById("jobs-submit", "jobs-scroll");
+    await waitForSuccessOrError("jobs-success-banner", [
+      "jobs-submit-error-banner",
+      "jobs-error-banner"
+    ]);
+
+    const jobId = await poll(async () => {
+      const jobs = await listJobsByApi(seekerApiSession.accessToken);
+      const found = jobs.find((item) => item.seekerUserId === seekerUserId && item.title === title);
+      return found?.id;
+    }, 30000);
+    parseUuid(jobId, "jobs applicant manager job id");
+
+    await signOutIfVisible();
+    await seedUserAndLoginByUi(provider);
+    const providerUserId = await readProfileUserId();
+    const providerApiSession = await loginByApi(provider);
+    const applied = await applyToJobByApi(
+      jobId,
+      providerApiSession.accessToken,
+      "Can inspect and complete this job today."
+    );
+    if (applied.status !== "applied") {
+      throw new Error(`Expected application status 'applied', got ${applied.status}`);
+    }
+
+    await signOutIfVisible();
+    await loginByUi(seeker);
+    await tapTab("jobs");
+    await scrollToTop("jobs-scroll");
+    await waitFor(element(by.id(`jobs-manage-${jobId}`))).toBeVisible().withTimeout(30000);
+    const manageAttrs = await element(by.id(`jobs-manage-${jobId}`)).getAttributes();
+    if (manageAttrs.enabled === false) {
+      throw new Error(`Expected jobs-manage-${jobId} to be enabled when applicants exist.`);
+    }
+    await tapById(`jobs-manage-${jobId}`, "jobs-scroll");
+    await waitForText(`Manage job: ${title}`, 30000);
+    await waitForText(providerUserId, 30000);
+  });
+
   it("connections page shows empty state for new user", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
     await tapTab("connections");
     await waitForText("No connections yet.");
   });
 
   it("consent page shows empty-state guidance for new user", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
     await tapTab("consent");
     await waitForText("No accepted connections yet.");
     await waitForText("No pending requests for you.");
@@ -842,7 +1286,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
 
   it("profile saves changes and uploads media proof", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
     await tapTab("profile");
     await scrollToTop("profile-scroll");
 
@@ -859,7 +1303,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
 
   it("profile public gallery hides media that is still in review", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
     const memberId = await readProfileUserId();
 
     await scrollToTop("profile-scroll");
@@ -874,7 +1318,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
 
   it("profile public gallery shows error for unknown member id", async () => {
     const user = makeUser("both");
-    await registerByUi(user);
+    await seedUserAndLoginByUi(user);
     await tapTab("profile");
     await scrollToTop("profile-scroll");
 
@@ -891,12 +1335,12 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     const requester = makeUser("both");
     const owner = makeUser("both");
 
-    await registerByUi(requester);
+    await seedUserAndLoginByUi(requester);
     const requesterUserId = await readProfileUserId();
     const requesterApiSession = await loginByApi(requester);
 
     await signOutIfVisible();
-    await registerByUi(owner);
+    await seedUserAndLoginByUi(owner);
     const ownerUserId = await readProfileUserId();
     const ownerApiSession = await loginByApi(owner);
 
@@ -981,13 +1425,131 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     }, 30000);
   });
 
+  it("mobile alerts flow marks unread notifications as read", async () => {
+    const owner = makeUser("both");
+    const requester = makeUser("both");
+
+    await seedUserAndLoginByUi(owner);
+    const ownerUserId = await readProfileUserId();
+    const ownerApiSession = await loginByApi(owner);
+
+    await signOutIfVisible();
+    await seedUserAndLoginByUi(requester);
+    const requesterApiSession = await loginByApi(requester);
+    await requestConnectionByApi(requesterApiSession.accessToken, ownerUserId);
+
+    await poll(async () => {
+      const unread = await getUnreadNotificationCountByApi(ownerApiSession.accessToken);
+      return unread > 0 ? unread : undefined;
+    }, 30000);
+
+    await signOutIfVisible();
+    await loginByUi(owner);
+    await tapTab("notifications");
+    await waitFor(element(by.id("notifications-mark-all"))).toBeVisible().withTimeout(30000);
+    await tapById("notifications-mark-all", "notifications-scroll");
+
+    await poll(async () => {
+      const unread = await getUnreadNotificationCountByApi(ownerApiSession.accessToken);
+      return unread === 0 ? unread : undefined;
+    }, 30000);
+
+    const unreadBadgeText = await readElementTextById("notifications-unread-count");
+    if (!/^0\s+unread$/i.test(unreadBadgeText)) {
+      throw new Error(`Expected unread badge to reset to 0 unread, got: ${unreadBadgeText}`);
+    }
+
+    const unreadNotifications = await listNotificationsByApi(
+      ownerApiSession.accessToken,
+      true
+    );
+    if (unreadNotifications.length !== 0) {
+      throw new Error(
+        `Expected no unread notifications after mark-all-read, got ${unreadNotifications.length}`
+      );
+    }
+  });
+
+  it("mobile E2E verification lifecycle: submit -> admin review -> user notification", async () => {
+    const member = makeUser("both");
+    const adminCandidate = makeUser("both");
+    const shortId = Date.now().toString(36).slice(-4);
+    const reviewNote = `Verification approved in Detox ${shortId}`;
+    const documentMediaId = "11111111-1111-4111-8111-111111111111";
+
+    await seedUserAndLoginByUi(member);
+    const memberApiSession = await loginByApi(member);
+
+    await tapTab("verification");
+    await scrollToTop("verification-scroll");
+    await typeById("verification-media-ids", documentMediaId, "verification-scroll");
+    await typeById(
+      "verification-notes",
+      "Government ID submitted for verification lifecycle E2E.",
+      "verification-scroll"
+    );
+    await tapById("verification-submit", "verification-scroll");
+    await waitForSuccessOrError("verification-success-banner", ["verification-error-banner"]);
+
+    const verificationRequestId = await poll(async () => {
+      const verification = await getMyVerificationByApi(memberApiSession.accessToken);
+      if (!verification || verification.status !== "pending") {
+        return undefined;
+      }
+      return verification.id;
+    }, 30000);
+    parseUuid(verificationRequestId, "verification request id");
+
+    await signOutIfVisible();
+    await seedUserAndLoginByUi(adminCandidate);
+    await signOutIfVisible();
+    await ensureRealmRoleForUserByUsername(adminCandidate.username, "admin");
+
+    await loginByUi(adminCandidate);
+    const adminApiSession = await loginByApi(adminCandidate);
+
+    await poll(async () => {
+      const items = await listVerificationsByApi(adminApiSession.accessToken, "pending");
+      const found = items.find((item) => item.id === verificationRequestId);
+      return found?.id;
+    }, 30000);
+
+    const reviewed = await reviewVerificationByApi(
+      verificationRequestId,
+      adminApiSession.accessToken,
+      "approved",
+      reviewNote
+    );
+    if (reviewed.status !== "approved") {
+      throw new Error(`Expected approved verification status, got ${reviewed.status}`);
+    }
+
+    await poll(async () => {
+      const unreadNotifications = await listNotificationsByApi(memberApiSession.accessToken, true);
+      return unreadNotifications.some(
+        (item) => item.type === "verification_approved" && item.title.includes("Verification approved")
+      )
+        ? true
+        : undefined;
+    }, 30000);
+
+    await signOutIfVisible();
+    await loginByUi(member);
+    await tapTab("notifications");
+    await waitForText("Verification approved!", 30000);
+
+    await tapTab("verification");
+    await waitForText("Status: Approved ✅", 30000);
+    await waitForText(reviewNote, 30000);
+  });
+
   it("mobile E2E jobs visibility: connections_only blocks non-connections then allows accepted connection", async () => {
     const seeker = makeUser("both");
     const provider = makeUser("both");
     const shortId = Date.now().toString(36).slice(-4);
     const jobTitle = `Conn-only ${shortId}`;
 
-    await registerByUi(seeker);
+    await seedUserAndLoginByUi(seeker);
     const seekerUserId = await readProfileUserId();
     const seekerApiSession = await loginByApi(seeker);
 
@@ -1017,7 +1579,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     parseUuid(jobId, "connections-only job id");
 
     await signOutIfVisible();
-    await registerByUi(provider);
+    await seedUserAndLoginByUi(provider);
     const providerApiSession = await loginByApi(provider);
 
     const deniedApply = await applyToJobRaw(
@@ -1062,7 +1624,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     const shortId = Date.now().toString(36).slice(-4);
     const jobTitle = `Book ${shortId}`;
 
-    await registerByUi(seeker);
+    await seedUserAndLoginByUi(seeker);
     const seekerUserId = await readProfileUserId();
     const seekerApiSession = await loginByApi(seeker);
     await tapTab("jobs");
@@ -1090,7 +1652,7 @@ describe("IllamHelp mobile full flow (Detox)", () => {
     }, 30000);
 
     await signOutIfVisible();
-    await registerByUi(provider);
+    await seedUserAndLoginByUi(provider);
     const providerApiSession = await loginByApi(provider);
 
     const application = await applyToJobByApi(

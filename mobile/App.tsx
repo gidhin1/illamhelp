@@ -14,13 +14,18 @@ import {
 } from "react-native";
 
 import {
+  acceptJobApplication,
   acceptConnection,
   AccessRequestRecord,
+  applyToJob,
   authMe,
   AuthenticatedUser,
   AuthSessionResponse,
   blockConnection,
+  cancelBooking,
   canViewConsent,
+  closeBooking,
+  completeBooking,
   completeMediaUpload,
   ConnectionSearchCandidate,
   ConnectionRecord,
@@ -31,37 +36,64 @@ import {
   createJob,
   declineConnection,
   formatDate,
+  getMyVerification,
+  getProfileByUserId,
+  getUnreadNotificationCount,
   getMyProfile,
   grantConsent,
+  JobApplicationRecord,
   JobRecord,
+  listJobApplications,
   listConnections,
   listConsentGrants,
   listConsentRequests,
   listJobs,
+  listMyJobApplications,
   listMyMedia,
+  listNotifications,
   listPublicApprovedMedia,
   login,
+  markAllNotificationsRead,
+  markNotificationRead,
+  markPaymentDone,
+  markPaymentReceived,
   MediaAssetRecord,
+  NotificationRecord,
   PublicMediaAssetRecord,
   ProfileRecord,
   register,
+  rejectJobApplication,
   requestConnection,
   requestConsentAccess,
   revokeConsent,
+  revokeJobAssignment,
+  submitVerification,
   searchConnections,
+  startBooking,
+  VerificationRecord,
+  withdrawJobApplication,
   updateMyProfile
 } from "./src/api";
 import { theme } from "./src/theme";
 
-type TabKey = "home" | "jobs" | "connections" | "consent" | "profile";
+type TabKey =
+  | "home"
+  | "notifications"
+  | "jobs"
+  | "connections"
+  | "consent"
+  | "verification"
+  | "profile";
 type AuthMode = "login" | "register";
 type ButtonVariant = "primary" | "secondary" | "ghost";
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: "home", label: "Home" },
+  { key: "notifications", label: "Alerts" },
   { key: "jobs", label: "Jobs" },
   { key: "connections", label: "People" },
   { key: "consent", label: "Privacy" },
+  { key: "verification", label: "Verify" },
   { key: "profile", label: "Profile" }
 ];
 
@@ -72,6 +104,32 @@ const CONSENT_FIELD_LABELS: Record<ConsentField, string> = {
   alternate_phone: "Alternate phone",
   email: "Email address",
   full_address: "Home address"
+};
+
+const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+  job_application_received: "Application",
+  job_application_accepted: "Accepted",
+  job_application_rejected: "Rejected",
+  job_booking_started: "Job started",
+  job_booking_completed: "Job completed",
+  job_booking_cancelled: "Job cancelled",
+  connection_request_received: "Connection request",
+  connection_request_accepted: "Connected",
+  connection_request_declined: "Connection declined",
+  verification_approved: "Verification approved",
+  verification_rejected: "Verification rejected",
+  consent_grant_received: "Privacy grant",
+  consent_grant_revoked: "Privacy revoked",
+  media_approved: "Media approved",
+  media_rejected: "Media rejected",
+  system_announcement: "Announcement"
+};
+
+const VERIFICATION_STATUS_LABELS: Record<string, string> = {
+  pending: "Pending review",
+  under_review: "Under review",
+  approved: "Approved",
+  rejected: "Rejected"
 };
 
 interface CreateJobPayload {
@@ -322,15 +380,18 @@ function Banner({
 
 function TabBar({
   activeTab,
-  onSelect
+  onSelect,
+  unreadAlertsCount
 }: {
   activeTab: TabKey;
   onSelect: (tab: TabKey) => void;
+  unreadAlertsCount: number;
 }): JSX.Element {
   return (
     <View style={styles.tabBar}>
       {tabs.map((tab) => {
         const selected = tab.key === activeTab;
+        const showUnreadBadge = tab.key === "notifications" && unreadAlertsCount > 0;
         return (
           <Pressable
             key={tab.key}
@@ -338,9 +399,16 @@ function TabBar({
             style={[styles.tabButton, selected ? styles.tabButtonSelected : null]}
             testID={`tab-${tab.key}`}
           >
-            <Text style={[styles.tabButtonLabel, selected ? styles.tabButtonLabelSelected : null]}>
-              {tab.label}
-            </Text>
+            <View style={styles.tabButtonContent}>
+              <Text style={[styles.tabButtonLabel, selected ? styles.tabButtonLabelSelected : null]}>
+                {tab.label}
+              </Text>
+              {showUnreadBadge ? (
+                <View style={styles.tabBadge} testID="tab-notifications-unread-badge">
+                  <Text style={styles.tabBadgeLabel}>{Math.min(unreadAlertsCount, 99)}</Text>
+                </View>
+              ) : null}
+            </View>
           </Pressable>
         );
       })}
@@ -612,14 +680,265 @@ function HomeScreen({
   );
 }
 
-function JobsScreen({
+function NotificationsScreen({
   accessToken,
-  onSessionInvalid
+  onSessionInvalid,
+  onUnreadCountChange
 }: {
   accessToken: string;
   onSessionInvalid: () => void;
+  onUnreadCountChange: (count: number) => void;
 }): JSX.Element {
+  const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [showUnreadOnly, setShowUnreadOnly] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  const updateUnreadCount = useCallback(
+    (count: number): void => {
+      setUnreadCount(count);
+      onUnreadCountChange(count);
+    },
+    [onUnreadCountChange]
+  );
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await listNotifications(
+        { unreadOnly: showUnreadOnly, limit: 50, offset: 0 },
+        accessToken
+      );
+      setNotifications(response.items);
+      setTotal(response.total);
+      updateUnreadCount(response.unreadCount);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to load alerts");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, onSessionInvalid, showUnreadOnly, updateUnreadCount]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onMarkRead = async (notificationId: string): Promise<void> => {
+    setActionLoadingId(`read-${notificationId}`);
+    setError(null);
+    try {
+      const updated = await markNotificationRead(notificationId, accessToken);
+      setNotifications((previous) =>
+        previous.map((item) => (item.id === updated.id ? updated : item))
+      );
+      const nextUnread = Math.max(0, unreadCount - 1);
+      updateUnreadCount(nextUnread);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to mark alert as read");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const onMarkAllRead = async (): Promise<void> => {
+    setActionLoadingId("read-all");
+    setError(null);
+    try {
+      await markAllNotificationsRead(accessToken);
+      setNotifications((previous) =>
+        previous.map((item) => ({
+          ...item,
+          read: true,
+          readAt: item.readAt ?? new Date().toISOString()
+        }))
+      );
+      updateUnreadCount(0);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to mark all alerts as read");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const renderNotificationContext = (item: NotificationRecord): string | null => {
+    const pairs: { key: string; label: string }[] = [
+      { key: "jobId", label: "Job" },
+      { key: "connectionId", label: "Connection" },
+      { key: "applicationId", label: "Application" },
+      { key: "grantId", label: "Grant" },
+      { key: "requestId", label: "Request" },
+      { key: "mediaId", label: "Media" }
+    ];
+    const values = pairs
+      .map((pair) => {
+        const rawValue = item.data[pair.key];
+        if (typeof rawValue !== "string" || rawValue.trim().length === 0) {
+          return null;
+        }
+        return `${pair.label}: ${rawValue}`;
+      })
+      .filter((value): value is string => Boolean(value));
+    return values.length > 0 ? values.join(" · ") : null;
+  };
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.screenScroll}
+      testID="notifications-scroll"
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+    >
+      <View style={styles.screenHeader}>
+        <Text style={styles.pill}>Alerts</Text>
+        <Text style={styles.screenTitle}>Stay updated</Text>
+        <Text style={styles.screenSubtitle}>
+          Job updates, people requests, privacy changes, and verification updates.
+        </Text>
+      </View>
+
+      {error ? <Banner tone="error" message={error} testID="notifications-error-banner" /> : null}
+
+      <SectionCard title="Inbox">
+        <View style={styles.roleRow}>
+          <View style={styles.roleChip} testID="notifications-unread-count">
+            <Text style={styles.roleChipLabel}>{unreadCount} unread</Text>
+          </View>
+          <AppButton
+            label={showUnreadOnly ? "Show all" : "Show unread only"}
+            onPress={() => setShowUnreadOnly((previous) => !previous)}
+            variant="ghost"
+            testID="notifications-filter-toggle"
+          />
+          {unreadCount > 0 ? (
+            <AppButton
+              label={actionLoadingId === "read-all" ? "Updating..." : "Mark all read"}
+              onPress={() => {
+                void onMarkAllRead();
+              }}
+              variant="secondary"
+              disabled={actionLoadingId === "read-all"}
+              testID="notifications-mark-all"
+            />
+          ) : null}
+        </View>
+
+        {loading ? <Text style={styles.cardBodyMuted}>Loading alerts...</Text> : null}
+        {!loading && notifications.length === 0 ? (
+          <Text style={styles.cardBodyMuted} testID="notifications-empty">
+            No alerts yet.
+          </Text>
+        ) : null}
+        {!loading && notifications.length > 0 ? (
+          <View style={styles.stackSmall}>
+            {notifications.map((item) => {
+              const context = renderNotificationContext(item);
+              return (
+                <View
+                  key={item.id}
+                  style={[
+                    styles.dataRow,
+                    !item.read ? styles.notificationRowUnread : null
+                  ]}
+                  testID={`notifications-item-${item.id}`}
+                >
+                  <View style={styles.notificationMetaRow}>
+                    <Text style={styles.dataTitle}>
+                      {NOTIFICATION_TYPE_LABELS[item.type] ?? item.type}
+                    </Text>
+                    <Text style={styles.dataMeta}>{formatDate(item.createdAt)}</Text>
+                  </View>
+                  <Text style={styles.dataTitle}>{item.title}</Text>
+                  <Text style={styles.dataMeta}>{item.body}</Text>
+                  {context ? <Text style={styles.dataMeta}>{context}</Text> : null}
+                  {!item.read ? (
+                    <AppButton
+                      label={
+                        actionLoadingId === `read-${item.id}` ? "Updating..." : "Mark read"
+                      }
+                      onPress={() => {
+                        void onMarkRead(item.id);
+                      }}
+                      variant="ghost"
+                      disabled={actionLoadingId === `read-${item.id}`}
+                      testID={`notifications-mark-read-${item.id}`}
+                    />
+                  ) : (
+                    <Text style={styles.cardBodyMuted}>Read {formatDate(item.readAt)}</Text>
+                  )}
+                </View>
+              );
+            })}
+            {total > notifications.length ? (
+              <Text style={styles.cardBodyMuted}>
+                Showing {notifications.length} of {total} alerts.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+      </SectionCard>
+
+      <AppButton
+        label={loading ? "Refreshing..." : "Refresh alerts"}
+        onPress={() => {
+          void load();
+        }}
+        variant="ghost"
+        disabled={loading}
+        testID="notifications-refresh"
+      />
+    </ScrollView>
+  );
+}
+
+function isPendingJobApplicationStatus(status: JobApplicationRecord["status"]): boolean {
+  return status === "applied" || status === "shortlisted";
+}
+
+function latestApplicationByJob(
+  applications: JobApplicationRecord[]
+): Record<string, JobApplicationRecord> {
+  const sorted = [...applications].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
+  const result: Record<string, JobApplicationRecord> = {};
+  for (const application of sorted) {
+    if (!result[application.jobId]) {
+      result[application.jobId] = application;
+    }
+  }
+  return result;
+}
+
+function JobsScreen({
+  accessToken,
+  user,
+  onSessionInvalid
+}: {
+  accessToken: string;
+  user: AuthenticatedUser;
+  onSessionInvalid: () => void;
+}): JSX.Element {
+  const currentUserId = user.publicUserId;
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [myApplicationsByJob, setMyApplicationsByJob] = useState<
+    Record<string, JobApplicationRecord>
+  >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -631,6 +950,29 @@ function JobsScreen({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+
+  const [jobActionLoadingId, setJobActionLoadingId] = useState<string | null>(null);
+  const [jobActionError, setJobActionError] = useState<string | null>(null);
+  const [jobActionSuccess, setJobActionSuccess] = useState<string | null>(null);
+  const [applyMessage, setApplyMessage] = useState("");
+  const [decisionReason, setDecisionReason] = useState("");
+  const [revokeReason, setRevokeReason] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [applicantCountsByJob, setApplicantCountsByJob] = useState<Record<string, number>>({});
+  const [applicantCountsLoadingByJob, setApplicantCountsLoadingByJob] = useState<
+    Record<string, boolean>
+  >({});
+  const [ownJobManagerVisible, setOwnJobManagerVisible] = useState(false);
+
+  const [selectedOwnJobId, setSelectedOwnJobId] = useState<string | null>(null);
+  const [selectedOwnJobApplications, setSelectedOwnJobApplications] = useState<
+    JobApplicationRecord[]
+  >([]);
+  const [selectedApplicantProfile, setSelectedApplicantProfile] = useState<ProfileRecord | null>(
+    null
+  );
+  const [selectedOwnJobLoading, setSelectedOwnJobLoading] = useState(false);
+
   const latestDraftRef = useRef<CreateJobPayload>({
     category: "",
     title: "",
@@ -638,14 +980,92 @@ function JobsScreen({
     locationText: "",
     visibility: "public"
   });
-  const visibleJobs = useMemo(() => jobs.slice(0, MAX_RENDER_ROWS), [jobs]);
+
+  const jobsPostedByMe = useMemo(
+    () => jobs.filter((job) => job.seekerUserId === currentUserId).slice(0, MAX_RENDER_ROWS),
+    [jobs, currentUserId]
+  );
+  const jobsAssignedToMe = useMemo(
+    () =>
+      jobs
+        .filter(
+          (job) =>
+            job.assignedProviderUserId === currentUserId && job.seekerUserId !== currentUserId
+        )
+        .slice(0, MAX_RENDER_ROWS),
+    [jobs, currentUserId]
+  );
+  const jobsFromConnectedPeople = useMemo(
+    () =>
+      jobs
+        .filter(
+          (job) =>
+            job.seekerUserId !== currentUserId &&
+            job.assignedProviderUserId !== currentUserId &&
+            (job.visibility === "connections_only" || job.status !== "posted")
+        )
+        .slice(0, MAX_RENDER_ROWS),
+    [jobs, currentUserId]
+  );
+  const publicJobs = useMemo(
+    () =>
+      jobs
+        .filter(
+          (job) =>
+            job.seekerUserId !== currentUserId &&
+            job.assignedProviderUserId !== currentUserId &&
+            job.visibility === "public" &&
+            job.status === "posted"
+        )
+        .slice(0, MAX_RENDER_ROWS),
+    [jobs, currentUserId]
+  );
+  const selectedOwnJob = useMemo(
+    () => jobs.find((job) => job.id === selectedOwnJobId) ?? null,
+    [jobs, selectedOwnJobId]
+  );
+
+  const loadOwnJobApplicantCounts = useCallback(
+    async (jobRows: JobRecord[]): Promise<void> => {
+      const ownJobs = jobRows.filter((job) => job.seekerUserId === currentUserId);
+      if (ownJobs.length === 0) {
+        setApplicantCountsByJob({});
+        setApplicantCountsLoadingByJob({});
+        return;
+      }
+
+      setApplicantCountsLoadingByJob(
+        Object.fromEntries(ownJobs.map((job) => [job.id, true]))
+      );
+      const countEntries = await Promise.all(
+        ownJobs.map(async (job) => {
+          try {
+            const rows = await listJobApplications(job.id, accessToken);
+            return [job.id, rows.length] as const;
+          } catch {
+            return [job.id, 0] as const;
+          }
+        })
+      );
+      setApplicantCountsByJob(Object.fromEntries(countEntries));
+      setApplicantCountsLoadingByJob(
+        Object.fromEntries(ownJobs.map((job) => [job.id, false]))
+      );
+    },
+    [accessToken, currentUserId]
+  );
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const result = await listJobs(accessToken);
-      setJobs(result);
+      const [jobRows, myApplicationRows] = await Promise.all([
+        listJobs(accessToken),
+        listMyJobApplications(accessToken)
+      ]);
+      setJobs(jobRows);
+      setMyApplicationsByJob(latestApplicationByJob(myApplicationRows));
+      await loadOwnJobApplicantCounts(jobRows);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load jobs");
       setError(message);
@@ -655,11 +1075,55 @@ function JobsScreen({
     } finally {
       setLoading(false);
     }
-  }, [accessToken, onSessionInvalid]);
+  }, [accessToken, loadOwnJobApplicantCounts, onSessionInvalid]);
+
+  const loadSelectedOwnJobApplications = useCallback(
+    async (jobId: string): Promise<void> => {
+      setSelectedOwnJobLoading(true);
+      try {
+        const rows = await listJobApplications(jobId, accessToken);
+        setSelectedOwnJobApplications(
+          rows.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        );
+        setApplicantCountsByJob((previous) => ({ ...previous, [jobId]: rows.length }));
+        setApplicantCountsLoadingByJob((previous) => ({ ...previous, [jobId]: false }));
+      } catch (requestError) {
+        const message = asError(requestError, "Unable to load applicants");
+        setJobActionError(message);
+        if (shouldForceSignOut(message)) {
+          onSessionInvalid();
+        }
+      } finally {
+        setSelectedOwnJobLoading(false);
+      }
+    },
+    [accessToken, onSessionInvalid]
+  );
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!selectedOwnJobId) {
+      setSelectedOwnJobApplications([]);
+      return;
+    }
+    void loadSelectedOwnJobApplications(selectedOwnJobId);
+  }, [loadSelectedOwnJobApplications, selectedOwnJobId]);
+
+  useEffect(() => {
+    if (!selectedOwnJobId) {
+      return;
+    }
+    const stillExists = jobs.some((job) => job.id === selectedOwnJobId);
+    if (!stillExists) {
+      setSelectedOwnJobId(null);
+      setSelectedOwnJobApplications([]);
+      setSelectedApplicantProfile(null);
+      setOwnJobManagerVisible(false);
+    }
+  }, [jobs, selectedOwnJobId]);
 
   const onCreate = async (): Promise<void> => {
     setSubmitting(true);
@@ -697,6 +1161,11 @@ function JobsScreen({
       setDescription("");
       setLocationText("");
       setVisibility("public");
+      setSelectedOwnJobId(created.id);
+      setSelectedApplicantProfile(null);
+      setOwnJobManagerVisible(false);
+      setApplicantCountsByJob((previous) => ({ ...previous, [created.id]: 0 }));
+      setApplicantCountsLoadingByJob((previous) => ({ ...previous, [created.id]: false }));
     } catch (requestError) {
       const message = asError(requestError, "Unable to create job");
       setSubmitError(message);
@@ -708,6 +1177,198 @@ function JobsScreen({
     }
   };
 
+  const runJobAction = async (
+    actionKey: string,
+    action: () => Promise<void>
+  ): Promise<void> => {
+    setJobActionLoadingId(actionKey);
+    setJobActionError(null);
+    setJobActionSuccess(null);
+    try {
+      await action();
+    } catch (requestError) {
+      const message = asError(requestError, "Action failed");
+      setJobActionError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setJobActionLoadingId(null);
+    }
+  };
+
+  const onApply = async (jobId: string): Promise<void> => {
+    await runJobAction(`apply-${jobId}`, async () => {
+      const created = await applyToJob(
+        jobId,
+        { message: applyMessage.trim() || undefined },
+        accessToken
+      );
+      setMyApplicationsByJob((previous) => ({ ...previous, [jobId]: created }));
+      setApplyMessage("");
+      setJobActionSuccess("Application submitted.");
+    });
+  };
+
+  const onWithdraw = async (application: JobApplicationRecord): Promise<void> => {
+    await runJobAction(`withdraw-${application.id}`, async () => {
+      const updated = await withdrawJobApplication(application.id, accessToken);
+      setMyApplicationsByJob((previous) => ({ ...previous, [application.jobId]: updated }));
+      setJobActionSuccess("Pending application removed.");
+    });
+  };
+
+  const onAcceptApplicant = async (applicationId: string): Promise<void> => {
+    await runJobAction(`accept-${applicationId}`, async () => {
+      await acceptJobApplication(applicationId, accessToken);
+      await load();
+      if (selectedOwnJobId) {
+        await loadSelectedOwnJobApplications(selectedOwnJobId);
+      }
+      setJobActionSuccess("Applicant approved. Job assignment is active.");
+    });
+  };
+
+  const onRejectApplicant = async (applicationId: string): Promise<void> => {
+    await runJobAction(`reject-${applicationId}`, async () => {
+      await rejectJobApplication(
+        applicationId,
+        { reason: decisionReason.trim() || undefined },
+        accessToken
+      );
+      await load();
+      if (selectedOwnJobId) {
+        await loadSelectedOwnJobApplications(selectedOwnJobId);
+      }
+      setDecisionReason("");
+      setJobActionSuccess("Applicant rejected.");
+    });
+  };
+
+  const onViewApplicantProfile = async (providerUserId: string): Promise<void> => {
+    await runJobAction(`applicant-profile-${providerUserId}`, async () => {
+      const profile = await getProfileByUserId(providerUserId, accessToken);
+      setSelectedApplicantProfile(profile);
+      setJobActionSuccess("Applicant profile loaded.");
+    });
+  };
+
+  const onUpdateJobStatus = async (
+    actionKey: string,
+    update: () => Promise<JobRecord>,
+    successMessage: string
+  ): Promise<void> => {
+    await runJobAction(actionKey, async () => {
+      const updated = await update();
+      setJobs((previous) => previous.map((job) => (job.id === updated.id ? updated : job)));
+      await load();
+      if (selectedOwnJobId) {
+        await loadSelectedOwnJobApplications(selectedOwnJobId);
+      }
+      setJobActionSuccess(successMessage);
+    });
+  };
+
+  const renderExternalJobs = (rows: JobRecord[]): JSX.Element => {
+    if (!loading && rows.length === 0) {
+      return <Text style={styles.cardBodyMuted}>No jobs in this section yet.</Text>;
+    }
+
+    return (
+      <View style={styles.stackSmall}>
+        {rows.map((job) => {
+          const application = myApplicationsByJob[job.id] ?? null;
+          const canApply =
+            job.status === "posted" &&
+            (!application ||
+              application.status === "withdrawn" ||
+              application.status === "rejected");
+          const canWithdraw =
+            job.status === "posted" &&
+            !!application &&
+            isPendingJobApplicationStatus(application.status);
+          const isAssignedProvider = job.assignedProviderUserId === currentUserId;
+
+          return (
+            <View key={job.id} style={styles.dataRow}>
+              <Text style={styles.dataTitle}>{job.title}</Text>
+              <Text style={styles.dataMeta}>
+                {job.category} · {job.locationText}
+              </Text>
+              <Text style={styles.dataMeta}>
+                Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
+              </Text>
+              <Text style={styles.dataMeta}>Posted by: {job.seekerUserId}</Text>
+              <Text style={styles.dataMeta}>Status: {job.status}</Text>
+              <Text style={styles.dataMeta}>{job.description}</Text>
+              <Text style={styles.dataMeta}>Created: {formatDate(job.createdAt)}</Text>
+              {application ? (
+                <Text style={styles.dataMeta}>Your application: {application.status}</Text>
+              ) : null}
+              {canApply ? (
+                <AppButton
+                  label={jobActionLoadingId === `apply-${job.id}` ? "Applying..." : "Apply for job"}
+                  onPress={() => {
+                    void onApply(job.id);
+                  }}
+                  disabled={jobActionLoadingId === `apply-${job.id}`}
+                  testID={`jobs-apply-${job.id}`}
+                />
+              ) : null}
+              {canWithdraw && application ? (
+                <AppButton
+                  label={
+                    jobActionLoadingId === `withdraw-${application.id}`
+                      ? "Removing..."
+                      : "Remove pending application"
+                  }
+                  onPress={() => {
+                    void onWithdraw(application);
+                  }}
+                  variant="secondary"
+                  disabled={jobActionLoadingId === `withdraw-${application.id}`}
+                  testID={`jobs-withdraw-${application.id}`}
+                />
+              ) : null}
+              {isAssignedProvider && job.status === "accepted" ? (
+                <AppButton
+                  label={jobActionLoadingId === `start-${job.id}` ? "Starting..." : "Start job"}
+                  onPress={() => {
+                    void onUpdateJobStatus(
+                      `start-${job.id}`,
+                      () => startBooking(job.id, accessToken),
+                      "Job started."
+                    );
+                  }}
+                  disabled={jobActionLoadingId === `start-${job.id}`}
+                  testID={`jobs-start-${job.id}`}
+                />
+              ) : null}
+              {isAssignedProvider && job.status === "payment_done" ? (
+                <AppButton
+                  label={
+                    jobActionLoadingId === `payment-received-${job.id}`
+                      ? "Updating..."
+                      : "Mark payment received"
+                  }
+                  onPress={() => {
+                    void onUpdateJobStatus(
+                      `payment-received-${job.id}`,
+                      () => markPaymentReceived(job.id, accessToken),
+                      "Payment marked as received."
+                    );
+                  }}
+                  disabled={jobActionLoadingId === `payment-received-${job.id}`}
+                  testID={`jobs-payment-received-${job.id}`}
+                />
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+    );
+  };
+
   return (
     <ScrollView
       contentContainerStyle={styles.screenScroll}
@@ -717,14 +1378,28 @@ function JobsScreen({
     >
       <View style={styles.screenHeader}>
         <Text style={styles.pill}>Jobs</Text>
-        <Text style={styles.screenTitle}>Post new work</Text>
-        <Text style={styles.screenSubtitle}>Create and track service requests.</Text>
+        <Text style={styles.screenTitle}>Find work and manage postings</Text>
+        <Text style={styles.screenSubtitle}>
+          Apply, review applicants, and continue each job lifecycle.
+        </Text>
       </View>
       {error ? <Banner tone="error" message={error} testID="jobs-error-banner" /> : null}
-      {submitError ? <Banner tone="error" message={submitError} testID="jobs-submit-error-banner" /> : null}
-      {submitSuccess ? <Banner tone="success" message={submitSuccess} testID="jobs-success-banner" /> : null}
+      {submitError ? (
+        <Banner tone="error" message={submitError} testID="jobs-submit-error-banner" />
+      ) : null}
+      {submitSuccess ? (
+        <Banner tone="success" message={submitSuccess} testID="jobs-success-banner" />
+      ) : null}
+      {jobActionError ? (
+        <Banner tone="error" message={jobActionError} testID="jobs-action-error-banner" />
+      ) : null}
+      {jobActionSuccess ? (
+        <Banner tone="success" message={jobActionSuccess} testID="jobs-action-success-banner" />
+      ) : null}
 
-      <SectionCard title="Create job">
+      {!ownJobManagerVisible ? (
+        <>
+          <SectionCard title="Create job">
         <InputField
           label="Category"
           value={category}
@@ -814,41 +1489,334 @@ function JobsScreen({
           disabled={submitting}
           testID="jobs-submit"
         />
-      </SectionCard>
+          </SectionCard>
 
-      <SectionCard title="Open jobs">
+          <SectionCard title="Jobs posted by me">
         {loading ? <Text style={styles.cardBodyMuted}>Loading jobs...</Text> : null}
-        {!loading && jobs.length === 0 ? (
-          <Text style={styles.cardBodyMuted}>No jobs yet.</Text>
+        {!loading && jobsPostedByMe.length === 0 ? (
+          <Text style={styles.cardBodyMuted}>You have not posted any jobs yet.</Text>
         ) : null}
-        {!loading && jobs.length > MAX_RENDER_ROWS ? (
-          <Text style={styles.cardBodyMuted}>
-            Showing latest {MAX_RENDER_ROWS} of {jobs.length} jobs.
-          </Text>
-        ) : null}
-        {visibleJobs.map((job) => (
-          <View key={job.id} style={styles.dataRow}>
-            <Text style={styles.dataTitle}>{job.title}</Text>
-            <Text style={styles.dataMeta}>
-              {job.category} · {job.locationText}
+        <View style={styles.stackSmall}>
+          {jobsPostedByMe.map((job) => {
+            const isCountLoading = applicantCountsLoadingByJob[job.id] ?? true;
+            const applicantCount = isCountLoading ? null : applicantCountsByJob[job.id] ?? 0;
+            const noApplicants = applicantCount === 0;
+            return (
+              <View key={job.id} style={styles.dataRow}>
+                <Text style={styles.dataTitle}>{job.title}</Text>
+                <Text style={styles.dataMeta}>
+                  {job.category} · {job.locationText}
+                </Text>
+                <Text style={styles.dataMeta}>
+                  Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
+                </Text>
+                <Text style={styles.dataMeta}>Status: {job.status}</Text>
+                <Text style={styles.dataMeta}>
+                  Assigned provider: {job.assignedProviderUserId ?? "Not assigned"}
+                </Text>
+                <Text style={styles.dataMeta}>
+                  Applicants: {applicantCount ?? "..."}
+                </Text>
+                <Text style={styles.dataMeta}>Created: {formatDate(job.createdAt)}</Text>
+                {isCountLoading ? (
+                  <Text style={styles.dataMeta}>Loading applicants...</Text>
+                ) : null}
+                {!isCountLoading && noApplicants ? (
+                  <Text style={styles.dataMeta} testID={`jobs-no-applicants-${job.id}`}>
+                    No applicants
+                  </Text>
+                ) : null}
+                <AppButton
+                  label={
+                    job.assignedProviderUserId ? "Manage job/applicant" : "Manage applicants"
+                  }
+                  onPress={() => {
+                    setSelectedOwnJobId(job.id);
+                    setSelectedApplicantProfile(null);
+                    setOwnJobManagerVisible(true);
+                  }}
+                  variant="secondary"
+                  disabled={isCountLoading || noApplicants}
+                  testID={`jobs-manage-${job.id}`}
+                />
+              </View>
+            );
+          })}
+        </View>
+          </SectionCard>
+
+          <SectionCard title="Jobs assigned to me">
+            {renderExternalJobs(jobsAssignedToMe)}
+          </SectionCard>
+
+          <SectionCard title="Jobs from connected people">
+            {renderExternalJobs(jobsFromConnectedPeople)}
+          </SectionCard>
+
+          <SectionCard title="Public jobs">
+            <InputField
+              label="Application message (optional)"
+              value={applyMessage}
+              onChangeText={setApplyMessage}
+              placeholder="I can visit today and complete this job."
+              multiline
+              testID="jobs-apply-message"
+            />
+            {renderExternalJobs(publicJobs)}
+          </SectionCard>
+        </>
+      ) : null}
+
+      {selectedOwnJob && ownJobManagerVisible ? (
+        <SectionCard
+          title={`Manage job: ${selectedOwnJob.title}`}
+          subtitle={`Status: ${selectedOwnJob.status}`}
+        >
+          <AppButton
+            label="Back to jobs list"
+            onPress={() => {
+              setOwnJobManagerVisible(false);
+            }}
+            variant="ghost"
+            testID="jobs-manage-back"
+          />
+          <InputField
+            label="Decision reason (optional)"
+            value={decisionReason}
+            onChangeText={setDecisionReason}
+            placeholder="Optional reason for approve/reject actions."
+            multiline
+            testID="jobs-decision-reason"
+          />
+          {selectedOwnJobLoading ? <Text style={styles.cardBodyMuted}>Loading applicants...</Text> : null}
+          {!selectedOwnJobLoading && selectedOwnJobApplications.length === 0 ? (
+            <Text style={styles.cardBodyMuted} testID="jobs-applicants-empty">
+              No applicants yet.
             </Text>
-            <Text style={styles.dataMeta}>
-              Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
-            </Text>
-            <Text style={styles.dataMeta}>{job.status}</Text>
-            <Text style={styles.dataMeta}>{formatDate(job.createdAt)}</Text>
+          ) : null}
+          <View style={styles.stackSmall}>
+            {selectedOwnJobApplications.map((application) => (
+              <View key={application.id} style={styles.dataRow}>
+                <Text style={styles.dataTitle}>{application.providerUserId}</Text>
+                <Text style={styles.dataMeta}>Status: {application.status}</Text>
+                <Text style={styles.dataMeta}>
+                  Applied: {formatDate(application.createdAt)}
+                </Text>
+                {application.message ? (
+                  <Text style={styles.dataMeta}>Message: {application.message}</Text>
+                ) : null}
+                <AppButton
+                  label={
+                    jobActionLoadingId === `applicant-profile-${application.providerUserId}`
+                      ? "Loading profile..."
+                      : "View profile"
+                  }
+                  onPress={() => {
+                    void onViewApplicantProfile(application.providerUserId);
+                  }}
+                  variant="ghost"
+                  disabled={jobActionLoadingId === `applicant-profile-${application.providerUserId}`}
+                  testID={`jobs-applicant-profile-${application.id}`}
+                />
+                {isPendingJobApplicationStatus(application.status) ? (
+                  <>
+                    <AppButton
+                      label={
+                        jobActionLoadingId === `accept-${application.id}`
+                          ? "Approving..."
+                          : "Approve applicant"
+                      }
+                      onPress={() => {
+                        void onAcceptApplicant(application.id);
+                      }}
+                      disabled={jobActionLoadingId === `accept-${application.id}`}
+                      testID={`jobs-applicant-accept-${application.id}`}
+                    />
+                    <AppButton
+                      label={
+                        jobActionLoadingId === `reject-${application.id}`
+                          ? "Rejecting..."
+                          : "Reject applicant"
+                      }
+                      onPress={() => {
+                        void onRejectApplicant(application.id);
+                      }}
+                      variant="secondary"
+                      disabled={jobActionLoadingId === `reject-${application.id}`}
+                      testID={`jobs-applicant-reject-${application.id}`}
+                    />
+                  </>
+                ) : null}
+              </View>
+            ))}
           </View>
-        ))}
-        <AppButton
-          label={loading ? "Refreshing..." : "Refresh jobs"}
-          onPress={() => {
-            void load();
-          }}
-          variant="ghost"
-          disabled={loading}
-          testID="jobs-refresh"
-        />
-      </SectionCard>
+
+          <Text style={styles.fieldLabel}>Lifecycle actions</Text>
+          {selectedOwnJob.status === "accepted" ? (
+            <InputField
+              label="Revoke reason (optional)"
+              value={revokeReason}
+              onChangeText={setRevokeReason}
+              placeholder="Optional reason for revoking assignment."
+              multiline
+              testID="jobs-revoke-reason"
+            />
+          ) : null}
+          {(selectedOwnJob.status === "posted" ||
+            selectedOwnJob.status === "accepted" ||
+            selectedOwnJob.status === "in_progress") ? (
+            <InputField
+              label="Cancel reason (optional)"
+              value={cancelReason}
+              onChangeText={setCancelReason}
+              placeholder="Optional reason for cancellation."
+              multiline
+              testID="jobs-cancel-reason"
+            />
+          ) : null}
+
+          {selectedOwnJob.status === "accepted" ? (
+            <AppButton
+              label={
+                jobActionLoadingId === `revoke-${selectedOwnJob.id}`
+                  ? "Revoking..."
+                  : "Revoke assignment"
+              }
+              onPress={() => {
+                void onUpdateJobStatus(
+                  `revoke-${selectedOwnJob.id}`,
+                  () =>
+                    revokeJobAssignment(
+                      selectedOwnJob.id,
+                      { reason: revokeReason.trim() || undefined },
+                      accessToken
+                    ),
+                  "Assignment revoked."
+                );
+              }}
+              variant="secondary"
+              disabled={jobActionLoadingId === `revoke-${selectedOwnJob.id}`}
+              testID={`jobs-revoke-assignment-${selectedOwnJob.id}`}
+            />
+          ) : null}
+          {selectedOwnJob.status === "in_progress" ? (
+            <AppButton
+              label={
+                jobActionLoadingId === `complete-${selectedOwnJob.id}`
+                  ? "Updating..."
+                  : "Mark completed"
+              }
+              onPress={() => {
+                void onUpdateJobStatus(
+                  `complete-${selectedOwnJob.id}`,
+                  () => completeBooking(selectedOwnJob.id, accessToken),
+                  "Job marked completed."
+                );
+              }}
+              disabled={jobActionLoadingId === `complete-${selectedOwnJob.id}`}
+              testID={`jobs-complete-${selectedOwnJob.id}`}
+            />
+          ) : null}
+          {selectedOwnJob.status === "completed" ? (
+            <AppButton
+              label={
+                jobActionLoadingId === `payment-done-${selectedOwnJob.id}`
+                  ? "Updating..."
+                  : "Mark payment done"
+              }
+              onPress={() => {
+                void onUpdateJobStatus(
+                  `payment-done-${selectedOwnJob.id}`,
+                  () => markPaymentDone(selectedOwnJob.id, accessToken),
+                  "Payment marked done."
+                );
+              }}
+              disabled={jobActionLoadingId === `payment-done-${selectedOwnJob.id}`}
+              testID={`jobs-payment-done-${selectedOwnJob.id}`}
+            />
+          ) : null}
+          {selectedOwnJob.status === "payment_received" ? (
+            <AppButton
+              label={
+                jobActionLoadingId === `close-${selectedOwnJob.id}` ? "Closing..." : "Close job"
+              }
+              onPress={() => {
+                void onUpdateJobStatus(
+                  `close-${selectedOwnJob.id}`,
+                  () => closeBooking(selectedOwnJob.id, accessToken),
+                  "Job closed."
+                );
+              }}
+              disabled={jobActionLoadingId === `close-${selectedOwnJob.id}`}
+              testID={`jobs-close-${selectedOwnJob.id}`}
+            />
+          ) : null}
+          {(selectedOwnJob.status === "posted" ||
+            selectedOwnJob.status === "accepted" ||
+            selectedOwnJob.status === "in_progress") ? (
+            <AppButton
+              label={
+                jobActionLoadingId === `cancel-${selectedOwnJob.id}`
+                  ? "Cancelling..."
+                  : "Cancel booking"
+              }
+              onPress={() => {
+                void onUpdateJobStatus(
+                  `cancel-${selectedOwnJob.id}`,
+                  () =>
+                    cancelBooking(
+                      selectedOwnJob.id,
+                      { reason: cancelReason.trim() || undefined },
+                      accessToken
+                    ),
+                  "Booking cancelled."
+                );
+              }}
+              variant="ghost"
+              disabled={jobActionLoadingId === `cancel-${selectedOwnJob.id}`}
+              testID={`jobs-cancel-${selectedOwnJob.id}`}
+            />
+          ) : null}
+        </SectionCard>
+      ) : null}
+
+      {selectedApplicantProfile ? (
+        <SectionCard title="Applicant profile preview">
+          <Text style={styles.dataTitle}>{selectedApplicantProfile.displayName}</Text>
+          <Text style={styles.dataMeta}>Member ID: {selectedApplicantProfile.userId}</Text>
+          <Text style={styles.dataMeta}>
+            Location:{" "}
+            {[selectedApplicantProfile.city, selectedApplicantProfile.area]
+              .filter(Boolean)
+              .join(", ") || "Not provided"}
+          </Text>
+          <Text style={styles.dataMeta}>
+            Services:{" "}
+            {selectedApplicantProfile.serviceCategories.length > 0
+              ? selectedApplicantProfile.serviceCategories.join(", ")
+              : "Not provided"}
+          </Text>
+          <Text style={styles.dataMeta}>
+            Phone:{" "}
+            {selectedApplicantProfile.visibility.phone
+              ? selectedApplicantProfile.contact.phone ?? "Not provided"
+              : selectedApplicantProfile.contact.phoneMasked ?? "Hidden"}
+          </Text>
+        </SectionCard>
+      ) : null}
+
+      <AppButton
+        label={loading ? "Refreshing..." : "Refresh jobs"}
+        onPress={() => {
+          void load();
+          if (selectedOwnJobId) {
+            void loadSelectedOwnJobApplications(selectedOwnJobId);
+          }
+        }}
+        variant="ghost"
+        disabled={loading}
+        testID="jobs-refresh"
+      />
     </ScrollView>
   );
 }
@@ -2035,6 +3003,200 @@ function ProfileScreen({
   );
 }
 
+function VerificationScreen({
+  accessToken,
+  onSessionInvalid
+}: {
+  accessToken: string;
+  onSessionInvalid: () => void;
+}): JSX.Element {
+  const [verification, setVerification] = useState<VerificationRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [documentType, setDocumentType] = useState("government_id");
+  const [documentMediaIds, setDocumentMediaIds] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const record = await getMyVerification(accessToken);
+      setVerification(record);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to load verification status");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, onSessionInvalid]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const onSubmit = async (): Promise<void> => {
+    const ids = documentMediaIds
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    if (ids.length === 0) {
+      setError("Enter at least one document media ID.");
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await submitVerification(
+        {
+          documentType,
+          documentMediaIds: ids,
+          notes: notes.trim() || undefined
+        },
+        accessToken
+      );
+      setVerification(created);
+      setSuccess("Verification request submitted.");
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to submit verification request");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canSubmitNew = !verification || verification.status === "rejected";
+  const statusLabel =
+    verification && VERIFICATION_STATUS_LABELS[verification.status]
+      ? VERIFICATION_STATUS_LABELS[verification.status]
+      : verification?.status ?? "-";
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.screenScroll}
+      testID="verification-scroll"
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+    >
+      <View style={styles.screenHeader}>
+        <Text style={styles.pill}>Verification</Text>
+        <Text style={styles.screenTitle}>Get verified</Text>
+        <Text style={styles.screenSubtitle}>
+          Submit identity documents to unlock trusted badges on your profile.
+        </Text>
+      </View>
+      {error ? <Banner tone="error" message={error} testID="verification-error-banner" /> : null}
+      {success ? (
+        <Banner tone="success" message={success} testID="verification-success-banner" />
+      ) : null}
+
+      <SectionCard title="Current status">
+        {loading ? <Text style={styles.cardBodyMuted}>Loading verification...</Text> : null}
+        {!loading && !verification ? (
+          <Text style={styles.cardBodyMuted}>No verification request yet.</Text>
+        ) : null}
+        {!loading && verification ? (
+          <View style={styles.dataRow}>
+            <Text style={styles.dataTitle}>Status: {statusLabel}</Text>
+            <Text style={styles.dataMeta}>
+              Document type: {verification.documentType.replaceAll("_", " ")}
+            </Text>
+            <Text style={styles.dataMeta}>
+              Documents: {verification.documentMediaIds.length} file(s)
+            </Text>
+            {verification.notes ? (
+              <Text style={styles.dataMeta}>Your notes: {verification.notes}</Text>
+            ) : null}
+            <Text style={styles.dataMeta}>Submitted: {formatDate(verification.createdAt)}</Text>
+            {verification.reviewerNotes ? (
+              <Text style={styles.dataMeta}>Reviewer notes: {verification.reviewerNotes}</Text>
+            ) : null}
+            {verification.reviewedAt ? (
+              <Text style={styles.dataMeta}>Reviewed: {formatDate(verification.reviewedAt)}</Text>
+            ) : null}
+          </View>
+        ) : null}
+      </SectionCard>
+
+      {canSubmitNew ? (
+        <SectionCard title={verification?.status === "rejected" ? "Resubmit request" : "Submit request"}>
+          <Text style={styles.cardBodyMuted}>
+            Upload your documents from Profile → Professional media first, then paste media IDs here.
+          </Text>
+          <Text style={styles.fieldLabel}>Document type</Text>
+          <View style={styles.roleRow}>
+            {[
+              ["government_id", "Government ID"],
+              ["professional_certification", "Professional cert"],
+              ["business_license", "Business license"],
+              ["utility_bill", "Utility bill"]
+            ].map(([value, label]) => (
+              <Pressable
+                key={value}
+                style={[styles.roleChip, documentType === value ? styles.roleChipSelected : null]}
+                onPress={() => setDocumentType(value)}
+                testID={`verification-doc-type-${value}`}
+              >
+                <Text
+                  style={[
+                    styles.roleChipLabel,
+                    documentType === value ? styles.roleChipLabelSelected : null
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <InputField
+            label="Document media IDs"
+            value={documentMediaIds}
+            onChangeText={setDocumentMediaIds}
+            placeholder="media-id-1, media-id-2"
+            testID="verification-media-ids"
+          />
+          <InputField
+            label="Notes (optional)"
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Additional context for reviewer."
+            multiline
+            testID="verification-notes"
+          />
+          <AppButton
+            label={submitting ? "Submitting..." : "Submit verification request"}
+            onPress={() => {
+              void onSubmit();
+            }}
+            disabled={submitting}
+            testID="verification-submit"
+          />
+        </SectionCard>
+      ) : null}
+
+      <AppButton
+        label={loading ? "Refreshing..." : "Refresh verification"}
+        onPress={() => {
+          void load();
+        }}
+        variant="ghost"
+        disabled={loading}
+        testID="verification-refresh"
+      />
+    </ScrollView>
+  );
+}
+
 function mapSessionUser(session: AuthSessionResponse): AuthenticatedUser {
   return {
     userId: session.userId,
@@ -2051,6 +3213,7 @@ export default function App(): JSX.Element {
 
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [unreadAlertsCount, setUnreadAlertsCount] = useState(0);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -2060,6 +3223,7 @@ export default function App(): JSX.Element {
   const signOut = useCallback((): void => {
     setAccessToken(null);
     setUser(null);
+    setUnreadAlertsCount(0);
     setAuthError(null);
     setActiveTab("home");
   }, []);
@@ -2124,6 +3288,33 @@ export default function App(): JSX.Element {
     setActiveTab(tab);
   }, []);
 
+  useEffect(() => {
+    if (!accessToken) {
+      setUnreadAlertsCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    const refreshUnreadCount = async (): Promise<void> => {
+      try {
+        const response = await getUnreadNotificationCount(accessToken);
+        if (!cancelled) {
+          setUnreadAlertsCount(response.unreadCount);
+        }
+      } catch (requestError) {
+        const message = asError(requestError, "Unable to load unread alerts");
+        if (!cancelled && shouldForceSignOut(message)) {
+          signOut();
+        }
+      }
+    };
+
+    void refreshUnreadCount();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, activeTab, signOut]);
+
   const appContent = useMemo(() => {
     if (!accessToken || !user) {
       return (
@@ -2144,8 +3335,23 @@ export default function App(): JSX.Element {
 
     let content: JSX.Element;
     switch (activeTab) {
+      case "notifications":
+        content = (
+          <NotificationsScreen
+            accessToken={accessToken}
+            onSessionInvalid={signOut}
+            onUnreadCountChange={setUnreadAlertsCount}
+          />
+        );
+        break;
       case "jobs":
-        content = <JobsScreen accessToken={accessToken} onSessionInvalid={signOut} />;
+        content = (
+          <JobsScreen
+            accessToken={accessToken}
+            user={user}
+            onSessionInvalid={signOut}
+          />
+        );
         break;
       case "connections":
         content = (
@@ -2161,6 +3367,14 @@ export default function App(): JSX.Element {
           <ConsentScreen
             accessToken={accessToken}
             user={user}
+            onSessionInvalid={signOut}
+          />
+        );
+        break;
+      case "verification":
+        content = (
+          <VerificationScreen
+            accessToken={accessToken}
             onSessionInvalid={signOut}
           />
         );
@@ -2191,7 +3405,11 @@ export default function App(): JSX.Element {
           <AppButton label="Sign out" onPress={signOut} variant="ghost" testID="app-signout" />
         </View>
         <View style={styles.appContent}>{content}</View>
-        <TabBar activeTab={activeTab} onSelect={onSelectTab} />
+        <TabBar
+          activeTab={activeTab}
+          onSelect={onSelectTab}
+          unreadAlertsCount={unreadAlertsCount}
+        />
       </SafeAreaView>
     );
   }, [
@@ -2206,6 +3424,7 @@ export default function App(): JSX.Element {
     onSelectTab,
     registerForm,
     signOut,
+    unreadAlertsCount,
     user
   ]);
 
@@ -2461,6 +3680,16 @@ const styles = StyleSheet.create({
     color: theme.colors.muted,
     fontSize: 12
   },
+  notificationMetaRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 10
+  },
+  notificationRowUnread: {
+    borderColor: "rgba(44, 91, 78, 0.35)",
+    backgroundColor: "rgba(44, 91, 78, 0.08)"
+  },
   roleRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2502,6 +3731,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingVertical: 8
   },
+  tabButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6
+  },
   tabButtonSelected: {
     backgroundColor: "rgba(44, 91, 78, 0.12)"
   },
@@ -2512,5 +3746,19 @@ const styles = StyleSheet.create({
   },
   tabButtonLabelSelected: {
     color: theme.colors.brand
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#8c1d18",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4
+  },
+  tabBadgeLabel: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700"
   }
 });

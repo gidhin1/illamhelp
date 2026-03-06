@@ -214,6 +214,9 @@ class InMemoryJobsDatabaseService {
           updated_at: new Date()
         };
         this.applications.set(created.id, created);
+        if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+          return this.result<T>([this.toPublicApplicationRow(created) as unknown as T]);
+        }
         return this.result<T>([created as unknown as T]);
       }
 
@@ -222,6 +225,9 @@ class InMemoryJobsDatabaseService {
         existing.message = message;
         existing.updated_at = new Date();
         this.applications.set(existing.id, existing);
+        if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+          return this.result<T>([this.toPublicApplicationRow(existing) as unknown as T]);
+        }
         return this.result<T>([existing as unknown as T]);
       }
 
@@ -229,7 +235,6 @@ class InMemoryJobsDatabaseService {
     }
 
     if (
-      normalized.startsWith("select id, job_id, provider_user_id, status, message, created_at, updated_at") &&
       normalized.includes("from job_applications") &&
       normalized.includes("where job_id = $1::uuid")
     ) {
@@ -242,11 +247,13 @@ class InMemoryJobsDatabaseService {
         .filter((item) => isOwner || item.provider_user_id === actorUserId)
         .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
 
+      if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+        return this.result<T>(rows.map((item) => this.toPublicApplicationRow(item)) as unknown as T[]);
+      }
       return this.result<T>(rows as unknown as T[]);
     }
 
     if (
-      normalized.startsWith("select id, job_id, provider_user_id, status, message, created_at, updated_at") &&
       normalized.includes("from job_applications") &&
       normalized.includes("where provider_user_id = $1::uuid")
     ) {
@@ -254,6 +261,9 @@ class InMemoryJobsDatabaseService {
       const rows = [...this.applications.values()]
         .filter((item) => item.provider_user_id === providerUserId)
         .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+        return this.result<T>(rows.map((item) => this.toPublicApplicationRow(item)) as unknown as T[]);
+      }
       return this.result<T>(rows as unknown as T[]);
     }
 
@@ -283,6 +293,18 @@ class InMemoryJobsDatabaseService {
     }
 
     if (
+      normalized.includes("from job_applications") &&
+      normalized.includes("where id = $1::uuid")
+    ) {
+      const applicationId = this.readString(params, 0);
+      const app = this.applications.get(applicationId);
+      if (!app) {
+        return this.result<T>([]);
+      }
+      return this.result<T>([this.toPublicApplicationRow(app) as unknown as T]);
+    }
+
+    if (
       normalized.startsWith("update job_applications") &&
       normalized.includes("set status = 'accepted'::application_status")
     ) {
@@ -291,6 +313,9 @@ class InMemoryJobsDatabaseService {
       app.status = "accepted";
       app.updated_at = new Date();
       this.applications.set(app.id, app);
+      if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+        return this.result<T>([this.toPublicApplicationRow(app) as unknown as T]);
+      }
       return this.result<T>([app as unknown as T]);
     }
 
@@ -346,6 +371,9 @@ class InMemoryJobsDatabaseService {
       app.status = "rejected";
       app.updated_at = new Date();
       this.applications.set(app.id, app);
+      if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+        return this.result<T>([this.toPublicApplicationRow(app) as unknown as T]);
+      }
       return this.result<T>([app as unknown as T]);
     }
 
@@ -358,6 +386,9 @@ class InMemoryJobsDatabaseService {
       app.status = "withdrawn";
       app.updated_at = new Date();
       this.applications.set(app.id, app);
+      if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
+        return this.result<T>([this.toPublicApplicationRow(app) as unknown as T]);
+      }
       return this.result<T>([app as unknown as T]);
     }
 
@@ -569,6 +600,15 @@ class InMemoryJobsDatabaseService {
     };
   }
 
+  private toPublicApplicationRow(row: ApplicationRow): ApplicationRow {
+    return {
+      ...row,
+      provider_user_id:
+        this.toPublicUserId(row.provider_user_id) ??
+        this.toFallbackPublicUserId(row.provider_user_id)
+    };
+  }
+
   private hasAcceptedConnection(actorUserId: string, ownerUserId: string): boolean {
     return [...this.connections.values()].some(
       (item) =>
@@ -662,7 +702,10 @@ describe("Auth + Jobs applications/booking integration", () => {
       databaseService,
       {
         logEvent: vi.fn().mockResolvedValue(undefined)
-      } as unknown as AuditService
+      } as unknown as AuditService,
+      {
+        create: vi.fn().mockResolvedValue({ id: "mock-notification" })
+      } as any
     );
     const authUserService = new AuthUserService(databaseService);
 
@@ -709,6 +752,15 @@ describe("Auth + Jobs applications/booking integration", () => {
       message: "Available immediately"
     });
     expect(applied.status).toBe("applied");
+    expect(applied.providerUserId).toBe(provider.publicUserId);
+
+    const ownerVisibleApplications = await jobsService.listApplications(job.id, seeker.userId);
+    expect(ownerVisibleApplications.length).toBe(1);
+    expect(ownerVisibleApplications[0].providerUserId).toBe(provider.publicUserId);
+
+    const myApplications = await jobsService.listMyApplications(provider.userId);
+    expect(myApplications.length).toBe(1);
+    expect(myApplications[0].providerUserId).toBe(provider.publicUserId);
 
     const accepted = await jobsService.acceptApplication({
       applicationId: applied.id,

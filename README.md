@@ -68,7 +68,8 @@ make dev
 
 Notes:
 `make dev` runs unit tests first, then starts infra, bootstraps Keycloak, runs migrations, and launches API + web.
-Set `DEV_PROFILE=full` to use the full infra stack (`make up`).
+`make dev` now uses the full infra stack by default (`make up`).
+Use `DEV_PROFILE=core make dev` only if you intentionally want the lower-memory core stack (without OpenSearch/ClamAV).
 Skip unit tests only when needed: `SKIP_UNIT_TESTS=1 make dev`.
 Mobile still runs separately: `make dev-mobile`.
 `make dev`, `make backend-start`, and UI test make targets run `make preflight` first and fail fast on missing critical env/runtime dependencies.

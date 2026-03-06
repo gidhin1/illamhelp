@@ -41,14 +41,14 @@ export interface ModerationQueueItem {
   reasonCode: string | null;
   moderationCreatedAt: string;
   mediaState:
-    | "uploaded"
-    | "scanning"
-    | "ai_reviewed"
-    | "human_review_pending"
-    | "approved"
-    | "rejected"
-    | "appeal_pending"
-    | "appeal_resolved";
+  | "uploaded"
+  | "scanning"
+  | "ai_reviewed"
+  | "human_review_pending"
+  | "approved"
+  | "rejected"
+  | "appeal_pending"
+  | "appeal_resolved";
   ownerUserId: string;
   kind: "image" | "video";
   contentType: string;
@@ -294,3 +294,60 @@ export function formatDate(iso: string | null): string {
   }
   return parsed.toLocaleString();
 }
+
+// --- Verification ---
+
+export type VerificationStatus = "pending" | "under_review" | "approved" | "rejected";
+
+export interface VerificationRecord {
+  id: string;
+  userId: string;
+  documentMediaIds: string[];
+  documentType: string;
+  notes: string | null;
+  status: VerificationStatus;
+  reviewerUserId: string | null;
+  reviewerNotes: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export function listVerifications(
+  params: { status?: string; limit?: number; offset?: number },
+  accessToken: string
+): Promise<PaginatedResponse<VerificationRecord>> {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
+  const q = qs.toString();
+  return apiRequest<PaginatedResponse<VerificationRecord>>(
+    q ? `/admin/oversight/verifications?${q}` : "/admin/oversight/verifications",
+    {},
+    accessToken
+  );
+}
+
+export function reviewVerification(
+  requestId: string,
+  payload: { decision: "approved" | "rejected"; notes?: string },
+  accessToken: string
+): Promise<VerificationRecord> {
+  return apiRequest<VerificationRecord>(
+    `/admin/oversight/verifications/${requestId}/review`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+

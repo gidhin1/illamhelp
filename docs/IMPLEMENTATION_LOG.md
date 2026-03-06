@@ -1,5 +1,49 @@
 # Implementation Log
 
+## 2026-03-06
+
+Sprint 5 — Notification Trigger Wiring:
+
+- **ConnectionsService**: Added 3 notification triggers (`connection_request_received`, `connection_request_accepted`, `connection_request_declined`). Imported `NotificationModule` into `ConnectionsModule`, injected `NotificationService`.
+- **JobsService**: Added 3 notification triggers (`job_application_received`, `job_application_accepted`, `job_application_rejected`). Imported `NotificationModule` into `JobsModule`, injected `NotificationService`.
+- **VerificationService**: Added 2 notification triggers (`verification_approved`, `verification_rejected`). Imported `NotificationModule` into `ProfilesModule`, injected `NotificationService`.
+- **Pattern**: All notification calls use fire-and-forget (`.catch(() => {})`) to prevent blocking primary operations.
+- **Test updates**: Added mock `NotificationService` to `connections.service.spec.ts`, `jobs.auth.integration.spec.ts`, and `verification.service.spec.ts`.
+- TypeScript build clean, all 94 tests pass across 18 test files.
+
+## 2026-03-05
+
+Sprint 3 — In-App Notifications:
+
+- **DB Migration**: Added `0012_notifications.sql` with `notification_type` enum (20 event types), `notifications` table with read tracking, composite index on `(user_id, created_at DESC)`, and partial index on unread.
+- **NotificationService**: Core service with `create`, `createBatch`, `list` (paginated with unread count), `getUnreadCount`, `markRead`, and `markAllRead` operations.
+- **Controller endpoints**: `GET /notifications` (paginated list with `unreadOnly` filter), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all`.
+- **Module**: `NotificationModule` registered in `AppModule`, exports `NotificationService` for use by other modules.
+- **Unit tests**: 9 tests in `notification.service.spec.ts` covering all operations.
+- All 94 tests pass across 18 test files.
+
+Sprint 1 bug fix and documentation sync:
+
+- **BUG-007 FIXED**: Added UUID user existence check in `resolveInternalUserId()` in both `profiles.service.ts` and `media.service.ts`. These methods now query the `users` table and throw `NotFoundException` for non-existent UUID inputs, matching the pattern already used in `connections.service.ts` and `consent.service.ts`.
+- **BUG-009 RECLASSIFIED**: Investigated and confirmed working as designed. `actorUserId` is UUID-typed and validated by `assertUuid()` in `AuditService`. System-initiated moderation events correctly use `metadata.actor: "system"` instead of the UUID-typed `actorUserId` field — this is the intended pattern for non-human actors.
+- **Test mocks updated**: Updated `profiles.service.spec.ts` to account for the new UUID existence query added by BUG-007 fix. All 75 tests pass across 16 test files.
+- **Documentation audit and sync**: Thoroughly reviewed all codebase to verify actual status of every bug and feature. Updated:
+  - `CODEBASE_AUDIT_REPORT.md`: All 12 bugs marked FIXED, PERF-001 marked RESOLVED, auth refresh/logout marked Done, summary stats updated (0 active bugs, 14 active issues down from 27).
+  - `FEATURE_PROPOSALS.md`: Auth flows marked Done in status table and prioritization summary.
+  - `TASKS_AND_MILESTONES.md`: Calibration date updated to 2026-03-05, auth flows marked Done, search/applications/booking/rate-limits/AI moderation all marked Done in milestone 2, security gaps list updated.
+  - `IMPLEMENTATION_LOG.md`: This entry added.
+
+Sprint 2 — Provider Verification Workflow:
+
+- **DB Migration**: Added `0011_verification_requests.sql` with `verification_status` enum, `verification_requests` table, indexes, and unique constraint preventing multiple active requests per user.
+- **VerificationService**: Core service with submit, getMyVerification, listForAdmin, and review operations. On approval, automatically sets the user's `verified` flag via `ProfilesService.setVerified()`. All actions audit-logged with appropriate event types (`verification_request_submitted`, `verification_request_approved`, `verification_request_rejected`).
+- **Provider endpoints**: `POST /profiles/me/verification` (submit request with document media IDs) and `GET /profiles/me/verification` (get latest status).
+- **Admin endpoints**: `GET /admin/oversight/verifications?status=&limit=&offset=` (paginated list) and `POST /admin/oversight/verifications/:id/review` (approve/reject with notes). Role-gated to admin/support.
+- **DTOs**: `SubmitVerificationDto` (documentType, documentMediaIds, notes) and `ReviewVerificationDto` (decision, notes).
+- **Module wiring**: `VerificationService` registered in `ProfilesModule` with `AuditModule` import, exported for `AdminModule`.
+- **Unit tests**: 10 tests in `verification.service.spec.ts` covering submit (happy path, duplicate prevention, empty docs), getMyVerification (found, not-found), review (approve+verified, reject, already-reviewed, not-found), and listForAdmin.
+- **Documentation**: Updated `FEATURE_PROPOSALS.md`, `TASKS_AND_MILESTONES.md`, and `IMPLEMENTATION_LOG.md`.
+
 ## 2026-02-27
 
 Recalibration checkpoint completed:

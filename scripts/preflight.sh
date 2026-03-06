@@ -52,6 +52,7 @@ if [[ -f "$ENV_FILE" ]]; then
   raw_postgres_db="$(read_env_value "POSTGRES_DB" "$ENV_FILE")"
   raw_keycloak_admin="$(read_env_value "KEYCLOAK_ADMIN" "$ENV_FILE")"
   raw_keycloak_admin_password="$(read_env_value "KEYCLOAK_ADMIN_PASSWORD" "$ENV_FILE")"
+  raw_opensearch_initial_admin_password="$(read_env_value "OPENSEARCH_INITIAL_ADMIN_PASSWORD" "$ENV_FILE")"
   raw_profile_pii_encryption_key="$(read_env_value "PROFILE_PII_ENCRYPTION_KEY" "$ENV_FILE")"
 
   database_url="$(trim_quotes "$raw_database_url")"
@@ -60,6 +61,7 @@ if [[ -f "$ENV_FILE" ]]; then
   postgres_db="$(trim_quotes "$raw_postgres_db")"
   keycloak_admin="$(trim_quotes "$raw_keycloak_admin")"
   keycloak_admin_password="$(trim_quotes "$raw_keycloak_admin_password")"
+  opensearch_initial_admin_password="$(trim_quotes "$raw_opensearch_initial_admin_password")"
   profile_pii_encryption_key="$(trim_quotes "$raw_profile_pii_encryption_key")"
 
   if [[ -z "$database_url" ]]; then
@@ -72,6 +74,16 @@ if [[ -f "$ENV_FILE" ]]; then
 
   if [[ -z "$keycloak_admin" || -z "$keycloak_admin_password" ]]; then
     missing_requirements+=("KEYCLOAK_ADMIN and KEYCLOAK_ADMIN_PASSWORD must be set in .env")
+  fi
+
+  if [[ -z "$opensearch_initial_admin_password" ]]; then
+    missing_requirements+=("OPENSEARCH_INITIAL_ADMIN_PASSWORD must be set in .env")
+  elif [[ ${#opensearch_initial_admin_password} -lt 8 ]]; then
+    missing_requirements+=("OPENSEARCH_INITIAL_ADMIN_PASSWORD must be at least 8 characters")
+  elif [[ ! "$opensearch_initial_admin_password" =~ [A-Z] || ! "$opensearch_initial_admin_password" =~ [a-z] || ! "$opensearch_initial_admin_password" =~ [0-9] || ! "$opensearch_initial_admin_password" =~ [^A-Za-z0-9] ]]; then
+    missing_requirements+=(
+      "OPENSEARCH_INITIAL_ADMIN_PASSWORD must include upper, lower, digit, and special characters"
+    )
   fi
 
   if [[ -z "$profile_pii_encryption_key" || "${#profile_pii_encryption_key}" -lt 16 ]]; then

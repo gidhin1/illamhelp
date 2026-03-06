@@ -89,9 +89,11 @@ async function bootstrap(): Promise<void> {
     configService.get<string>("AUTH_RATE_LIMIT_WINDOW_MS", "60000"),
     60000
   );
+  const authRateLimitFallback = nodeEnv === "test" ? "2000" : "10";
+  const authRateLimitFallbackValue = nodeEnv === "test" ? 2000 : 10;
   const authRateLimitMax = parsePositiveInt(
-    configService.get<string>("AUTH_RATE_LIMIT_MAX", "10"),
-    10
+    configService.get<string>("AUTH_RATE_LIMIT_MAX", authRateLimitFallback),
+    authRateLimitFallbackValue
   );
   const jobsWriteRateLimitWindowMs = parsePositiveInt(
     configService.get<string>("JOBS_WRITE_RATE_LIMIT_WINDOW_MS", "60000"),

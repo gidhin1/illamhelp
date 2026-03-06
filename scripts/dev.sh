@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
-PROFILE="${DEV_PROFILE:-core}"
+PROFILE="${DEV_PROFILE:-full}"
 WEB_PORT="${WEB_PORT:-3001}"
 
 cleanup() {
@@ -19,10 +19,10 @@ cd "${ROOT_DIR}"
 
 bash ./scripts/preflight.sh
 
-if [[ "${PROFILE}" == "full" ]]; then
-  make up
-else
+if [[ "${PROFILE}" == "core" ]]; then
   make up-core
+else
+  make up
 fi
 
 make keycloak-bootstrap

@@ -32,7 +32,9 @@ describe("ConnectionsService query-based requests", () => {
     const consentServiceMock = {
       revokeAllForConnection: vi.fn().mockResolvedValue(0)
     } as unknown as ConsentService;
-    service = new ConnectionsService(databaseServiceMock, consentServiceMock);
+    service = new ConnectionsService(databaseServiceMock, consentServiceMock, {
+      create: vi.fn().mockResolvedValue({ id: "mock-notification" })
+    } as any);
   });
 
   it("creates a connection from targetQuery when exactly one member matches", async () => {
