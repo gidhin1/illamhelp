@@ -9,14 +9,11 @@ import {
   waitForSuccessMessage
 } from "../utils/flow-helpers";
 
-const apiBaseUrl = process.env.PW_API_BASE_URL ?? "http://localhost:4010/api/v1";
-
-interface AuthUiSession {
-  accessToken: string;
-}
-
 let sharedUser: E2eUser | null = null;
-let sharedSession: AuthUiSession | null = null;
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 function isAuthRateLimitedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -26,6 +23,19 @@ function isAuthRateLimitedError(error: unknown): boolean {
 async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise<void> {
   const waitMs = Math.min(20_000, 2_500 * attempt);
   await page.waitForTimeout(waitMs);
+}
+
+async function gotoHome(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /IllamHelp/i }).first()).toBeVisible();
+}
+
+async function clickMainNav(page: Page, label: string): Promise<void> {
+  await page
+    .locator("header nav")
+    .getByRole("link", { name: new RegExp(`^${escapeRegex(label)}\\b`, "i") })
+    .first()
+    .click();
 }
 
 async function waitForAuthResponse(
@@ -43,6 +53,10 @@ async function waitForAuthResponse(
     return null;
   }
 }
+
+type AuthUiSession = {
+  accessToken: string;
+};
 
 async function assertAuthResponse(
   responsePromise: Promise<import("@playwright/test").Response | null>,
@@ -83,7 +97,7 @@ async function signOutIfVisible(page: Page): Promise<void> {
 }
 
 async function resetBrowserSession(page: Page): Promise<void> {
-  await page.goto("/");
+  await gotoHome(page);
   await signOutIfVisible(page);
 
   await page.evaluate(() => {
@@ -93,12 +107,25 @@ async function resetBrowserSession(page: Page): Promise<void> {
   });
 
   await page.context().clearCookies();
+  await gotoHome(page);
+}
+
+async function openAuthEntry(page: Page, mode: "register" | "login"): Promise<void> {
+  await gotoHome(page);
+  if (mode === "register") {
+    await page.getByRole("link", { name: /create account|register/i }).first().click();
+    await expect(page.getByLabel("First name")).toBeVisible();
+    return;
+  }
+
+  await page.getByRole("link", { name: /sign in/i }).first().click();
+  await expect(page.getByLabel("Username or Email")).toBeVisible();
 }
 
 async function registerByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
-    await page.goto("/auth/register");
+    await openAuthEntry(page, "register");
     await page.getByLabel("First name").fill(user.firstName);
     await page.getByLabel("Last name").fill(user.lastName);
     await page.getByLabel("Email").fill(user.email);
@@ -127,7 +154,7 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
 async function loginByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
-    await page.goto("/auth/login");
+    await openAuthEntry(page, "login");
     await page.getByLabel("Username or Email").fill(user.username);
     await page.getByLabel("Password").fill(user.password);
 
@@ -149,83 +176,51 @@ async function loginByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
   throw new Error("Login flow did not complete.");
 }
 
-async function applySessionCookie(page: Page, accessToken: string): Promise<void> {
-  await resetBrowserSession(page);
-  await page.goto("/");
-  await page.evaluate((token) => {
-    const secure = window.location.protocol === "https:" ? "; Secure" : "";
-    document.cookie = `illamhelp_access_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax${secure}`;
-  }, accessToken);
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible({
-    timeout: 20_000
-  });
-}
-
-async function requestConnectionByApi(
-  request: import("@playwright/test").APIRequestContext,
-  accessToken: string,
-  targetUserId: string
-): Promise<void> {
-  const response = await request.post(`${apiBaseUrl}/connections/request`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    },
-    data: {
-      targetUserId
-    }
-  });
-  expect(response.ok()).toBeTruthy();
-}
-
-async function getUnreadNotificationsCountByApi(
-  request: import("@playwright/test").APIRequestContext,
-  accessToken: string
-): Promise<number> {
-  const response = await request.get(`${apiBaseUrl}/notifications/unread-count`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
-    }
-  });
-  expect(response.ok()).toBeTruthy();
-  const payload = (await response.json()) as { unreadCount?: number };
-  return typeof payload.unreadCount === "number" ? payload.unreadCount : 0;
-}
-
-async function waitForUnreadNotificationsByApi(
-  request: import("@playwright/test").APIRequestContext,
-  accessToken: string,
-  minimumUnread: number,
-  timeoutMs = 30_000
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const unreadCount = await getUnreadNotificationsCountByApi(request, accessToken);
-    if (unreadCount >= minimumUnread) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 700));
+async function ensureSharedUser(page: Page): Promise<E2eUser> {
+  if (sharedUser) {
+    return sharedUser;
   }
-  throw new Error(
-    `Timed out waiting for unread notifications >= ${minimumUnread}.`
-  );
+  const user = makeUser("both");
+  await registerByUi(page, user);
+  await signOutIfVisible(page);
+  sharedUser = user;
+  return user;
 }
 
-async function ensureSharedSession(page: Page): Promise<{ user: E2eUser; session: AuthUiSession }> {
-  if (sharedUser && sharedSession) {
-    return { user: sharedUser, session: sharedSession };
-  }
+async function loginAsShared(page: Page): Promise<E2eUser> {
+  const user = await ensureSharedUser(page);
+  await loginByUi(page, user);
+  return user;
+}
 
-  sharedUser = makeUser("both");
-  sharedSession = await registerByUi(page, sharedUser);
-  return { user: sharedUser, session: sharedSession };
+async function readCurrentUserId(page: Page): Promise<string> {
+  await clickMainNav(page, "Profile");
+  return parseMemberId(await readTextByTestId(page, "profile-user-id"), "current user id");
+}
+
+async function sendConnectionRequestByUi(page: Page, targetUserId: string): Promise<void> {
+  await clickMainNav(page, "People");
+  await page.getByLabel("Find a person").fill(targetUserId);
+  await page.getByRole("button", { name: "Search" }).click();
+
+  const matchCard = page
+    .locator(".card")
+    .filter({ hasText: `Member ID: ${targetUserId}` })
+    .first();
+
+  if (await matchCard.isVisible().catch(() => false)) {
+    await matchCard.getByRole("button", { name: "Connect" }).click();
+  } else {
+    await page.getByRole("button", { name: "Send request" }).click();
+  }
+  await waitForSuccessMessage(page, "Connection request sent.");
 }
 
 test.describe.configure({ mode: "serial" });
 
 test("web guest home shows primary auth call-to-actions", async ({ page }) => {
   await resetBrowserSession(page);
-  await page.goto("/");
+  await gotoHome(page);
 
   await expect(page.getByRole("link", { name: "Create account" }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
@@ -234,21 +229,19 @@ test("web guest home shows primary auth call-to-actions", async ({ page }) => {
 
 test("web register and sign out works", async ({ page }) => {
   const user = makeUser("both");
-
-  const session = await registerByUi(page, user);
+  await registerByUi(page, user);
   sharedUser = user;
-  sharedSession = session;
-  await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible();
 
+  await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible();
   await signOutIfVisible(page);
-  await expect(page.getByRole("button", { name: "Sign in" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /sign in/i }).first()).toBeVisible();
 });
 
 test("web login shows error for wrong password", async ({ page }) => {
-  const { user } = await ensureSharedSession(page);
-  await signOutIfVisible(page);
+  const user = await ensureSharedUser(page);
 
-  await page.goto("/auth/login");
+  await resetBrowserSession(page);
+  await openAuthEntry(page, "login");
   await page.getByLabel("Username or Email").fill(user.username);
   await page.getByLabel("Password").fill(`${user.password}x`);
 
@@ -262,9 +255,8 @@ test("web login shows error for wrong password", async ({ page }) => {
 });
 
 test("web authenticated home hides guest auth call-to-actions", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/");
+  await loginAsShared(page);
+  await gotoHome(page);
 
   await expect(page.getByRole("link", { name: "Browse jobs" })).toBeVisible();
   await expect(page.getByRole("link", { name: "View profile" })).toBeVisible();
@@ -274,16 +266,15 @@ test("web authenticated home hides guest auth call-to-actions", async ({ page })
 
 test("web protected pages show sign-in card when signed out", async ({ page }) => {
   await resetBrowserSession(page);
-  await page.goto("/jobs");
+  await clickMainNav(page, "Jobs");
 
   await expect(page.getByText("Please sign in").first()).toBeVisible();
   await expect(page.getByText("Sign in or create an account to continue.").first()).toBeVisible();
 });
 
 test("web jobs page shows validation feedback for short payload", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/jobs");
+  await loginAsShared(page);
+  await clickMainNav(page, "Jobs");
 
   await page.getByLabel("Category").fill("p");
   await page.getByLabel("Location text").fill("k");
@@ -296,13 +287,18 @@ test("web jobs page shows validation feedback for short payload", async ({ page 
   await expect(errorBanner).toContainText(/must|longer|at least/i);
 });
 
+test("web jobs create form defaults visibility to public", async ({ page }) => {
+  await loginAsShared(page);
+  await clickMainNav(page, "Jobs");
+  await expect(page.getByRole("combobox", { name: "Visibility" }).first()).toHaveValue("public");
+});
+
 test("web jobs page posts a valid job", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
   const shortId = Date.now().toString(36).slice(-4);
   const jobTitle = `E2E job ${shortId}`;
 
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/jobs");
+  await loginAsShared(page);
+  await clickMainNav(page, "Jobs");
 
   await page.getByLabel("Category").fill("plumber");
   await page.getByLabel("Location text").fill("Kakkanad, Kochi");
@@ -314,14 +310,40 @@ test("web jobs page posts a valid job", async ({ page }) => {
   await expect(page.getByText(jobTitle).first()).toBeVisible();
 });
 
+test("web jobs page posts connections-only job and shows visibility in posted section", async ({
+  page
+}) => {
+  const shortId = Date.now().toString(36).slice(-5);
+  const jobTitle = `Connections-only ${shortId}`;
+  await loginAsShared(page);
+  await clickMainNav(page, "Jobs");
+
+  await page.getByLabel("Category").fill("electrician");
+  await page.getByLabel("Location text").fill("Aluva, Kochi");
+  await page.getByLabel("Title").fill(jobTitle);
+  await page
+    .getByLabel("Description")
+    .fill("Connections-only posting for trusted-network visibility checks.");
+  await page.getByRole("combobox").first().selectOption("connections_only");
+  await page.getByRole("button", { name: "Post job" }).click();
+  await waitForSuccessMessage(page, "Job posted successfully.");
+
+  const postedByMeCard = await cardByHeading(page, "Jobs posted by me");
+  const targetJobCard = postedByMeCard
+    .locator(".card")
+    .filter({ hasText: jobTitle })
+    .first();
+  await expect(targetJobCard).toBeVisible();
+  await expect(targetJobCard.getByText("Visibility: Connections only")).toBeVisible();
+});
+
 test("web jobs page shows posted job under 'Jobs posted by me' with applicant-management action", async ({
   page
 }) => {
-  const { session } = await ensureSharedSession(page);
   const shortId = Date.now().toString(36).slice(-5);
   const jobTitle = `Posted by me ${shortId}`;
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/jobs");
+  await loginAsShared(page);
+  await clickMainNav(page, "Jobs");
 
   await page.getByLabel("Category").fill("plumber");
   await page.getByLabel("Location text").fill("Kakkanad, Kochi");
@@ -341,10 +363,41 @@ test("web jobs page shows posted job under 'Jobs posted by me' with applicant-ma
   await expect(targetJobCard.getByRole("button", { name: "Manage applicants" })).toBeVisible();
 });
 
+test("web jobs posted by me opens applicant manager with empty applicants state", async ({ page }) => {
+  const shortId = Date.now().toString(36).slice(-5);
+  const jobTitle = `Applicants empty ${shortId}`;
+  await loginAsShared(page);
+  await clickMainNav(page, "Jobs");
+
+  await page.getByLabel("Category").fill("plumber");
+  await page.getByLabel("Location text").fill("Kakkanad, Kochi");
+  await page.getByLabel("Title").fill(jobTitle);
+  await page
+    .getByLabel("Description")
+    .fill("New posting to validate applicant manager empty state rendering.");
+  await page.getByRole("button", { name: "Post job" }).click();
+  await waitForSuccessMessage(page, "Job posted successfully.");
+
+  const postedByMeCard = await cardByHeading(page, "Jobs posted by me");
+  const targetJobCard = postedByMeCard
+    .locator(".card")
+    .filter({ hasText: jobTitle })
+    .first();
+  await expect(targetJobCard).toBeVisible();
+  await targetJobCard.getByRole("button", { name: "Manage applicants" }).click();
+
+  await expect(page).toHaveURL(/\/jobs\/.+$/);
+  await expect(page.getByRole("heading", { name: "Applicants", exact: true })).toBeVisible();
+  await expect(page.getByText("No applications yet").first()).toBeVisible();
+  await expect(page.getByText("Once people apply, you can approve or reject them here.").first()).toBeVisible();
+  await page.getByRole("button", { name: "Back to jobs" }).click();
+  await expect(page).toHaveURL(/\/jobs$/);
+  await expect(page.getByRole("heading", { name: "Find work and manage your postings" })).toBeVisible();
+});
+
 test("web connections page validates empty query", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/connections");
+  await loginAsShared(page);
+  await clickMainNav(page, "People");
 
   await page.getByLabel("Find a person").fill("   ");
   await page.getByRole("button", { name: "Send request" }).click();
@@ -352,51 +405,59 @@ test("web connections page validates empty query", async ({ page }) => {
 });
 
 test("web notifications page lists unread connection alert and allows mark-read", async ({
-  page,
-  request
+  page
 }) => {
-  const { session: ownerSession } = await ensureSharedSession(page);
-  const unreadBefore = await getUnreadNotificationsCountByApi(request, ownerSession.accessToken);
-  await applySessionCookie(page, ownerSession.accessToken);
-  await page.goto("/profile");
-  const ownerUserId = parseMemberId(
-    await readTextByTestId(page, "profile-user-id"),
-    "notifications owner profile user id"
-  );
+  await loginAsShared(page);
+  const ownerUserId = await readCurrentUserId(page);
 
   const requester = makeUser("both");
-  const requesterSession = await registerByUi(page, requester);
-  await requestConnectionByApi(request, requesterSession.accessToken, ownerUserId);
+  await signOutIfVisible(page);
+  await registerByUi(page, requester);
+  await sendConnectionRequestByUi(page, ownerUserId);
 
-  await waitForUnreadNotificationsByApi(
-    request,
-    ownerSession.accessToken,
-    unreadBefore + 1
-  );
-
-  await applySessionCookie(page, ownerSession.accessToken);
-  await page.goto("/notifications");
+  await signOutIfVisible(page);
+  await loginAsShared(page);
+  await clickMainNav(page, "Alerts");
 
   await page.getByRole("button", { name: "Show unread only" }).click();
   const markReadButtons = page.getByRole("button", { name: "Mark read" });
   await expect
     .poll(async () => markReadButtons.count(), { timeout: 20_000 })
     .toBeGreaterThan(0);
-  const unreadCountBeforeMarkRead = await getUnreadNotificationsCountByApi(
-    request,
-    ownerSession.accessToken
-  );
 
+  const countBeforeClick = await markReadButtons.count();
   await markReadButtons.first().click();
-  await expect.poll(async () => {
-    return getUnreadNotificationsCountByApi(request, ownerSession.accessToken);
-  }).toBeLessThan(unreadCountBeforeMarkRead);
+  await expect.poll(async () => markReadButtons.count()).toBeLessThan(countBeforeClick);
+});
+
+test("web notifications page toggles unread filter labels", async ({ page }) => {
+  await loginAsShared(page);
+  await clickMainNav(page, "Alerts");
+
+  const unreadToggle = page.getByRole("button", { name: "Show unread only" }).first();
+  await expect(unreadToggle).toBeVisible();
+  await unreadToggle.click();
+  await expect(page.getByRole("button", { name: "Show all" }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Show all" }).first().click();
+  await expect(page.getByRole("button", { name: "Show unread only" }).first()).toBeVisible();
+});
+
+test("web notifications mark-all-read clears unread state when present", async ({ page }) => {
+  await loginAsShared(page);
+  await clickMainNav(page, "Alerts");
+
+  const markAllButton = page.getByRole("button", { name: "Mark all read" }).first();
+  if (await markAllButton.isVisible().catch(() => false)) {
+    await markAllButton.click();
+    await expect(markAllButton).not.toBeVisible();
+  } else {
+    await expect(markAllButton).not.toBeVisible();
+  }
 });
 
 test("web connections search finds a member by service/location query", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/connections");
+  await loginAsShared(page);
+  await clickMainNav(page, "People");
   await page.getByLabel("Find a person").fill("plumber kakkanad");
   await page.getByRole("button", { name: "Search" }).click();
   const anyMatch = page.locator(".card").filter({ hasText: /Member ID:/i }).first();
@@ -404,18 +465,16 @@ test("web connections search finds a member by service/location query", async ({
 });
 
 test("web consent page shows empty state when no consent activity exists", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/consent");
+  await loginAsShared(page);
+  await clickMainNav(page, "Privacy");
 
   await expect(page.getByText("No access requests").first()).toBeVisible();
   await expect(page.getByText("No consent grants").first()).toBeVisible();
 });
 
 test("web profile page updates details", async ({ page }) => {
-  const { session } = await ensureSharedSession(page);
-  await applySessionCookie(page, session.accessToken);
-  await page.goto("/profile");
+  await loginAsShared(page);
+  await clickMainNav(page, "Profile");
 
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");

@@ -2,6 +2,29 @@ import { expect, Page, test } from "@playwright/test";
 
 import { makeUser, waitForSuccessMessage } from "../utils/flow-helpers";
 
+function isAuthRateLimitedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("http 429") || message.includes("too many authentication attempts");
+}
+
+async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise<void> {
+  const waitMs = Math.min(20_000, 2_500 * attempt);
+  await page.waitForTimeout(waitMs);
+}
+
+async function gotoHome(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /IllamHelp/i }).first()).toBeVisible();
+}
+
+async function clickMainNav(page: Page, label: string): Promise<void> {
+  await page
+    .locator("header nav")
+    .getByRole("link", { name: new RegExp(`^${label}$`, "i") })
+    .first()
+    .click();
+}
+
 async function waitForAuthResponse(
   page: Page,
   path: string,
@@ -31,18 +54,8 @@ async function assertAuthResponse(
   }
 }
 
-function isAuthRateLimitedError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return message.includes("http 429") || message.includes("too many authentication attempts");
-}
-
-async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise<void> {
-  const waitMs = Math.min(20_000, 2_500 * attempt);
-  await page.waitForTimeout(waitMs);
-}
-
 async function resetBrowserSession(page: Page): Promise<void> {
-  await page.goto("/");
+  await gotoHome(page);
   const signOut = page.getByRole("button", { name: "Sign out" }).first();
   if (await signOut.isVisible()) {
     await signOut.click();
@@ -55,13 +68,14 @@ async function resetBrowserSession(page: Page): Promise<void> {
   });
 
   await page.context().clearCookies();
+  await gotoHome(page);
 }
 
 async function registerByUi(page: Page): Promise<void> {
   const user = makeUser("seeker");
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
-    await page.goto("/auth/register");
+    await page.getByRole("link", { name: /create account|register/i }).first().click();
     await page.getByLabel("First name").fill(user.firstName);
     await page.getByLabel("Last name").fill(user.lastName);
     await page.getByLabel("Email").fill(user.email);
@@ -91,10 +105,11 @@ async function registerByUi(page: Page): Promise<void> {
 test("web profile page updates profile and uploads media", async ({ page }) => {
   await registerByUi(page);
 
-  await page.goto("/profile");
+  await clickMainNav(page, "Profile");
   const memberIdText = (await page.getByTestId("profile-user-id").textContent()) ?? "";
   const memberId = memberIdText.trim();
   expect(memberId.length).toBeGreaterThan(2);
+
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
   await page.getByLabel("Services offered").fill("plumber, electrician");

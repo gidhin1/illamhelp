@@ -34,6 +34,10 @@ PROVIDER_USERNAME="${PROVIDER_USERNAME:-}"
 PROVIDER_PASSWORD="${PROVIDER_PASSWORD:-}"
 SEEKER_EMAIL="${SEEKER_EMAIL:-}"
 PROVIDER_EMAIL="${PROVIDER_EMAIL:-}"
+ADMIN_TOKEN="${ADMIN_ACCESS_TOKEN:-}"
+ADMIN_USERNAME="${E2E_ADMIN_USERNAME:-${ADMIN_USERNAME:-}}"
+ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-${ADMIN_PASSWORD:-}}"
+BRUNO_REQUIRE_ADMIN="${BRUNO_REQUIRE_ADMIN:-true}"
 
 json_escape_login_payload() {
   local username="$1"
@@ -305,6 +309,11 @@ if [[ -n "${PROVIDER_TOKEN}" ]] && ! is_jwt_like "${PROVIDER_TOKEN}"; then
   PROVIDER_TOKEN=""
 fi
 
+if [[ -n "${ADMIN_TOKEN}" ]] && ! is_jwt_like "${ADMIN_TOKEN}"; then
+  echo "WARN: existing ADMIN_ACCESS_TOKEN is invalid format; acquiring fresh token."
+  ADMIN_TOKEN=""
+fi
+
 if [[ -n "${SEEKER_TOKEN}" ]]; then
   seeker_status_code="$(
     curl -sS -o /dev/null -w "%{http_code}" \
@@ -326,6 +335,18 @@ if [[ -n "${PROVIDER_TOKEN}" ]]; then
   if [[ "${provider_status_code}" != "200" ]]; then
     echo "WARN: existing PROVIDER_ACCESS_TOKEN rejected with HTTP ${provider_status_code}; acquiring fresh token."
     PROVIDER_TOKEN=""
+  fi
+fi
+
+if [[ -n "${ADMIN_TOKEN}" ]]; then
+  admin_status_code="$(
+    curl -sS -o /dev/null -w "%{http_code}" \
+      -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+      "${BASE_URL}/auth/me" || true
+  )"
+  if [[ "${admin_status_code}" != "200" ]]; then
+    echo "WARN: existing ADMIN_ACCESS_TOKEN rejected with HTTP ${admin_status_code}; acquiring fresh token."
+    ADMIN_TOKEN=""
   fi
 fi
 
@@ -393,10 +414,22 @@ if [[ -z "${PROVIDER_TOKEN}" ]]; then
   fi
 fi
 
+if [[ "${BRUNO_REQUIRE_ADMIN}" == "true" && -z "${ADMIN_TOKEN}" ]]; then
+  if [[ -n "${ADMIN_USERNAME}" && -n "${ADMIN_PASSWORD}" ]]; then
+    ADMIN_TOKEN="$(login_for_token "ADMIN" "${ADMIN_USERNAME}" "${ADMIN_PASSWORD}")"
+  else
+    echo "ERROR: Missing admin credentials for Bruno admin E2E flow." >&2
+    echo "Set E2E_ADMIN_USERNAME and E2E_ADMIN_PASSWORD, or provide ADMIN_ACCESS_TOKEN." >&2
+    echo "Recommended: run through wrapper: bash ./scripts/run-with-e2e-admin-env.sh bash ./scripts/run-bruno-e2e.sh" >&2
+    exit 1
+  fi
+fi
+
 persist_cached_generated_users
 
 export SEEKER_ACCESS_TOKEN="${SEEKER_TOKEN}"
 export PROVIDER_ACCESS_TOKEN="${PROVIDER_TOKEN}"
+export ADMIN_ACCESS_TOKEN="${ADMIN_TOKEN}"
 
 if [[ ! -f "${COLLECTION_DIR}/bruno.json" ]]; then
   echo "ERROR: Invalid Bruno collection directory: ${COLLECTION_DIR}"
@@ -424,6 +457,9 @@ if [[ "${BRUNO_PRINT_EXPORTS}" == "true" ]]; then
   echo "export PROVIDER_EMAIL='${PROVIDER_EMAIL}'"
   echo "export SEEKER_ACCESS_TOKEN='${SEEKER_TOKEN}'"
   echo "export PROVIDER_ACCESS_TOKEN='${PROVIDER_TOKEN}'"
+  echo "export E2E_ADMIN_USERNAME='${ADMIN_USERNAME}'"
+  echo "export E2E_ADMIN_PASSWORD='${ADMIN_PASSWORD}'"
+  echo "export ADMIN_ACCESS_TOKEN='${ADMIN_TOKEN}'"
 fi
 
 if [[ "${BRUNO_LOGIN_ONLY}" == "true" ]]; then
@@ -438,7 +474,8 @@ fi
     --env "${ENV_NAME}" \
     --env-var "baseUrl=${BASE_URL}" \
     --env-var "seekerAccessToken=${SEEKER_TOKEN}" \
-    --env-var "providerAccessToken=${PROVIDER_TOKEN}"
+    --env-var "providerAccessToken=${PROVIDER_TOKEN}" \
+    --env-var "adminAccessToken=${ADMIN_TOKEN}"
 )
 
 echo "Bruno E2E completed."

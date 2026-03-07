@@ -36,7 +36,7 @@ export default function VerificationsPage(): React.JSX.Element {
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState("pending");
     const [reviewingId, setReviewingId] = useState<string | null>(null);
-    const [reviewNotes, setReviewNotes] = useState("");
+    const [reviewNotesById, setReviewNotesById] = useState<Record<string, string>>({});
     const [actionLoading, setActionLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -64,6 +64,7 @@ export default function VerificationsPage(): React.JSX.Element {
 
     const onReview = async (
         requestId: string,
+        notes: string,
         decision: "approved" | "rejected"
     ): Promise<void> => {
         if (!accessToken) return;
@@ -73,14 +74,18 @@ export default function VerificationsPage(): React.JSX.Element {
         try {
             const updated = await reviewVerification(
                 requestId,
-                { decision, notes: reviewNotes.trim() || undefined },
+                { decision, notes: notes.trim() || undefined },
                 accessToken
             );
             setItems((prev) =>
                 prev.map((item) => (item.id === updated.id ? updated : item))
             );
             setReviewingId(null);
-            setReviewNotes("");
+            setReviewNotesById((prev) => {
+                const next = { ...prev };
+                delete next[requestId];
+                return next;
+            });
             setSuccessMessage(
                 `Verification ${decision === "approved" ? "approved ✅" : "rejected ❌"} successfully.`
             );
@@ -122,6 +127,9 @@ export default function VerificationsPage(): React.JSX.Element {
                                 <span className="pill" style={{ padding: "6px 12px", marginLeft: "auto" }}>
                                     {total} total
                                 </span>
+                                <Button variant="ghost" onClick={() => void loadVerifications()}>
+                                    Refresh
+                                </Button>
                             </div>
 
                             {loading ? (
@@ -138,9 +146,14 @@ export default function VerificationsPage(): React.JSX.Element {
                                         const isReviewing = reviewingId === item.id;
                                         const canReview =
                                             item.status === "pending" || item.status === "under_review";
+                                        const reviewNotes = reviewNotesById[item.id] ?? "";
 
                                         return (
-                                            <Card key={item.id} className="stack">
+                                            <Card
+                                                key={item.id}
+                                                className="stack"
+                                                data-testid={`verification-card-${item.id}`}
+                                            >
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                                     <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                                                         <span
@@ -200,21 +213,32 @@ export default function VerificationsPage(): React.JSX.Element {
                                                             <Field label="Review notes (optional)">
                                                                 <TextArea
                                                                     value={reviewNotes}
-                                                                    onChange={(e) => setReviewNotes(e.target.value)}
+                                                                    onChange={(e) =>
+                                                                        setReviewNotesById((prev) => ({
+                                                                            ...prev,
+                                                                            [item.id]: e.target.value
+                                                                        }))
+                                                                    }
                                                                     placeholder="Reason for approval or rejection..."
                                                                 />
                                                             </Field>
                                                             <div style={{ display: "flex", gap: "8px" }}>
                                                                 <Button
+                                                                    data-testid={`verification-approve-${item.id}`}
                                                                     disabled={actionLoading}
-                                                                    onClick={() => void onReview(item.id, "approved")}
+                                                                    onClick={() =>
+                                                                        void onReview(item.id, reviewNotes, "approved")
+                                                                    }
                                                                 >
                                                                     {actionLoading ? "Processing..." : "✅ Approve"}
                                                                 </Button>
                                                                 <Button
+                                                                    data-testid={`verification-reject-${item.id}`}
                                                                     variant="secondary"
                                                                     disabled={actionLoading}
-                                                                    onClick={() => void onReview(item.id, "rejected")}
+                                                                    onClick={() =>
+                                                                        void onReview(item.id, reviewNotes, "rejected")
+                                                                    }
                                                                 >
                                                                     {actionLoading ? "Processing..." : "❌ Reject"}
                                                                 </Button>
@@ -222,7 +246,11 @@ export default function VerificationsPage(): React.JSX.Element {
                                                                     variant="ghost"
                                                                     onClick={() => {
                                                                         setReviewingId(null);
-                                                                        setReviewNotes("");
+                                                                        setReviewNotesById((prev) => {
+                                                                            const next = { ...prev };
+                                                                            delete next[item.id];
+                                                                            return next;
+                                                                        });
                                                                     }}
                                                                 >
                                                                     Cancel
@@ -231,8 +259,15 @@ export default function VerificationsPage(): React.JSX.Element {
                                                         </div>
                                                     ) : (
                                                         <Button
+                                                            data-testid={`verification-review-${item.id}`}
                                                             variant="secondary"
-                                                            onClick={() => setReviewingId(item.id)}
+                                                            onClick={() => {
+                                                                setReviewingId(item.id);
+                                                                setReviewNotesById((prev) => ({
+                                                                    ...prev,
+                                                                    [item.id]: prev[item.id] ?? ""
+                                                                }));
+                                                            }}
                                                         >
                                                             Review
                                                         </Button>

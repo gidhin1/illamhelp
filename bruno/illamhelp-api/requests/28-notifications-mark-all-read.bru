@@ -1,0 +1,34 @@
+meta {
+  name: Notifications Mark All Read
+  type: http
+  seq: 28
+  tags: [
+    e2e
+  ]
+}
+
+patch {
+  url: {{baseUrl}}/notifications/read-all
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("notifications mark all read returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("notifications mark all read returns updated count", function () {
+    expect(res.body.updated).to.be.a("number");
+    expect(res.body.updated).to.be.at.least(0);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Admin Timeline (Seeker Member)");
+}
+

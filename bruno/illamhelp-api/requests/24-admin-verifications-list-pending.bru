@@ -1,0 +1,38 @@
+meta {
+  name: Admin Verifications List (Pending)
+  type: http
+  seq: 24
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/admin/oversight/verifications?status=pending&limit=50
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminAccessToken}}
+}
+
+tests {
+  test("admin verifications list pending returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("admin verifications list pending contains target request", function () {
+    const verificationRequestId = bru.getVar("verificationRequestId") || bru.getEnvVar("verificationRequestId");
+    const items = (res.body && res.body.items) || [];
+    expect(items).to.be.an("array");
+    const row = items.find((item) => item.id === verificationRequestId);
+    expect(row).to.not.equal(undefined);
+    expect(row.status).to.be.oneOf(["pending", "under_review"]);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Admin Verification Review (Approve)");
+}
+

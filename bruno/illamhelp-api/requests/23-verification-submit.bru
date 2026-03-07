@@ -1,0 +1,49 @@
+meta {
+  name: Verification Submit
+  type: http
+  seq: 23
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/profiles/me/verification
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "documentType": "government_id",
+    "documentMediaIds": ["{{mediaId}}"],
+    "notes": "Bruno E2E verification submission"
+  }
+}
+
+tests {
+  test("verification submit returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("verification submit returns pending request", function () {
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.userId).to.equal(bru.getEnvVar("seekerUserId"));
+    expect(res.body.status).to.be.oneOf(["pending", "under_review"]);
+    expect(res.body.documentMediaIds).to.be.an("array");
+  });
+}
+
+script:post-response {
+  if (res.body && res.body.id) {
+    bru.setVar("verificationRequestId", res.body.id);
+    bru.setEnvVar("verificationRequestId", res.body.id);
+  }
+  bru.runner.setNextRequest("Admin Verifications List (Pending)");
+}
+

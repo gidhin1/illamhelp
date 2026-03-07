@@ -68,7 +68,7 @@ export default [
     }
   },
   {
-    files: ["e2e/**/*.e2e.js"],
+    files: ["e2e/**/*.e2e.js", "e2e/helpers/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "script",

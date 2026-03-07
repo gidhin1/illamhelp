@@ -8,28 +8,16 @@ ARTIFACTS_DIR="artifacts/detox"
 mkdir -p "$ARTIFACTS_DIR"
 IOS_BUILD_CONFIGURATION="${DETOX_IOS_BUILD_CONFIGURATION:-Release}"
 
-NEEDS_PREBUILD=false
-if [[ ! -d ios ]]; then
-  NEEDS_PREBUILD=true
-elif [[ -z "$(find ios -maxdepth 1 \( -name "*.xcworkspace" -o -name "*.xcodeproj" \) | head -n1)" ]]; then
-  NEEDS_PREBUILD=true
-elif [[ ! -f ios/Podfile ]]; then
-  NEEDS_PREBUILD=true
-fi
-
-if [[ "$NEEDS_PREBUILD" == "true" ]]; then
+if [[ ! -d ios || -z "$(find ios -maxdepth 1 \( -name "*.xcworkspace" -o -name "*.xcodeproj" \) | head -n1)" || ! -f ios/Podfile ]]; then
   echo "iOS native project missing/incomplete. Running Expo prebuild (iOS)..."
   CI=1 pnpm exec expo prebuild --platform ios --clean
 fi
 
-if [[ -f ios/Podfile ]]; then
-  if command -v pod >/dev/null 2>&1; then
-    (cd ios && pod install)
-  else
-    echo "CocoaPods is required for iOS Detox build. Install with: sudo gem install cocoapods"
-    exit 1
-  fi
+if ! command -v pod >/dev/null 2>&1; then
+  echo "CocoaPods is required for iOS Detox build. Install with: sudo gem install cocoapods"
+  exit 1
 fi
+(cd ios && pod install)
 
 WORKSPACE="$(find ios -maxdepth 1 -name "*.xcworkspace" | head -n1 || true)"
 if [[ -z "$WORKSPACE" ]]; then
@@ -37,48 +25,18 @@ if [[ -z "$WORKSPACE" ]]; then
   exit 1
 fi
 
-WORKSPACE_BASENAME="$(basename "$WORKSPACE" .xcworkspace)"
-
-ALL_SCHEMES_RAW="$(
-  xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | awk '
-    /Schemes:/ { in_schemes = 1; next }
-    in_schemes && NF {
-      gsub(/^[ \t]+|[ \t]+$/, "", $0)
-      print
-    }
-  '
-)"
-
 SCHEME="${DETOX_IOS_SCHEME:-}"
 if [[ -z "$SCHEME" ]]; then
-  # Prefer a scheme matching workspace name (typical Expo-generated app scheme).
-  WORKSPACE_BASENAME_LOWER="$(printf '%s' "$WORKSPACE_BASENAME" | tr '[:upper:]' '[:lower:]')"
-  while IFS= read -r candidate; do
-    [[ -z "$candidate" ]] && continue
-    candidate_lower="$(printf '%s' "$candidate" | tr '[:upper:]' '[:lower:]')"
-    if [[ "$candidate_lower" == "$WORKSPACE_BASENAME_LOWER" ]]; then
-      SCHEME="$candidate"
-      break
-    fi
-  done <<< "$ALL_SCHEMES_RAW"
+  workspace_name="$(basename "$WORKSPACE" .xcworkspace)"
+  schemes_raw="$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | awk '/Schemes:/ { in_schemes = 1; next } in_schemes && NF { gsub(/^[ \t]+|[ \t]+$/, "", $0); print }')"
+  if printf '%s\n' "$schemes_raw" | grep -Fxq "$workspace_name"; then
+    SCHEME="$workspace_name"
+  else
+    SCHEME="$(printf '%s\n' "$schemes_raw" | head -n1)"
+  fi
 fi
-
 if [[ -z "$SCHEME" ]]; then
-  # Fallback: pick first scheme that builds an application target (WRAPPER_EXTENSION=app).
-  while IFS= read -r candidate; do
-    [[ -z "$candidate" ]] && continue
-    if xcodebuild -workspace "$WORKSPACE" -scheme "$candidate" -showBuildSettings -configuration "$IOS_BUILD_CONFIGURATION" -sdk iphonesimulator 2>/dev/null | grep -q "WRAPPER_EXTENSION = app"; then
-      SCHEME="$candidate"
-      break
-    fi
-  done <<< "$ALL_SCHEMES_RAW"
-fi
-
-if [[ -z "$SCHEME" ]]; then
-  AVAILABLE_SCHEMES="$(printf '%s' "$ALL_SCHEMES_RAW" | tr '\n' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
-  echo "Could not determine an iOS app scheme from workspace '$WORKSPACE'."
-  echo "Available schemes: ${AVAILABLE_SCHEMES:-<none>}"
-  echo "Set DETOX_IOS_SCHEME and retry."
+  echo "Could not determine an iOS scheme. Set DETOX_IOS_SCHEME and retry."
   exit 1
 fi
 
@@ -86,8 +44,6 @@ echo "Using iOS scheme: $SCHEME"
 echo "Using iOS build configuration: $IOS_BUILD_CONFIGURATION"
 
 BUILD_LOG="$ARTIFACTS_DIR/ios-build.log"
-echo "Building iOS app for Detox (log: $BUILD_LOG)"
-
 XCODEBUILD_ARGS=(
   -workspace "$WORKSPACE"
   -scheme "$SCHEME"
@@ -120,4 +76,3 @@ rm -rf ios/build/DetoxApp.app
 ln -s "$APP_ABS" ios/build/DetoxApp.app
 
 echo "iOS Detox binary ready at ios/build/DetoxApp.app"
-echo "iOS build log: $BUILD_LOG"

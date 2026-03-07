@@ -27,6 +27,8 @@ From project root:
 make bruno-e2e
 ```
 
+`make bruno-e2e` now provisions a temporary admin account for the run, executes all `e2e` requests (including admin endpoints), and cleans up the admin account/credentials even when the run fails.
+
 By default, the script generates random seeker/provider users and tokens each run.
 
 If you want fixed users, provide credentials:
@@ -89,6 +91,13 @@ The automated flow validates:
 12. `can-view` is `false` after revoke.
 13. Media upload ticket creation succeeds.
 14. Media list includes the newly created media record.
+15. Provider `jobs/applications/mine` includes the tracked application.
+16. Connection block transition succeeds and is visible in list.
+17. Verification request submit/read flows succeed.
+18. Admin verification list/review approval succeeds.
+19. User receives verification approval notification.
+20. User `notifications/read-all` succeeds.
+21. Admin timeline endpoint includes verification-related audit activity.
 
 Note:
 - The default E2E chain validates `upload-ticket` + `list`.

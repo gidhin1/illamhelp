@@ -1,0 +1,48 @@
+meta {
+  name: Admin Timeline (Seeker Member)
+  type: http
+  seq: 29
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/admin/oversight/timeline?memberId={{seekerPublicUserId}}&limit=50
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{adminAccessToken}}
+}
+
+tests {
+  test("admin timeline returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("admin timeline resolves requested member", function () {
+    expect(res.body.member).to.be.an("object");
+    expect(res.body.member.publicUserId).to.equal(bru.getEnvVar("seekerPublicUserId"));
+  });
+
+  test("admin timeline includes verification audit events for request", function () {
+    const verificationRequestId = bru.getVar("verificationRequestId") || bru.getEnvVar("verificationRequestId");
+    const auditEvents = (res.body && res.body.auditEvents) || [];
+    expect(auditEvents).to.be.an("array");
+    const related = auditEvents.filter(
+      (event) =>
+        event &&
+        event.metadata &&
+        event.metadata.verificationRequestId === verificationRequestId &&
+        ["verification_request_submitted", "verification_request_approved"].includes(event.eventType)
+    );
+    expect(related.length).to.be.greaterThan(0);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest(null);
+}
+

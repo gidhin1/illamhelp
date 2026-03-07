@@ -1,0 +1,34 @@
+meta {
+  name: Connections Block
+  type: http
+  seq: 20
+  tags: [
+    e2e
+  ]
+}
+
+post {
+  url: {{baseUrl}}/connections/{{connectionId}}/block
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("connection block returns 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("connection block sets blocked status", function () {
+    expect(res.body.id).to.equal(bru.getVar("connectionId") || bru.getEnvVar("connectionId"));
+    expect(res.body.status).to.equal("blocked");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Connections List (After Block)");
+}
+

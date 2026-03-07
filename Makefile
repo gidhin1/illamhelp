@@ -26,7 +26,9 @@ KNOWN_CONTAINERS := \
 .PHONY: dev dev-web dev-admin dev-mobile dev-mobile-clear dev-mobile-reset dev-mobile-android dev-mobile-ios dev-mobile-web health
 .PHONY: backend backend-start
 .PHONY: mobile-native-init ui-install ui-test-web ui-test-admin ui-test-mobile ui-test-mobile-ios ui-test-mobile-android ui-test
+.PHONY: ui-test-mobile-ios-debug ui-test-mobile-android-debug
 .PHONY: ci-local
+.PHONY: e2e-admin-setup e2e-admin-cleanup
 .PHONY: clean clean-build
 
 init-env:
@@ -212,29 +214,41 @@ migrate:
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0011_verification_requests.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0012_notifications.sql
 
-bruno-e2e:
-	bash ./scripts/run-bruno-e2e.sh
+bruno-e2e: preflight up-core migrate
+	bash ./scripts/run-with-e2e-admin-env.sh bash ./scripts/run-bruno-e2e.sh
+
+e2e-admin-setup:
+	bash ./scripts/e2e-admin-setup.sh
+
+e2e-admin-cleanup:
+	bash ./scripts/e2e-admin-cleanup.sh
 
 ui-install:
 	pnpm run test:ui:install
 
 ui-test-web: preflight up-core migrate
-	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:web
+	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:web
 
 ui-test-admin: preflight up-core migrate
-	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:admin
+	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:admin
 
 ui-test-mobile: preflight up-core migrate
-	DETOX_POLL_INTERVAL_MS="$${DETOX_POLL_INTERVAL_MS:-450}" DETOX_TYPE_RETRIES="$${DETOX_TYPE_RETRIES:-1}" DETOX_VERIFY_TYPED_INPUT="$${DETOX_VERIFY_TYPED_INPUT:-false}" DETOX_HANDLE_IOS_PASSWORD_PROMPTS="$${DETOX_HANDLE_IOS_PASSWORD_PROMPTS:-true}" pnpm run test:ui:mobile
+	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:mobile
 
 ui-test-mobile-ios: preflight up-core migrate
-	DETOX_POLL_INTERVAL_MS="$${DETOX_POLL_INTERVAL_MS:-450}" DETOX_TYPE_RETRIES="$${DETOX_TYPE_RETRIES:-1}" DETOX_VERIFY_TYPED_INPUT="$${DETOX_VERIFY_TYPED_INPUT:-false}" DETOX_HANDLE_IOS_PASSWORD_PROMPTS="$${DETOX_HANDLE_IOS_PASSWORD_PROMPTS:-true}" pnpm run test:ui:mobile:ios
+	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:mobile:ios
 
 ui-test-mobile-android: preflight up-core migrate
-	DETOX_POLL_INTERVAL_MS="$${DETOX_POLL_INTERVAL_MS:-450}" DETOX_TYPE_RETRIES="$${DETOX_TYPE_RETRIES:-1}" DETOX_VERIFY_TYPED_INPUT="$${DETOX_VERIFY_TYPED_INPUT:-false}" DETOX_HANDLE_IOS_PASSWORD_PROMPTS="$${DETOX_HANDLE_IOS_PASSWORD_PROMPTS:-false}" pnpm run test:ui:mobile:android
+	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:mobile:android
+
+ui-test-mobile-ios-debug: preflight up-core migrate
+	DETOX_LOGLEVEL="$${DETOX_LOGLEVEL:-trace}" DETOX_TEST_FILE="$${DETOX_TEST_FILE:-e2e/full-flow.e2e.js}" DETOX_TEST_NAME_PATTERN="$${DETOX_TEST_NAME_PATTERN:-}" DETOX_ARTIFACTS_DIR="$${DETOX_ARTIFACTS_DIR:-artifacts/detox/debug-ios}" bash ./scripts/run-with-e2e-admin-env.sh pnpm --filter @illamhelp/mobile e2e:detox:test:ios:debug
+
+ui-test-mobile-android-debug: preflight up-core migrate
+	DETOX_LOGLEVEL="$${DETOX_LOGLEVEL:-trace}" DETOX_TEST_FILE="$${DETOX_TEST_FILE:-e2e/full-flow.e2e.js}" DETOX_TEST_NAME_PATTERN="$${DETOX_TEST_NAME_PATTERN:-}" DETOX_ARTIFACTS_DIR="$${DETOX_ARTIFACTS_DIR:-artifacts/detox/debug-android}" bash ./scripts/run-with-e2e-admin-env.sh pnpm --filter @illamhelp/mobile e2e:detox:test:android:debug
 
 ui-test: preflight up-core migrate
-	pnpm run test:ui
+	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui
 
 ci-local:
 	@command -v act >/dev/null 2>&1 || { \

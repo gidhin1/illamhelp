@@ -1,0 +1,52 @@
+meta {
+  name: Verification Me (Before Submit)
+  type: http
+  seq: 22
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/profiles/me/verification
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("verification me before submit returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("verification me before submit returns null or record", function () {
+    if (res.body === null) {
+      expect(res.body).to.equal(null);
+      return;
+    }
+
+    expect(res.body.id).to.be.a("string");
+    expect(res.body.status).to.be.oneOf(["pending", "under_review", "approved", "rejected"]);
+  });
+}
+
+script:post-response {
+  const existing = res.body;
+  if (
+    existing &&
+    typeof existing === "object" &&
+    typeof existing.id === "string" &&
+    (existing.status === "pending" || existing.status === "under_review")
+  ) {
+    bru.setVar("verificationRequestId", existing.id);
+    bru.setEnvVar("verificationRequestId", existing.id);
+    bru.runner.setNextRequest("Admin Verifications List (Pending)");
+    return;
+  }
+
+  bru.runner.setNextRequest("Verification Submit");
+}
+

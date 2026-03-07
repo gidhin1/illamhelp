@@ -1,6 +1,7 @@
 import {
     BadRequestException,
     Injectable,
+    Logger,
     NotFoundException
 } from "@nestjs/common";
 
@@ -61,6 +62,8 @@ interface ListVerificationsInput {
 
 @Injectable()
 export class VerificationService {
+    private readonly logger = new Logger(VerificationService.name);
+
     constructor(
         private readonly databaseService: DatabaseService,
         private readonly auditService: AuditService,
@@ -250,9 +253,13 @@ export class VerificationService {
 
         const record = this.mapRow(result.rows[0]);
 
-        // Update the user's verified flag if approved
+        // Side effects are best-effort; verification status update above is the source of truth.
         if (input.decision === "approved") {
-            await this.profilesService.setVerified(request.user_id, true);
+            await this.profilesService.setVerified(request.user_id, true).catch((error: unknown) => {
+                this.logger.warn(
+                    `Failed to update verified flag for user ${request.user_id} after verification ${requestId}: ${error instanceof Error ? error.message : String(error)}`
+                );
+            });
         }
 
         await this.auditService.logEvent({
@@ -263,6 +270,10 @@ export class VerificationService {
                 verificationRequestId: requestId,
                 reviewerNotes: input.notes || null
             }
+        }).catch((error: unknown) => {
+            this.logger.warn(
+                `Failed to write audit event for verification ${requestId}: ${error instanceof Error ? error.message : String(error)}`
+            );
         });
 
         // Notify the user about verification decision
@@ -281,7 +292,11 @@ export class VerificationService {
             title: notifTitle,
             body: notifBody,
             data: { verificationRequestId: requestId, decision: input.decision }
-        }).catch(() => { /* fire-and-forget */ });
+        }).catch((error: unknown) => {
+            this.logger.warn(
+                `Failed to create notification for verification ${requestId}: ${error instanceof Error ? error.message : String(error)}`
+            );
+        });
 
         return record;
     }

@@ -1,0 +1,38 @@
+meta {
+  name: Connections List (After Block)
+  type: http
+  seq: 21
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/connections
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("connections list after block returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("connections list after block has blocked connection", function () {
+    const connectionId = bru.getVar("connectionId") || bru.getEnvVar("connectionId");
+    const items = (res.body && res.body.items) || [];
+    expect(items).to.be.an("array");
+    const row = items.find((item) => item.id === connectionId);
+    expect(row).to.not.equal(undefined);
+    expect(row.status).to.equal("blocked");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Verification Me (Before Submit)");
+}
+

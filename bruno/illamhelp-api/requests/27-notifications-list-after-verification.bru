@@ -1,0 +1,55 @@
+meta {
+  name: Notifications List (After Verification)
+  type: http
+  seq: 27
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/notifications?unreadOnly=true&limit=50
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("notifications after verification returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("notifications after verification includes verification approval item", function () {
+    const verificationRequestId = bru.getVar("verificationRequestId") || bru.getEnvVar("verificationRequestId");
+    const items = (res.body && res.body.items) || [];
+    expect(items).to.be.an("array");
+    const row = items.find(
+      (item) =>
+        item.type === "verification_approved" &&
+        item.data &&
+        item.data.verificationRequestId === verificationRequestId
+    );
+    expect(row).to.not.equal(undefined);
+    expect(row.read).to.equal(false);
+  });
+}
+
+script:post-response {
+  const verificationRequestId = bru.getVar("verificationRequestId") || bru.getEnvVar("verificationRequestId");
+  const items = (res.body && res.body.items) || [];
+  const row = items.find(
+    (item) =>
+      item.type === "verification_approved" &&
+      item.data &&
+      item.data.verificationRequestId === verificationRequestId
+  );
+  if (row && row.id) {
+    bru.setVar("verificationNotificationId", row.id);
+    bru.setEnvVar("verificationNotificationId", row.id);
+  }
+  bru.runner.setNextRequest("Notifications Mark All Read");
+}
+

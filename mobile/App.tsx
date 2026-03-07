@@ -1400,149 +1400,149 @@ function JobsScreen({
       {!ownJobManagerVisible ? (
         <>
           <SectionCard title="Create job">
-        <InputField
-          label="Category"
-          value={category}
-          onChangeText={(value) => {
-            latestDraftRef.current.category = value;
-            setCategory(value);
-          }}
-          placeholder="plumber"
-          testID="jobs-category"
-        />
-        <InputField
-          label="Title"
-          value={title}
-          onChangeText={(value) => {
-            latestDraftRef.current.title = value;
-            setTitle(value);
-          }}
-          placeholder="Kitchen sink leakage repair"
-          testID="jobs-title"
-        />
-        <InputField
-          label="Description"
-          value={description}
-          onChangeText={(value) => {
-            latestDraftRef.current.description = value;
-            setDescription(value);
-          }}
-          placeholder="Need urgent service support."
-          multiline
-          testID="jobs-description"
-        />
-        <InputField
-          label="Location"
-          value={locationText}
-          onChangeText={(value) => {
-            latestDraftRef.current.locationText = value;
-            setLocationText(value);
-          }}
-          placeholder="Kakkanad, Kochi"
-          testID="jobs-location"
-        />
-        <Text style={styles.fieldLabel}>Visibility</Text>
-        <View style={styles.roleRow}>
-          <Pressable
-            style={[styles.roleChip, visibility === "public" ? styles.roleChipSelected : null]}
-            onPress={() => {
-              latestDraftRef.current.visibility = "public";
-              setVisibility("public");
-            }}
-            testID="jobs-visibility-public"
-          >
-            <Text
-              style={[
-                styles.roleChipLabel,
-                visibility === "public" ? styles.roleChipLabelSelected : null
-              ]}
-            >
-              Public
-            </Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.roleChip,
-              visibility === "connections_only" ? styles.roleChipSelected : null
-            ]}
-            onPress={() => {
-              latestDraftRef.current.visibility = "connections_only";
-              setVisibility("connections_only");
-            }}
-            testID="jobs-visibility-connections"
-          >
-            <Text
-              style={[
-                styles.roleChipLabel,
-                visibility === "connections_only" ? styles.roleChipLabelSelected : null
-              ]}
-            >
-              Connections only
-            </Text>
-          </Pressable>
-        </View>
-        <AppButton
-          label={submitting ? "Posting..." : "Post job"}
-          onPress={() => {
-            void onCreate();
-          }}
-          disabled={submitting}
-          testID="jobs-submit"
-        />
+            <InputField
+              label="Category"
+              value={category}
+              onChangeText={(value) => {
+                latestDraftRef.current.category = value;
+                setCategory(value);
+              }}
+              placeholder="plumber"
+              testID="jobs-category"
+            />
+            <InputField
+              label="Title"
+              value={title}
+              onChangeText={(value) => {
+                latestDraftRef.current.title = value;
+                setTitle(value);
+              }}
+              placeholder="Kitchen sink leakage repair"
+              testID="jobs-title"
+            />
+            <InputField
+              label="Description"
+              value={description}
+              onChangeText={(value) => {
+                latestDraftRef.current.description = value;
+                setDescription(value);
+              }}
+              placeholder="Need urgent service support."
+              multiline
+              testID="jobs-description"
+            />
+            <InputField
+              label="Location"
+              value={locationText}
+              onChangeText={(value) => {
+                latestDraftRef.current.locationText = value;
+                setLocationText(value);
+              }}
+              placeholder="Kakkanad, Kochi"
+              testID="jobs-location"
+            />
+            <Text style={styles.fieldLabel}>Visibility</Text>
+            <View style={styles.roleRow}>
+              <Pressable
+                style={[styles.roleChip, visibility === "public" ? styles.roleChipSelected : null]}
+                onPress={() => {
+                  latestDraftRef.current.visibility = "public";
+                  setVisibility("public");
+                }}
+                testID="jobs-visibility-public"
+              >
+                <Text
+                  style={[
+                    styles.roleChipLabel,
+                    visibility === "public" ? styles.roleChipLabelSelected : null
+                  ]}
+                >
+                  Public
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.roleChip,
+                  visibility === "connections_only" ? styles.roleChipSelected : null
+                ]}
+                onPress={() => {
+                  latestDraftRef.current.visibility = "connections_only";
+                  setVisibility("connections_only");
+                }}
+                testID="jobs-visibility-connections"
+              >
+                <Text
+                  style={[
+                    styles.roleChipLabel,
+                    visibility === "connections_only" ? styles.roleChipLabelSelected : null
+                  ]}
+                >
+                  Connections only
+                </Text>
+              </Pressable>
+            </View>
+            <AppButton
+              label={submitting ? "Posting..." : "Post job"}
+              onPress={() => {
+                void onCreate();
+              }}
+              disabled={submitting}
+              testID="jobs-submit"
+            />
           </SectionCard>
 
           <SectionCard title="Jobs posted by me">
-        {loading ? <Text style={styles.cardBodyMuted}>Loading jobs...</Text> : null}
-        {!loading && jobsPostedByMe.length === 0 ? (
-          <Text style={styles.cardBodyMuted}>You have not posted any jobs yet.</Text>
-        ) : null}
-        <View style={styles.stackSmall}>
-          {jobsPostedByMe.map((job) => {
-            const isCountLoading = applicantCountsLoadingByJob[job.id] ?? true;
-            const applicantCount = isCountLoading ? null : applicantCountsByJob[job.id] ?? 0;
-            const noApplicants = applicantCount === 0;
-            return (
-              <View key={job.id} style={styles.dataRow}>
-                <Text style={styles.dataTitle}>{job.title}</Text>
-                <Text style={styles.dataMeta}>
-                  {job.category} · {job.locationText}
-                </Text>
-                <Text style={styles.dataMeta}>
-                  Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
-                </Text>
-                <Text style={styles.dataMeta}>Status: {job.status}</Text>
-                <Text style={styles.dataMeta}>
-                  Assigned provider: {job.assignedProviderUserId ?? "Not assigned"}
-                </Text>
-                <Text style={styles.dataMeta}>
-                  Applicants: {applicantCount ?? "..."}
-                </Text>
-                <Text style={styles.dataMeta}>Created: {formatDate(job.createdAt)}</Text>
-                {isCountLoading ? (
-                  <Text style={styles.dataMeta}>Loading applicants...</Text>
-                ) : null}
-                {!isCountLoading && noApplicants ? (
-                  <Text style={styles.dataMeta} testID={`jobs-no-applicants-${job.id}`}>
-                    No applicants
-                  </Text>
-                ) : null}
-                <AppButton
-                  label={
-                    job.assignedProviderUserId ? "Manage job/applicant" : "Manage applicants"
-                  }
-                  onPress={() => {
-                    setSelectedOwnJobId(job.id);
-                    setSelectedApplicantProfile(null);
-                    setOwnJobManagerVisible(true);
-                  }}
-                  variant="secondary"
-                  disabled={isCountLoading || noApplicants}
-                  testID={`jobs-manage-${job.id}`}
-                />
-              </View>
-            );
-          })}
-        </View>
+            {loading ? <Text style={styles.cardBodyMuted}>Loading jobs...</Text> : null}
+            {!loading && jobsPostedByMe.length === 0 ? (
+              <Text style={styles.cardBodyMuted}>You have not posted any jobs yet.</Text>
+            ) : null}
+            <View style={styles.stackSmall}>
+              {jobsPostedByMe.map((job) => {
+                const isCountLoading = applicantCountsLoadingByJob[job.id] ?? true;
+                const applicantCount = isCountLoading ? null : applicantCountsByJob[job.id] ?? 0;
+                const noApplicants = applicantCount === 0;
+                return (
+                  <View key={job.id} style={styles.dataRow}>
+                    <Text style={styles.dataTitle}>{job.title}</Text>
+                    <Text style={styles.dataMeta}>
+                      {job.category} · {job.locationText}
+                    </Text>
+                    <Text style={styles.dataMeta}>
+                      Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
+                    </Text>
+                    <Text style={styles.dataMeta}>Status: {job.status}</Text>
+                    <Text style={styles.dataMeta}>
+                      Assigned provider: {job.assignedProviderUserId ?? "Not assigned"}
+                    </Text>
+                    <Text style={styles.dataMeta}>
+                      Applicants: {applicantCount ?? "..."}
+                    </Text>
+                    <Text style={styles.dataMeta}>Created: {formatDate(job.createdAt)}</Text>
+                    {isCountLoading ? (
+                      <Text style={styles.dataMeta}>Loading applicants...</Text>
+                    ) : null}
+                    {!isCountLoading && noApplicants ? (
+                      <Text style={styles.dataMeta} testID={`jobs-no-applicants-${job.id}`}>
+                        No applicants
+                      </Text>
+                    ) : null}
+                    <AppButton
+                      label={
+                        job.assignedProviderUserId ? "Manage job/applicant" : "Manage applicants"
+                      }
+                      onPress={() => {
+                        setSelectedOwnJobId(job.id);
+                        setSelectedApplicantProfile(null);
+                        setOwnJobManagerVisible(true);
+                      }}
+                      variant="secondary"
+                      disabled={isCountLoading || noApplicants}
+                      testID={`jobs-manage-${job.id}`}
+                    />
+                  </View>
+                );
+              })}
+            </View>
           </SectionCard>
 
           <SectionCard title="Jobs assigned to me">
@@ -3438,7 +3438,7 @@ const styles = StyleSheet.create({
   },
   authContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingBottom: 80,
     paddingTop: 22,
     gap: 14
   },
@@ -3514,7 +3514,7 @@ const styles = StyleSheet.create({
   },
   screenScroll: {
     paddingTop: 16,
-    paddingBottom: 24,
+    paddingBottom: 80,
     gap: 12
   },
   screenHeader: {

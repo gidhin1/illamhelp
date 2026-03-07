@@ -1,0 +1,36 @@
+meta {
+  name: Verification Me (After Admin Review)
+  type: http
+  seq: 26
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/profiles/me/verification
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{seekerAccessToken}}
+}
+
+tests {
+  test("verification me after admin review returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("verification me after admin review is approved", function () {
+    const verificationRequestId = bru.getVar("verificationRequestId") || bru.getEnvVar("verificationRequestId");
+    expect(res.body.id).to.equal(verificationRequestId);
+    expect(res.body.status).to.equal("approved");
+    expect(res.body.reviewedAt).to.be.a("string");
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Notifications List (After Verification)");
+}
+
