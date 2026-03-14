@@ -18,6 +18,7 @@ mobile/artifacts/detox/
 mobile/e2e/artifacts/
 mobile/e2e/reports/
 mobile/.detox/
+api/*.tsbuildinfo
 test-results/
 tests/playwright/reports/
 playwright-report/
