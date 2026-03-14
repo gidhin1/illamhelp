@@ -23,7 +23,6 @@ export function AppButton({
   style?: ViewStyle;
 }): JSX.Element {
   const styles = useAppStyles();
-  const theme = useAppTheme();
   const buttonStyles = [
     styles.button,
     variant === "secondary" ? styles.buttonSecondary : null,

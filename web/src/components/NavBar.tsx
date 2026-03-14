@@ -104,7 +104,6 @@ function ThemeButtons(): JSX.Element {
 export function NavBar(): JSX.Element {
   const pathname = usePathname();
   const { user, accessToken, signOut } = useSession();
-  const { preference } = useThemePreference();
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [jobsExpanded, setJobsExpanded] = useState(false);

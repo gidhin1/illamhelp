@@ -13,14 +13,13 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 const STORAGE_KEY = "illamhelp.theme.preference";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }): JSX.Element {
-  const [preference, setPreference] = useState<ThemePreference>("system");
-
-  useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored === "dark" || stored === "light" || stored === "system") {
-      setPreference(stored);
+  const [preference, setPreference] = useState<ThemePreference>(() => {
+    if (typeof window === "undefined") {
+      return "system";
     }
-  }, []);
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return stored === "dark" || stored === "light" || stored === "system" ? stored : "system";
+  });
 
   useEffect(() => {
     const root = document.documentElement;
