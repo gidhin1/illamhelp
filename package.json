@@ -33,8 +33,9 @@
       "glob@10>minimatch": "9.0.7",
       "glob@11>minimatch": "10.2.3",
       "glob@13>minimatch": "10.2.3",
-      "@expo/cli>tar": "7.5.10",
-      "cacache>tar": "7.5.10"
+      "@expo/cli>tar": "7.5.11",
+      "cacache>tar": "7.5.11",
+      "@expo/cli>undici": "6.24.0"
     },
     "ignoredBuiltDependencies": [
       "@nestjs/core",
