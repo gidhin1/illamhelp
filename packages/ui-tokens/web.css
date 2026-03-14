@@ -1,17 +1,68 @@
-:root {
-  color-scheme: light;
-  --bg: #f7f2ea;
-  --bg-2: #e9f4f1;
-  --surface: #ffffff;
-  --surface-2: #f5efe7;
-  --ink: #1f1d1a;
-  --muted: #57524d;
-  --brand: #2c5b4e;
-  --brand-2: #1a6f87;
-  --accent: #f2b94b;
-  --line: rgba(31, 29, 26, 0.12);
-  --shadow: 0 20px 40px rgba(23, 20, 16, 0.12);
+:root,
+:root[data-theme="light"] {
+  color-scheme: light dark;
+  --bg: #FAFAFE;
+  --bg-2: #F0EEF8;
+  --surface: #FFFFFF;
+  --surface-2: #F5F3FC;
+  --surface-hover: #EDEBF7;
+  --ink: #1A1625;
+  --muted: #6B6580;
+  --brand: #6A5ACD;
+  --brand-2: #8B7CF7;
+  --accent: #A78BFA;
+  --line: rgba(106, 90, 205, 0.12);
+  --shadow: 0 20px 40px rgba(26, 22, 37, 0.10);
+  --success: #22C55E;
+  --error: #EF4444;
+  --warning: #F59E0B;
+  --info: #6A5ACD;
+  --danger: #EF4444;
+}
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F0F14;
+    --bg-2: #141420;
+    --surface: #1A1A24;
+    --surface-2: #22222E;
+    --surface-hover: #2A2A38;
+    --ink: #E8E6F0;
+    --muted: #9490A8;
+    --brand: #6A5ACD;
+    --brand-2: #8B7CF7;
+    --accent: #A78BFA;
+    --line: rgba(148, 144, 168, 0.16);
+    --shadow: 0 20px 40px rgba(0, 0, 0, 0.40);
+    --success: #34D399;
+    --error: #F87171;
+    --warning: #FBBF24;
+    --info: #8B7CF7;
+    --danger: #F87171;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0F0F14;
+  --bg-2: #141420;
+  --surface: #1A1A24;
+  --surface-2: #22222E;
+  --surface-hover: #2A2A38;
+  --ink: #E8E6F0;
+  --muted: #9490A8;
+  --brand: #6A5ACD;
+  --brand-2: #8B7CF7;
+  --accent: #A78BFA;
+  --line: rgba(148, 144, 168, 0.16);
+  --shadow: 0 20px 40px rgba(0, 0, 0, 0.40);
+  --success: #34D399;
+  --error: #F87171;
+  --warning: #FBBF24;
+  --info: #8B7CF7;
+  --danger: #F87171;
+}
+
+:root {
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 18px;
@@ -26,4 +77,31 @@
   --space-xxl: 32px;
   --space-3xl: 48px;
   --space-4xl: 64px;
+
+  /* App aliases used across web/admin styles */
+  --spacing-xs: var(--space-xs);
+  --spacing-sm: var(--space-sm);
+  --spacing-md: var(--space-md);
+  --spacing-lg: var(--space-lg);
+  --spacing-xl: var(--space-xl);
+  --spacing-2xl: var(--space-xxl);
+  --spacing-3xl: var(--space-3xl);
+  --spacing-4xl: var(--space-4xl);
+
+  --font-xs: 12px;
+  --font-sm: 14px;
+  --font-md: 16px;
+  --font-lg: 18px;
+  --font-xl: 22px;
+  --font-2xl: 28px;
+  --font-3xl: 36px;
+
+  --brand-2-10: color-mix(in srgb, var(--brand-2) 10%, transparent);
+  --is-mobile: none;
+}
+
+@media (max-width: 1023px) {
+  :root {
+    --is-mobile: block;
+  }
 }

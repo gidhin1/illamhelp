@@ -4,15 +4,18 @@
   "private": true,
   "description": "IllamHelp seeker/provider web app",
   "scripts": {
-    "dev": "next dev -p ${PORT:-3000}",
+    "dev": "next dev -H ${HOST:-127.0.0.1} -p ${PORT:-3000}",
     "build": "next build",
-    "start": "next start -p ${PORT:-3000}",
+    "start": "next start -H ${HOST:-127.0.0.1} -p ${PORT:-3000}",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "echo \"No web tests yet\""
   },
   "dependencies": {
+    "@illamhelp/shared-types": "workspace:*",
     "@illamhelp/ui-tokens": "workspace:*",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.22",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

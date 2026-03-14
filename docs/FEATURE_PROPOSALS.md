@@ -227,7 +227,7 @@ These items are already scoped in your milestones/docs but not yet implemented.
 - **Effort**: Medium
 
 ### 6.4 E2E Test Stability
-- **What**: Fix Detox mobile test reliability (noted as an active blocker); add visual regression testing for web
+- **What**: Use Maestro for mobile UI E2E and add visual regression testing for web
 - **Why**: Mobile E2E is flagged as unstable; no visual regression protection
 - **Effort**: Medium
 

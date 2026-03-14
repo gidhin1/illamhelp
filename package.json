@@ -12,11 +12,11 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "test:ui:web": "playwright test -c tests/playwright/playwright.web.config.ts",
-    "test:ui:admin": "playwright test -c tests/playwright/playwright.admin.config.ts",
-    "test:ui:mobile": "pnpm --filter @illamhelp/mobile e2e:detox",
-    "test:ui:mobile:ios": "pnpm --filter @illamhelp/mobile e2e:detox:ios",
-    "test:ui:mobile:android": "pnpm --filter @illamhelp/mobile e2e:detox:android",
+    "test:ui:web": "bash ./scripts/run-with-e2e-admin-env.sh bash ./scripts/run-playwright-suite.sh tests/playwright/playwright.web.config.ts",
+    "test:ui:admin": "bash ./scripts/run-with-e2e-admin-env.sh bash ./scripts/run-playwright-suite.sh tests/playwright/playwright.admin.config.ts",
+    "test:ui:mobile": "pnpm --filter @illamhelp/mobile e2e:maestro",
+    "test:ui:mobile:ios": "pnpm --filter @illamhelp/mobile e2e:maestro:ios",
+    "test:ui:mobile:android": "pnpm --filter @illamhelp/mobile e2e:maestro:android",
     "test:ui": "pnpm run test:ui:web && pnpm run test:ui:admin && pnpm run test:ui:mobile",
     "test:ui:install": "playwright install chromium",
     "infra:up": "docker compose --project-name illamhelp --env-file .env -f infra/docker-compose.yml up -d",
@@ -35,7 +35,15 @@
       "glob@13>minimatch": "10.2.3",
       "@expo/cli>tar": "7.5.10",
       "cacache>tar": "7.5.10"
-    }
+    },
+    "ignoredBuiltDependencies": [
+      "@nestjs/core",
+      "@scarf/scarf",
+      "dtrace-provider",
+      "esbuild",
+      "sharp",
+      "unrs-resolver"
+    ]
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0"

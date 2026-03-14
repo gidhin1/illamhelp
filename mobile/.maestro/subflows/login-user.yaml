@@ -1,0 +1,21 @@
+appId: ${APP_ID}
+---
+- assertVisible:
+    id: auth-mode-login
+- tapOn:
+    id: auth-mode-login
+- assertVisible:
+    id: auth-login-username
+- tapOn:
+    id: auth-login-username
+- inputText: ${USERNAME}
+- tapOn:
+    id: auth-login-password
+- inputText: ${PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: auth-login-submit
+- extendedWaitUntil:
+    visible:
+      id: tab-home
+    timeout: 10000

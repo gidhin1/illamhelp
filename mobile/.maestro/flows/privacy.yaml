@@ -1,0 +1,183 @@
+appId: ${APP_ID}
+name: Privacy request, grant, revoke, and can-view
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${PRIVACY_OWNER_FIRST_NAME}
+      LAST_NAME: ${PRIVACY_OWNER_LAST_NAME}
+      EMAIL: ${PRIVACY_OWNER_EMAIL}
+      USERNAME: ${PRIVACY_OWNER_USERNAME}
+      PHONE: ${PRIVACY_OWNER_PHONE}
+      PASSWORD: ${PRIVACY_OWNER_PASSWORD}
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${PRIVACY_REQUESTER_FIRST_NAME}
+      LAST_NAME: ${PRIVACY_REQUESTER_LAST_NAME}
+      EMAIL: ${PRIVACY_REQUESTER_EMAIL}
+      USERNAME: ${PRIVACY_REQUESTER_USERNAME}
+      PHONE: ${PRIVACY_REQUESTER_PHONE}
+      PASSWORD: ${PRIVACY_REQUESTER_PASSWORD}
+- tapOn:
+    id: tab-people
+- tapOn:
+    id: connections-target-user-id
+- inputText: ${PRIVACY_OWNER_FIRST_NAME}
+- hideKeyboard
+- tapOn:
+    id: connections-search-submit
+- extendedWaitUntil:
+    visible: ${PRIVACY_OWNER_FIRST_NAME}
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: Connect
+    direction: DOWN
+    timeout: 10000
+- tapOn: Connect
+- extendedWaitUntil:
+    visible:
+      id: connections-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${PRIVACY_OWNER_USERNAME}
+      PASSWORD: ${PRIVACY_OWNER_PASSWORD}
+- tapOn:
+    id: tab-people
+- scrollUntilVisible:
+    element:
+      text: Accept
+    direction: DOWN
+    timeout: 10000
+- tapOn: Accept
+- extendedWaitUntil:
+    visible:
+      id: connections-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${PRIVACY_REQUESTER_USERNAME}
+      PASSWORD: ${PRIVACY_REQUESTER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- tapOn:
+    id: drawer-nav-privacy
+- assertVisible: Share contact details safely
+- extendedWaitUntil:
+    visible: ${PRIVACY_OWNER_USERNAME}
+    timeout: 10000
+- tapOn: ${PRIVACY_OWNER_USERNAME}
+- tapOn:
+    id: consent-request-purpose
+- inputText: ${MAESTRO_PRIVACY_REQUEST_PURPOSE}
+- hideKeyboard
+- tapOn:
+    id: consent-request-submit
+- extendedWaitUntil:
+    visible:
+      id: consent-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${PRIVACY_OWNER_USERNAME}
+      PASSWORD: ${PRIVACY_OWNER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- tapOn:
+    id: drawer-nav-privacy
+- extendedWaitUntil:
+    visible: ${PRIVACY_REQUESTER_USERNAME}
+    timeout: 10000
+- tapOn: ${PRIVACY_REQUESTER_USERNAME}
+- tapOn:
+    id: consent-grant-purpose
+- inputText: ${MAESTRO_PRIVACY_GRANT_PURPOSE}
+- hideKeyboard
+- tapOn:
+    id: consent-grant-submit
+- extendedWaitUntil:
+    visible:
+      id: consent-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${PRIVACY_REQUESTER_USERNAME}
+      PASSWORD: ${PRIVACY_REQUESTER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- tapOn:
+    id: drawer-nav-privacy
+- extendedWaitUntil:
+    visible: ${PRIVACY_OWNER_USERNAME}
+    timeout: 10000
+- tapOn: ${PRIVACY_OWNER_USERNAME}
+- tapOn:
+    id: consent-can-view-submit
+- extendedWaitUntil:
+    visible:
+      id: consent-can-view-allowed-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${PRIVACY_OWNER_USERNAME}
+      PASSWORD: ${PRIVACY_OWNER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- tapOn:
+    id: drawer-nav-privacy
+- extendedWaitUntil:
+    visible: ${PRIVACY_REQUESTER_USERNAME}
+    timeout: 10000
+- tapOn: ${PRIVACY_REQUESTER_USERNAME}
+- tapOn:
+    id: consent-revoke-reason
+- inputText: No longer required
+- hideKeyboard
+- tapOn:
+    id: consent-revoke-submit
+- extendedWaitUntil:
+    visible:
+      id: consent-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${PRIVACY_REQUESTER_USERNAME}
+      PASSWORD: ${PRIVACY_REQUESTER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- tapOn:
+    id: drawer-nav-privacy
+- extendedWaitUntil:
+    visible: ${PRIVACY_OWNER_USERNAME}
+    timeout: 10000
+- tapOn: ${PRIVACY_OWNER_USERNAME}
+- tapOn:
+    id: consent-can-view-submit
+- extendedWaitUntil:
+    visible:
+      id: consent-can-view-denied-banner
+    timeout: 10000

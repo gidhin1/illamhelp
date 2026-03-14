@@ -1,0 +1,8 @@
+appId: ${APP_ID}
+---
+- tapOn:
+    id: app-drawer-toggle
+- extendedWaitUntil:
+    visible:
+      id: drawer-signout
+    timeout: 10000

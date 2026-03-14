@@ -1,9 +1,9 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "jsx": "react-jsx",
+    "jsx": "react-native",
     "lib": ["es2022"],
-    "types": ["react"],
+    "types": ["react", "react-native"],
     "resolveJsonModule": true,
     "noEmit": true
   },

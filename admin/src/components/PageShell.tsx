@@ -1,14 +1,14 @@
 import type { ReactNode } from "react";
 
-import { Footer } from "./Footer";
 import { NavBar } from "./NavBar";
 
 export function PageShell({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div className="page-shell">
       <NavBar />
-      <main style={{ flex: 1 }}>{children}</main>
-      <Footer />
+      <main className="main-feed">
+        {children}
+      </main>
     </div>
   );
 }

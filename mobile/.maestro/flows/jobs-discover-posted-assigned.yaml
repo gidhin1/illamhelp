@@ -1,0 +1,125 @@
+appId: ${APP_ID}
+name: Jobs discover, posted by me, assigned to me
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${JOBS_SEEKER_FIRST_NAME}
+      LAST_NAME: ${JOBS_SEEKER_LAST_NAME}
+      EMAIL: ${JOBS_SEEKER_EMAIL}
+      USERNAME: ${JOBS_SEEKER_USERNAME}
+      PHONE: ${JOBS_SEEKER_PHONE}
+      PASSWORD: ${JOBS_SEEKER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-jobs-subsection.yaml
+    env:
+      JOBS_SECTION: jobs-posted
+- assertVisible: Posted by me
+- tapOn:
+    id: jobs-category
+- inputText: plumber
+- tapOn:
+    id: jobs-title
+- inputText: ${MAESTRO_JOBS_TITLE}
+- tapOn:
+    id: jobs-description
+- inputText: ${MAESTRO_JOBS_DESCRIPTION}
+- tapOn:
+    id: jobs-location
+- inputText: ${MAESTRO_JOBS_LOCATION}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: jobs-submit
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: jobs-submit
+- extendedWaitUntil:
+    visible:
+      id: jobs-success-banner
+    timeout: 10000
+- assertVisible: Jobs posted by me
+- assertVisible: ${MAESTRO_JOBS_TITLE}
+- assertVisible: No applicants
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${JOBS_PROVIDER_FIRST_NAME}
+      LAST_NAME: ${JOBS_PROVIDER_LAST_NAME}
+      EMAIL: ${JOBS_PROVIDER_EMAIL}
+      USERNAME: ${JOBS_PROVIDER_USERNAME}
+      PHONE: ${JOBS_PROVIDER_PHONE}
+      PASSWORD: ${JOBS_PROVIDER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-jobs-subsection.yaml
+    env:
+      JOBS_SECTION: jobs-discover
+- extendedWaitUntil:
+    visible: ${MAESTRO_JOBS_TITLE}
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: Apply for job
+    direction: DOWN
+    timeout: 10000
+- tapOn: Apply for job
+- extendedWaitUntil:
+    visible:
+      id: jobs-action-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${JOBS_SEEKER_USERNAME}
+      PASSWORD: ${JOBS_SEEKER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-jobs-subsection.yaml
+    env:
+      JOBS_SECTION: jobs-posted
+- scrollUntilVisible:
+    element:
+      text: ${MAESTRO_JOBS_TITLE}
+    direction: DOWN
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: Manage applicants
+    direction: DOWN
+    timeout: 10000
+- tapOn: Manage applicants
+- extendedWaitUntil:
+    visible:
+      id: jobs-manage-back
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: Approve applicant
+    direction: DOWN
+    timeout: 10000
+- tapOn: Approve applicant
+- extendedWaitUntil:
+    visible:
+      id: jobs-action-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${JOBS_PROVIDER_USERNAME}
+      PASSWORD: ${JOBS_PROVIDER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-jobs-subsection.yaml
+    env:
+      JOBS_SECTION: jobs-assigned
+- assertVisible: Assigned to me
+- extendedWaitUntil:
+    visible: ${MAESTRO_JOBS_TITLE}
+    timeout: 10000

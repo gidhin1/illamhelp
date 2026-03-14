@@ -1,79 +1,74 @@
 # Local Infrastructure
 
-Services provisioned through `infra/docker-compose.yml`:
+Docker services provisioned via `infra/docker-compose.yml`.
 
-- PostgreSQL
-- Redis
-- MinIO (+ bucket initializer)
-- NATS (JetStream enabled)
-- OpenSearch (single node, security plugin disabled for local only)
-- Keycloak
-- OPA
-- ClamAV
+## Services
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| PostgreSQL | 5432 | Primary database |
+| Redis | 6379 | Caching and sessions |
+| MinIO | 9000 (API), 9001 (Console) | Object storage |
+| NATS | 4222 | Event streaming (JetStream) |
+| Keycloak | 8080 | Identity and access management |
+| OPA | 8181 | Policy enforcement (consent decisions) |
+| OpenSearch | 9200 | Search (full stack only) |
+| ClamAV | 3310 | Virus scanning (full stack only) |
 
 ## Start
 
 ```bash
-make init-env
-make doctor
-make up
+make init-env     # Create .env from template (first time)
+make doctor       # Environment diagnostics
+make up           # Start all services
+make up-core      # Start core services only (lower memory)
+make up-auth      # Start Keycloak only
 ```
 
-Before `make up`, set credentials in `.env` (runtime only, do not commit):
+Before starting, set credentials in `.env` (do not commit):
 
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
-- `DATABASE_URL`
-- `MINIO_ROOT_USER`
-- `MINIO_ROOT_PASSWORD`
-- `KEYCLOAK_ADMIN`
-- `KEYCLOAK_ADMIN_PASSWORD`
+- `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_URL`
+- `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`
+- `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`
 
-For lower-memory laptops (common on MacBook Air), start lighter core services:
+## Keycloak Bootstrap
 
-```bash
-make up-core
-```
+`make up` and `make up-core` automatically run `scripts/keycloak-dev-bootstrap.sh`, which:
 
-If you only need auth/register/login during development:
+1. Ensures the `illamhelp` realm exists with SSL disabled for local dev
+2. Creates realm roles: `both`, `seeker`, `provider`, `admin`, `support`
+3. Creates the `illamhelp-api` public client
 
-```bash
-make up-auth
-```
-
-If register/login returns `HTTPS required` or `Invalid client credentials`, re-apply local Keycloak dev settings:
+If auth endpoints return `HTTPS required` or `Invalid client credentials`:
 
 ```bash
 make keycloak-bootstrap
 ```
 
-## Stop
+## DB Migrations
 
 ```bash
-make down
+make migrate
 ```
 
-For a hard local wipe of backend persisted state (including stale volumes from older compose project names):
+Runs all SQL migration files in `infra/db/migrations/` against the Postgres container.
+
+## Stop / Reset
 
 ```bash
-make reset-backend
+make down           # Stop all services and remove volumes
+make reset-backend  # Full wipe: containers + volumes (all project name variants)
 ```
 
-## Default Local Endpoints
+After a reset, restart with:
 
-- API (planned): `http://localhost:4000`
-- PostgreSQL: `localhost:5432`
-- Redis: `localhost:6379`
-- MinIO API: `http://localhost:9000`
-- MinIO Console: `http://localhost:9001`
-- Keycloak: `http://localhost:8080`
-- OpenSearch: `http://localhost:9200`
-- NATS: `nats://localhost:4222`
-- OPA: `http://localhost:8181`
-- ClamAV: `localhost:3310`
+```bash
+make up-core
+make migrate
+```
 
 ## macOS Notes
 
-- Use Docker Desktop (or Colima) with at least `6 GB` memory for full stack.
-- OpenSearch uses `OPENSEARCH_JAVA_OPTS` from `.env` (default is tuned down for local use).
-- ClamAV runs in `linux/amd64` mode on Apple Silicon via `CLAMAV_PLATFORM` env variable.
+- Docker Desktop (or Colima) with ≥6 GB memory for full stack
+- OpenSearch memory tuned via `OPENSEARCH_JAVA_OPTS` in `.env`
+- ClamAV runs `linux/amd64` on Apple Silicon via `CLAMAV_PLATFORM` env

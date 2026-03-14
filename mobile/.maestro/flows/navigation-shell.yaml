@@ -1,0 +1,60 @@
+appId: ${APP_ID}
+name: Bottom bar and drawer navigation shell
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${NAV_MEMBER_FIRST_NAME}
+      LAST_NAME: ${NAV_MEMBER_LAST_NAME}
+      EMAIL: ${NAV_MEMBER_EMAIL}
+      USERNAME: ${NAV_MEMBER_USERNAME}
+      PHONE: ${NAV_MEMBER_PHONE}
+      PASSWORD: ${NAV_MEMBER_PASSWORD}
+- assertVisible:
+    id: tab-home
+- assertVisible:
+    id: tab-people
+- assertVisible:
+    id: tab-profile
+- assertVisible:
+    id: tab-verify
+- tapOn:
+    id: tab-people
+- assertVisible: Build your trusted circle
+- tapOn:
+    id: tab-verify
+- assertVisible: Get verified
+- tapOn:
+    id: tab-profile
+- assertVisible: Your account
+- tapOn:
+    id: tab-home
+- assertVisible: Smart feed
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- assertVisible:
+    id: drawer-nav-jobs-toggle
+- assertVisible:
+    id: drawer-nav-alerts
+- assertVisible:
+    id: drawer-nav-privacy
+- assertVisible:
+    id: drawer-nav-settings
+- assertVisible:
+    id: drawer-nav-help
+- tapOn:
+    id: drawer-nav-jobs-toggle
+- assertVisible:
+    id: drawer-nav-jobs-discover
+- assertVisible:
+    id: drawer-nav-jobs-posted
+- assertVisible:
+    id: drawer-nav-jobs-assigned
+- tapOn:
+    id: app-drawer-scrim
+- extendedWaitUntil:
+    notVisible:
+      id: drawer-signout
+    timeout: 10000

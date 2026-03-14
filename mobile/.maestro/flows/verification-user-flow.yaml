@@ -1,0 +1,39 @@
+appId: ${APP_ID}
+name: Verification submission and pending status
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${VERIFY_MEMBER_FIRST_NAME}
+      LAST_NAME: ${VERIFY_MEMBER_LAST_NAME}
+      EMAIL: ${VERIFY_MEMBER_EMAIL}
+      USERNAME: ${VERIFY_MEMBER_USERNAME}
+      PHONE: ${VERIFY_MEMBER_PHONE}
+      PASSWORD: ${VERIFY_MEMBER_PASSWORD}
+- tapOn:
+    id: tab-verify
+- assertVisible: Get verified
+- tapOn:
+    id: verification-doc-type-government_id
+- tapOn:
+    id: verification-media-ids
+- inputText: ${MAESTRO_VERIFY_MEDIA_ID}
+- tapOn:
+    id: verification-notes
+- inputText: ${MAESTRO_VERIFY_NOTES}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: verification-submit
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: verification-submit
+- extendedWaitUntil:
+    visible:
+      id: verification-success-banner
+    timeout: 10000
+- assertVisible:
+    text: "Status: Pending"

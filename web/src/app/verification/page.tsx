@@ -9,7 +9,6 @@ import {
     Banner,
     Button,
     Card,
-    EmptyState,
     Field,
     SectionHeader,
     TextInput
@@ -21,11 +20,11 @@ import {
     VerificationRecord
 } from "@/lib/api";
 
-const STATUS_STYLES: Record<string, { label: string; color: string }> = {
-    pending: { label: "⏳ Pending review", color: "var(--warning, #f59e0b)" },
-    under_review: { label: "🔍 Under review", color: "var(--info, #3b82f6)" },
-    approved: { label: "✅ Approved", color: "var(--success, #10b981)" },
-    rejected: { label: "❌ Rejected", color: "var(--danger, #ef4444)" }
+const STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {
+    pending: { label: "⏳ Pending review", color: "var(--warning)", bg: "color-mix(in srgb, var(--warning) 15%, transparent)" },
+    under_review: { label: "🔍 Under review", color: "var(--info)", bg: "color-mix(in srgb, var(--info) 15%, transparent)" },
+    approved: { label: "✅ Approved", color: "var(--success)", bg: "color-mix(in srgb, var(--success) 15%, transparent)" },
+    rejected: { label: "❌ Rejected", color: "var(--danger)", bg: "color-mix(in srgb, var(--danger) 15%, transparent)" }
 };
 
 export default function VerificationPage(): JSX.Element {
@@ -100,90 +99,70 @@ export default function VerificationPage(): JSX.Element {
             <section className="section">
                 <div className="container stack">
                     <SectionHeader
-                        eyebrow="Verification"
-                        title="Get verified"
-                        subtitle="Submit your identity documents to earn the verified badge on your profile."
+                        eyebrow="Trust & Safety"
+                        title="Get Verified"
+                        subtitle="Earn the verified badge to stand out and build trust on IllamHelp."
                     />
                     <RequireSession>
-                        <div className="stack">
+                        <div className="stack" style={{ maxWidth: 800 }}>
                             {error ? <Banner tone="error">{error}</Banner> : null}
                             {success ? <Banner tone="success">{success}</Banner> : null}
 
                             {loading ? (
-                                <p className="muted-text">Loading verification status...</p>
+                                <p className="muted-text">Loading status...</p>
                             ) : verification ? (
-                                <Card className="stack">
-                                    <h3 style={{ fontFamily: "var(--font-display)" }}>Current verification</h3>
-                                    <div className="data-row">
-                                        <div className="data-title">Status</div>
+                                <Card className="stack" style={{ borderLeft: `4px solid ${statusInfo?.color ?? "var(--line)"}` }}>
+                                    <h3 style={{ fontFamily: "var(--font-display)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        Current Status
+                                        <span className="pill" style={{ background: statusInfo?.bg, color: statusInfo?.color, borderColor: "transparent" }}>
+                                            {statusInfo?.label ?? verification.status}
+                                        </span>
+                                    </h3>
+                                    <div className="grid two" style={{ gap: "var(--spacing-lg)" }}>
                                         <div>
-                                            <span
-                                                className="pill"
-                                                style={{
-                                                    padding: "6px 12px",
-                                                    borderColor: statusInfo?.color
-                                                }}
-                                            >
-                                                {statusInfo?.label ?? verification.status}
-                                            </span>
+                                            <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Document Type</div>
+                                            <div style={{ fontWeight: 600, fontSize: "1.05rem" }}>{verification.documentType.replaceAll("_", " ")}</div>
+                                        </div>
+                                        <div>
+                                            <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Submitted On</div>
+                                            <div style={{ fontWeight: 600, fontSize: "1.05rem" }}>{formatDate(verification.createdAt)}</div>
                                         </div>
                                     </div>
-                                    <div className="data-row">
-                                        <div className="data-title">Document type</div>
-                                        <div className="data-meta">{verification.documentType.replaceAll("_", " ")}</div>
-                                    </div>
-                                    <div className="data-row">
-                                        <div className="data-title">Documents</div>
-                                        <div className="data-meta">{verification.documentMediaIds.length} file(s)</div>
-                                    </div>
-                                    {verification.notes ? (
-                                        <div className="data-row">
-                                            <div className="data-title">Your notes</div>
-                                            <div className="data-meta">{verification.notes}</div>
+                                    
+                                    {verification.reviewerNotes && (
+                                        <div style={{ padding: "var(--spacing-md)", background: "var(--surface-2)", borderRadius: "var(--radius-md)", marginTop: "var(--spacing-sm)" }}>
+                                            <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Admin Feedback</div>
+                                            <div>{verification.reviewerNotes}</div>
                                         </div>
-                                    ) : null}
-                                    <div className="data-row">
-                                        <div className="data-title">Submitted</div>
-                                        <div className="data-meta">{formatDate(verification.createdAt)}</div>
-                                    </div>
-                                    {verification.reviewerNotes ? (
-                                        <div className="data-row">
-                                            <div className="data-title">Reviewer feedback</div>
-                                            <div className="data-meta">{verification.reviewerNotes}</div>
-                                        </div>
-                                    ) : null}
-                                    {verification.reviewedAt ? (
-                                        <div className="data-row">
-                                            <div className="data-title">Reviewed</div>
-                                            <div className="data-meta">{formatDate(verification.reviewedAt)}</div>
-                                        </div>
-                                    ) : null}
+                                    )}
                                 </Card>
                             ) : null}
 
                             {canSubmitNew ? (
-                                <Card className="stack">
-                                    <h3 style={{ fontFamily: "var(--font-display)" }}>
-                                        {verification?.status === "rejected"
-                                            ? "Submit a new request"
-                                            : "Submit for verification"}
-                                    </h3>
-                                    <p className="muted-text">
-                                        Upload your documents via the Media section on your Profile page first,
-                                        then paste the media IDs here.
-                                    </p>
+                                <Card className="stack" style={{ marginTop: "var(--spacing-xl)" }}>
+                                    <div style={{ marginBottom: "var(--spacing-md)" }}>
+                                        <h3 style={{ fontFamily: "var(--font-display)" }}>
+                                            {verification?.status === "rejected" ? "Submit a new request" : "Start your verification"}
+                                        </h3>
+                                        <p className="muted-text">
+                                            Upload your ID documents via your Profile page first, then paste the resulting Media IDs below to link them to this request.
+                                        </p>
+                                    </div>
+
                                     <form className="stack" onSubmit={(e) => void onSubmit(e)}>
-                                        <Field label="Document type">
+                                        <Field label="Identity Document Type">
                                             <select
                                                 value={documentType}
                                                 onChange={(e) => setDocumentType(e.target.value)}
                                                 style={{
                                                     width: "100%",
-                                                    padding: "10px 14px",
+                                                    padding: "12px 16px",
                                                     borderRadius: "var(--radius-md)",
-                                                    border: "1px solid var(--border)",
+                                                    border: "1px solid var(--line)",
                                                     background: "var(--surface)",
-                                                    fontSize: "0.95rem"
+                                                    fontSize: "1rem",
+                                                    color: "var(--ink)",
+                                                    fontFamily: "var(--font-body)",
                                                 }}
                                             >
                                                 <option value="government_id">Government ID (Aadhaar, PAN, Passport)</option>
@@ -193,26 +172,26 @@ export default function VerificationPage(): JSX.Element {
                                             </select>
                                         </Field>
                                         <Field
-                                            label="Document media IDs"
-                                            hint="Paste the media IDs from your uploaded documents, separated by commas."
+                                            label="Document Media IDs"
+                                            hint="Paste the media IDs of your uploaded documents from the Profile tab, separated by commas."
                                         >
                                             <TextInput
                                                 value={mediaIds}
                                                 onChange={(e) => setMediaIds(e.target.value)}
-                                                placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
+                                                placeholder="e.g. 550e8400-e29b-41d4..."
                                                 required
                                             />
                                         </Field>
-                                        <Field label="Notes (optional)" hint="Any additional context for the reviewer.">
+                                        <Field label="Notes for Reviewer (optional)" hint="Provide any context that will help us verify you faster.">
                                             <TextInput
                                                 value={notes}
                                                 onChange={(e) => setNotes(e.target.value)}
-                                                placeholder="e.g. Front and back of my Aadhaar card"
+                                                placeholder="e.g. Included both front and back images"
                                             />
                                         </Field>
-                                        <div>
+                                        <div style={{ marginTop: "var(--spacing-md)" }}>
                                             <Button type="submit" disabled={submitting}>
-                                                {submitting ? "Submitting..." : "Submit verification request"}
+                                                {submitting ? "Submitting..." : "Submit Verification"}
                                             </Button>
                                         </div>
                                     </form>

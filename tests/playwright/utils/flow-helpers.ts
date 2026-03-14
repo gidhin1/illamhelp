@@ -109,9 +109,9 @@ export async function cardByHeading(page: Page, heading: string): Promise<Locato
 }
 
 export async function waitForSuccessMessage(page: Page, message: string): Promise<void> {
-  await expect(page.getByText(message).first()).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(message).first()).toBeVisible({ timeout: 10_000 });
 }
 
 export async function waitForSignInRequired(page: Page): Promise<void> {
-  await expect(page.getByText("Sign in required")).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText("Sign in required")).toBeVisible({ timeout: 10_000 });
 }

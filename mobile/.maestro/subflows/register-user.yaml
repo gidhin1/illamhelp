@@ -1,0 +1,59 @@
+appId: ${APP_ID}
+---
+- assertVisible:
+    id: auth-mode-register
+- tapOn:
+    id: auth-mode-register
+- assertVisible:
+    id: auth-register-first-name
+- tapOn:
+    id: auth-register-first-name
+- inputText: ${FIRST_NAME}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: auth-register-last-name
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: auth-register-last-name
+- inputText: ${LAST_NAME}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: auth-register-email
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: auth-register-email
+- inputText: ${EMAIL}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: auth-register-username
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: auth-register-username
+- inputText: ${USERNAME}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: auth-register-password
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: auth-register-password
+- inputText: ${PASSWORD}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: auth-register-submit
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: auth-register-submit
+- extendedWaitUntil:
+    visible:
+      id: tab-home
+    timeout: 10000

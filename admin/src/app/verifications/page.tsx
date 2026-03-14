@@ -1,17 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ColumnDef } from "@tanstack/react-table";
 
 import { PageShell } from "@/components/PageShell";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
+import { DataTable } from "@/components/ui/DataTable";
 import {
     Banner,
     Button,
     Card,
     EmptyState,
     Field,
-    SectionHeader,
     TextArea
 } from "@/components/ui/primitives";
 import {
@@ -21,12 +22,13 @@ import {
     VerificationRecord
 } from "@/lib/api";
 
-const STATUS_STYLES: Record<string, { label: string; color: string }> = {
-    pending: { label: "⏳ Pending", color: "#f59e0b" },
-    under_review: { label: "🔍 Under review", color: "#3b82f6" },
-    approved: { label: "✅ Approved", color: "#10b981" },
-    rejected: { label: "❌ Rejected", color: "#ef4444" }
-};
+const STATUS_OPTS = [
+  { value: "pending", label: "Pending" },
+  { value: "under_review", label: "Under review" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "", label: "All Records" }
+];
 
 export default function VerificationsPage(): React.JSX.Element {
     const { accessToken } = useSession();
@@ -46,7 +48,7 @@ export default function VerificationsPage(): React.JSX.Element {
         setError(null);
         try {
             const result = await listVerifications(
-                { status: statusFilter || undefined, limit: 50 },
+                { status: statusFilter || undefined, limit: 100 },
                 accessToken
             );
             setItems(result.items);
@@ -86,9 +88,7 @@ export default function VerificationsPage(): React.JSX.Element {
                 delete next[requestId];
                 return next;
             });
-            setSuccessMessage(
-                `Verification ${decision === "approved" ? "approved ✅" : "rejected ❌"} successfully.`
-            );
+            setSuccessMessage(`Verification ${updated.status} successfully.`);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to review verification");
         } finally {
@@ -96,192 +96,145 @@ export default function VerificationsPage(): React.JSX.Element {
         }
     };
 
+    const columns: ColumnDef<VerificationRecord>[] = [
+      {
+        accessorKey: "status",
+        header: "Status",
+        cell: ({ row }) => {
+          const s = row.original.status;
+          let color = "var(--ink)";
+          if (s === "pending") color = "var(--warning)";
+          if (s === "approved") color = "var(--success)";
+          if (s === "rejected") color = "var(--danger)";
+          return <span className="pill" style={{ color }}>{s.replaceAll("_", " ")}</span>;
+        }
+      },
+      {
+        accessorKey: "userId",
+        header: "Member ID",
+        cell: ({ row }) => <span style={{ fontWeight: 600, color: "var(--ink)", fontFamily: "monospace", fontSize: "0.9rem" }}>{row.original.userId}</span>
+      },
+      {
+        accessorKey: "documentType",
+        header: "KYC Type",
+        cell: ({ row }) => <span style={{ textTransform: "capitalize" }}>{row.original.documentType.replaceAll("_", " ")}</span>
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Submitted",
+        cell: ({ row }) => <span className="muted-text">{formatDate(row.original.createdAt).split(",")[0]}</span>
+      },
+      {
+        id: "actions",
+        header: "Review",
+        cell: ({ row }) => {
+          const item = row.original;
+          const isReviewing = reviewingId === item.id;
+          const reviewNotes = reviewNotesById[item.id] ?? "";
+          if (item.status === "approved" || item.status === "rejected") {
+             return <Button variant="ghost" disabled style={{ padding: "4px 8px", fontSize: "0.8rem" }}>Completed</Button>;
+          }
+          if (!isReviewing) {
+             return (
+               <Button
+                 data-testid={`verification-review-${item.id}`}
+                 style={{ padding: "4px 8px", fontSize: "0.8rem" }}
+                 onClick={() => {
+                     setReviewingId(item.id);
+                     setReviewNotesById((prev) => ({ ...prev, [item.id]: prev[item.id] ?? "" }));
+                 }}
+               >
+                 Start Review
+               </Button>
+             );
+          }
+          return (
+             <div className="stack" style={{ gap: "8px", minWidth: "220px", background: "var(--surface)", padding: "12px", borderRadius: "var(--radius-md)", border: "1px solid var(--brand)", position: "absolute", right: "20px", marginTop: "-10px", zIndex: 10, boxShadow: "var(--shadow)" }}>
+                <Field label="Decision Notes (Audit)">
+                   <TextArea
+                     value={reviewNotes}
+                     onChange={(e) => setReviewNotesById((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                     placeholder="Rationale..."
+                     style={{ minHeight: "60px", fontSize: "0.8rem", padding: "8px" }}
+                   />
+                </Field>
+                <div style={{ display: "flex", gap: "8px" }}>
+                   <Button data-testid={`verification-approve-${item.id}`} disabled={actionLoading} onClick={() => void onReview(item.id, reviewNotes, "approved")} style={{ flex: 1, padding: "4px", fontSize: "0.8rem" }}>
+                     Approve
+                   </Button>
+                   <Button variant="secondary" data-testid={`verification-reject-${item.id}`} disabled={actionLoading} onClick={() => void onReview(item.id, reviewNotes, "rejected")} style={{ flex: 1, padding: "4px", fontSize: "0.8rem", color: "var(--danger)" }}>
+                     Reject
+                   </Button>
+                </div>
+                <Button variant="ghost" onClick={() => { setReviewingId(null); setReviewNotesById((prev) => { const next = { ...prev }; delete next[item.id]; return next; }); }} style={{ padding: "4px", fontSize: "0.8rem" }}>
+                   Cancel
+                </Button>
+             </div>
+          );
+        }
+      }
+    ];
+
     return (
         <PageShell>
-            <section className="section">
-                <div className="container stack">
-                    <SectionHeader
-                        eyebrow="Admin"
-                        title="Verification queue"
-                        subtitle="Review provider identity verification requests."
-                    />
+             <div className="stack" style={{ gap: 0 }}>
+               <div className="top-header">
+                 <div>
+                    <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Trust & Safety</div>
+                    <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Verification Processing</h2>
+                 </div>
+                 <div className="section-actions" style={{ display: "flex", gap: "8px", background: "var(--surface)", padding: "4px", borderRadius: "var(--radius-md)", border: "1px solid var(--line)" }}>
+                    {STATUS_OPTS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          style={{
+                              padding: "6px 12px",
+                              borderRadius: "var(--radius-sm)",
+                              border: "none",
+                              background: statusFilter === opt.value ? "var(--surface-hover)" : "transparent",
+                              color: statusFilter === opt.value ? "var(--ink)" : "var(--muted)",
+                              fontWeight: statusFilter === opt.value ? 600 : 500,
+                              fontSize: "0.85rem",
+                              cursor: "pointer"
+                          }}
+                          onClick={() => setStatusFilter(opt.value)}
+                        >
+                          {opt.label}
+                        </button>
+                    ))}
+                 </div>
+               </div>
+
+                <div style={{ padding: "var(--spacing-xl)" }}>
                     <RequireAdminSession>
-                        <div className="stack">
+                        <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
                             {error ? <Banner tone="error">{error}</Banner> : null}
                             {successMessage ? <Banner tone="success">{successMessage}</Banner> : null}
 
-                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                                {["pending", "under_review", "approved", "rejected", ""].map(
-                                    (status) => (
-                                        <Button
-                                            key={status || "all"}
-                                            variant={statusFilter === status ? "primary" : "ghost"}
-                                            onClick={() => setStatusFilter(status)}
-                                        >
-                                            {status
-                                                ? STATUS_STYLES[status]?.label ?? status
-                                                : "All"}
-                                        </Button>
-                                    )
-                                )}
-                                <span className="pill" style={{ padding: "6px 12px", marginLeft: "auto" }}>
-                                    {total} total
-                                </span>
-                                <Button variant="ghost" onClick={() => void loadVerifications()}>
-                                    Refresh
-                                </Button>
-                            </div>
-
-                            {loading ? (
-                                <p className="muted-text">Loading verifications...</p>
-                            ) : items.length === 0 ? (
-                                <EmptyState
-                                    title="No verification requests"
-                                    body="No requests match the current filter."
-                                />
-                            ) : (
-                                <div className="stack">
-                                    {items.map((item) => {
-                                        const statusInfo = STATUS_STYLES[item.status];
-                                        const isReviewing = reviewingId === item.id;
-                                        const canReview =
-                                            item.status === "pending" || item.status === "under_review";
-                                        const reviewNotes = reviewNotesById[item.id] ?? "";
-
-                                        return (
-                                            <Card
-                                                key={item.id}
-                                                className="stack"
-                                                data-testid={`verification-card-${item.id}`}
-                                            >
-                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                    <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                                                        <span
-                                                            className="pill"
-                                                            style={{
-                                                                padding: "4px 10px",
-                                                                borderColor: statusInfo?.color
-                                                            }}
-                                                        >
-                                                            {statusInfo?.label ?? item.status}
-                                                        </span>
-                                                        <span className="field-hint">
-                                                            {formatDate(item.createdAt)}
-                                                        </span>
-                                                    </div>
-                                                </div>
-
-                                                <div className="grid two">
-                                                    <div className="data-row">
-                                                        <div className="data-title">User ID</div>
-                                                        <div className="data-meta"
-                                                            style={{ fontSize: "0.8rem", fontFamily: "monospace" }}
-                                                        >
-                                                            {item.userId}
-                                                        </div>
-                                                    </div>
-                                                    <div className="data-row">
-                                                        <div className="data-title">Document type</div>
-                                                        <div className="data-meta">
-                                                            {item.documentType.replaceAll("_", " ")}
-                                                        </div>
-                                                    </div>
-                                                    <div className="data-row">
-                                                        <div className="data-title">Documents</div>
-                                                        <div className="data-meta">
-                                                            {item.documentMediaIds.length} file(s)
-                                                        </div>
-                                                    </div>
-                                                    {item.notes ? (
-                                                        <div className="data-row">
-                                                            <div className="data-title">Provider notes</div>
-                                                            <div className="data-meta">{item.notes}</div>
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-
-                                                {item.reviewerNotes ? (
-                                                    <div className="data-row">
-                                                        <div className="data-title">Reviewer notes</div>
-                                                        <div className="data-meta">{item.reviewerNotes}</div>
-                                                    </div>
-                                                ) : null}
-
-                                                {canReview ? (
-                                                    isReviewing ? (
-                                                        <div className="stack" style={{ gap: "8px" }}>
-                                                            <Field label="Review notes (optional)">
-                                                                <TextArea
-                                                                    value={reviewNotes}
-                                                                    onChange={(e) =>
-                                                                        setReviewNotesById((prev) => ({
-                                                                            ...prev,
-                                                                            [item.id]: e.target.value
-                                                                        }))
-                                                                    }
-                                                                    placeholder="Reason for approval or rejection..."
-                                                                />
-                                                            </Field>
-                                                            <div style={{ display: "flex", gap: "8px" }}>
-                                                                <Button
-                                                                    data-testid={`verification-approve-${item.id}`}
-                                                                    disabled={actionLoading}
-                                                                    onClick={() =>
-                                                                        void onReview(item.id, reviewNotes, "approved")
-                                                                    }
-                                                                >
-                                                                    {actionLoading ? "Processing..." : "✅ Approve"}
-                                                                </Button>
-                                                                <Button
-                                                                    data-testid={`verification-reject-${item.id}`}
-                                                                    variant="secondary"
-                                                                    disabled={actionLoading}
-                                                                    onClick={() =>
-                                                                        void onReview(item.id, reviewNotes, "rejected")
-                                                                    }
-                                                                >
-                                                                    {actionLoading ? "Processing..." : "❌ Reject"}
-                                                                </Button>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    onClick={() => {
-                                                                        setReviewingId(null);
-                                                                        setReviewNotesById((prev) => {
-                                                                            const next = { ...prev };
-                                                                            delete next[item.id];
-                                                                            return next;
-                                                                        });
-                                                                    }}
-                                                                >
-                                                                    Cancel
-                                                                </Button>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <Button
-                                                            data-testid={`verification-review-${item.id}`}
-                                                            variant="secondary"
-                                                            onClick={() => {
-                                                                setReviewingId(item.id);
-                                                                setReviewNotesById((prev) => ({
-                                                                    ...prev,
-                                                                    [item.id]: prev[item.id] ?? ""
-                                                                }));
-                                                            }}
-                                                        >
-                                                            Review
-                                                        </Button>
-                                                    )
-                                                ) : null}
-                                            </Card>
-                                        );
-                                    })}
+                            <Card className="stack" style={{ padding: 0, overflow: "hidden" }}>
+                                <div style={{ padding: "var(--spacing-md)", borderBottom: "1px solid var(--line)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>Current Queue</h3>
+                                  <span className="pill">{total} Total Requests</span>
                                 </div>
-                            )}
+                                {loading ? (
+                                    <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }}><p className="muted-text">Loading...</p></div>
+                                ) : items.length === 0 ? (
+                                    <div style={{ padding: "var(--spacing-xl)" }}>
+                                      <EmptyState
+                                          title="No verification requests"
+                                          body="No requests match the current queue parameters."
+                                      />
+                                    </div>
+                                ) : (
+                                    <div style={{ position: "relative" }}>
+                                      <DataTable columns={columns} data={items} />
+                                    </div>
+                                )}
+                            </Card>
                         </div>
                     </RequireAdminSession>
                 </div>
-            </section>
+            </div>
         </PageShell>
     );
 }

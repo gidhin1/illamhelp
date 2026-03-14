@@ -1,0 +1,19 @@
+appId: ${APP_ID}
+name: IllamHelp Android Maestro suite
+---
+- runFlow:
+    file: auth.yaml
+- runFlow:
+    file: navigation-shell.yaml
+- runFlow:
+    file: jobs-discover-posted-assigned.yaml
+- runFlow:
+    file: connections.yaml
+- runFlow:
+    file: alerts.yaml
+- runFlow:
+    file: privacy.yaml
+- runFlow:
+    file: profile.yaml
+- runFlow:
+    file: verification-user-flow.yaml

@@ -5,6 +5,8 @@ ENV_FILE := .env
 COMPOSE_PROJECT ?= illamhelp
 WEB_PORT ?= 3001
 ACT_ARTIFACTS_DIR ?= .act-artifacts
+ACT_EVENT_FILE ?= $(ACT_ARTIFACTS_DIR)/event.json
+ACT_CONTAINER_ARCHITECTURE ?=
 EXPO_HOST_MODE ?= localhost
 COMPOSE := docker compose --project-name $(COMPOSE_PROJECT) --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 
@@ -180,7 +182,7 @@ dev-mobile-web:
 	pnpm --filter @illamhelp/mobile web
 
 mobile-native-init:
-	pnpm --filter @illamhelp/mobile e2e:detox:init
+	pnpm --filter @illamhelp/mobile e2e:maestro:init
 
 health:
 	curl -fsS http://localhost:4000/api/v1/health
@@ -226,29 +228,29 @@ e2e-admin-cleanup:
 ui-install:
 	pnpm run test:ui:install
 
-ui-test-web: preflight up-core migrate
-	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:web
+ui-test-web:
+	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:web
 
-ui-test-admin: preflight up-core migrate
-	PW_REUSE_EXISTING_SERVERS=false PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:admin
+ui-test-admin:
+	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:admin
 
 ui-test-mobile: preflight up-core migrate
-	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:mobile
+	pnpm run test:ui:mobile
 
 ui-test-mobile-ios: preflight up-core migrate
-	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:mobile:ios
+	pnpm run test:ui:mobile:ios
 
 ui-test-mobile-android: preflight up-core migrate
-	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui:mobile:android
+	pnpm run test:ui:mobile:android
 
 ui-test-mobile-ios-debug: preflight up-core migrate
-	DETOX_LOGLEVEL="$${DETOX_LOGLEVEL:-trace}" DETOX_TEST_FILE="$${DETOX_TEST_FILE:-e2e/full-flow.e2e.js}" DETOX_TEST_NAME_PATTERN="$${DETOX_TEST_NAME_PATTERN:-}" DETOX_ARTIFACTS_DIR="$${DETOX_ARTIFACTS_DIR:-artifacts/detox/debug-ios}" bash ./scripts/run-with-e2e-admin-env.sh pnpm --filter @illamhelp/mobile e2e:detox:test:ios:debug
+	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-ios.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-ios}" pnpm --filter @illamhelp/mobile e2e:maestro:test:ios:debug
 
 ui-test-mobile-android-debug: preflight up-core migrate
-	DETOX_LOGLEVEL="$${DETOX_LOGLEVEL:-trace}" DETOX_TEST_FILE="$${DETOX_TEST_FILE:-e2e/full-flow.e2e.js}" DETOX_TEST_NAME_PATTERN="$${DETOX_TEST_NAME_PATTERN:-}" DETOX_ARTIFACTS_DIR="$${DETOX_ARTIFACTS_DIR:-artifacts/detox/debug-android}" bash ./scripts/run-with-e2e-admin-env.sh pnpm --filter @illamhelp/mobile e2e:detox:test:android:debug
+	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-android.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-android}" pnpm --filter @illamhelp/mobile e2e:maestro:test:android:debug
 
 ui-test: preflight up-core migrate
-	bash ./scripts/run-with-e2e-admin-env.sh pnpm run test:ui
+	pnpm run test:ui
 
 ci-local:
 	@command -v act >/dev/null 2>&1 || { \
@@ -257,7 +259,33 @@ ci-local:
 	}
 	@docker ps -aq --filter "name=act-" | xargs -r docker rm -f >/dev/null 2>&1 || true
 	@mkdir -p "$(ACT_ARTIFACTS_DIR)"
-	act push -W .github/workflows/ci.yml --artifact-server-path "$(ACT_ARTIFACTS_DIR)" --rm
+	@TOKEN="$${ACT_GITHUB_TOKEN:-$${GITHUB_TOKEN:-$$(gh auth token 2>/dev/null || true)}}"; \
+	OWNER="$${ACT_GITHUB_OWNER:-$${GITHUB_REPOSITORY_OWNER:-$${USER:-local}}}"; \
+	if [[ -z "$$TOKEN" ]]; then \
+		echo "'ci-local' needs a GitHub token for actions invoked through act."; \
+		echo "Set GITHUB_TOKEN or ACT_GITHUB_TOKEN, or login with 'gh auth login'."; \
+		exit 1; \
+	fi; \
+	printf '%s\n' '{' \
+	'  "ref": "refs/heads/local-ci",' \
+	'  "before": "0000000000000000000000000000000000000000",' \
+	'  "after": "local-ci",' \
+	'  "repository": {' \
+	'    "name": "illamhelp",' \
+	"    \"full_name\": \"$$OWNER/illamhelp\"," \
+	"    \"owner\": { \"login\": \"$$OWNER\", \"type\": \"User\" }" \
+	'  },' \
+	"  \"sender\": { \"login\": \"$$OWNER\", \"type\": \"User\" }," \
+	'  "commits": [],' \
+	'  "head_commit": { "id": "local-ci" }' \
+	'}' > "$(ACT_EVENT_FILE)"; \
+	ARCH_ARGS=(); \
+	if [[ -n "$(ACT_CONTAINER_ARCHITECTURE)" ]]; then \
+		ARCH_ARGS=(--container-architecture "$(ACT_CONTAINER_ARCHITECTURE)"); \
+	elif [[ "$$(uname -s)" == "Darwin" && "$$(uname -m)" == "arm64" ]]; then \
+		ARCH_ARGS=(--container-architecture "linux/amd64"); \
+	fi; \
+	act push -W .github/workflows/ci.yml --artifact-server-path "$(ACT_ARTIFACTS_DIR)" -e "$(ACT_EVENT_FILE)" -s GITHUB_TOKEN="$$TOKEN" "$${ARCH_ARGS[@]}" --rm
 	@echo "Local CI artifacts saved in: $(ACT_ARTIFACTS_DIR)"
 
 clean: clean-build

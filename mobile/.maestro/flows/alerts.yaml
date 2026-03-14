@@ -1,0 +1,71 @@
+appId: ${APP_ID}
+name: Alerts unread and mark all read
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${ALERTS_OWNER_FIRST_NAME}
+      LAST_NAME: ${ALERTS_OWNER_LAST_NAME}
+      EMAIL: ${ALERTS_OWNER_EMAIL}
+      USERNAME: ${ALERTS_OWNER_USERNAME}
+      PHONE: ${ALERTS_OWNER_PHONE}
+      PASSWORD: ${ALERTS_OWNER_PASSWORD}
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${ALERTS_REQUESTER_FIRST_NAME}
+      LAST_NAME: ${ALERTS_REQUESTER_LAST_NAME}
+      EMAIL: ${ALERTS_REQUESTER_EMAIL}
+      USERNAME: ${ALERTS_REQUESTER_USERNAME}
+      PHONE: ${ALERTS_REQUESTER_PHONE}
+      PASSWORD: ${ALERTS_REQUESTER_PASSWORD}
+- tapOn:
+    id: tab-people
+- tapOn:
+    id: connections-target-user-id
+- inputText: ${ALERTS_OWNER_FIRST_NAME}
+- hideKeyboard
+- tapOn:
+    id: connections-search-submit
+- extendedWaitUntil:
+    visible: ${ALERTS_OWNER_FIRST_NAME}
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      text: Connect
+    direction: DOWN
+    timeout: 10000
+- tapOn: Connect
+- extendedWaitUntil:
+    visible:
+      id: connections-success-banner
+    timeout: 10000
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${ALERTS_OWNER_USERNAME}
+      PASSWORD: ${ALERTS_OWNER_PASSWORD}
+- runFlow:
+    file: ../subflows/open-drawer.yaml
+- tapOn:
+    id: drawer-nav-alerts
+- assertVisible: Stay updated
+- extendedWaitUntil:
+    visible:
+      id: notifications-unread-count
+    timeout: 10000
+- assertVisible:
+    id: notifications-mark-all
+- tapOn:
+    id: notifications-mark-all
+- extendedWaitUntil:
+    notVisible:
+      id: notifications-mark-all
+    timeout: 10000
+- assertVisible: 0 unread

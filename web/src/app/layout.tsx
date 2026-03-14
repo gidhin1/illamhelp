@@ -1,20 +1,19 @@
 import type { Metadata } from "next";
-import { Fraunces, Sora } from "next/font/google";
+import { Inter, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 
 import { SessionProvider } from "@/components/session/SessionProvider";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 import "./globals.css";
 
-const sora = Sora({
+const inter = Inter({
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
   variable: "--font-body"
 });
 
-const fraunces = Fraunces({
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
   variable: "--font-display"
 });
 
@@ -25,11 +24,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {
   return (
-    <html lang="en" className={`${sora.variable} ${fraunces.variable}`}>
+    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <body>
-        <SessionProvider>
-          <main id="main-content">{children}</main>
-        </SessionProvider>
+        <ThemeProvider>
+          <SessionProvider>
+            <main id="main-content">{children}</main>
+          </SessionProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

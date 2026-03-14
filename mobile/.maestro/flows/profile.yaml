@@ -1,0 +1,57 @@
+appId: ${APP_ID}
+name: Profile save, media upload, public preview
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${PROFILE_MEMBER_FIRST_NAME}
+      LAST_NAME: ${PROFILE_MEMBER_LAST_NAME}
+      EMAIL: ${PROFILE_MEMBER_EMAIL}
+      USERNAME: ${PROFILE_MEMBER_USERNAME}
+      PHONE: ${PROFILE_MEMBER_PHONE}
+      PASSWORD: ${PROFILE_MEMBER_PASSWORD}
+- tapOn:
+    id: tab-profile
+- assertVisible: Your account
+- tapOn:
+    id: profile-city
+- inputText: Kochi
+- tapOn:
+    id: profile-area
+- inputText: Kakkanad
+- tapOn:
+    id: profile-service-categories
+- inputText: plumber,electrician
+- tapOn:
+    id: profile-phone
+- inputText: ${PROFILE_MEMBER_PHONE}
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: profile-save
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: profile-save
+- extendedWaitUntil:
+    visible: Profile updated.
+    timeout: 10000
+- tapOn:
+    id: profile-media-upload
+- extendedWaitUntil:
+    visible:
+      id: profile-media-success
+    timeout: 10000
+- scrollUntilVisible:
+    element:
+      id: profile-public-load
+    direction: DOWN
+    timeout: 10000
+- tapOn:
+    id: profile-public-load
+- extendedWaitUntil:
+    visible:
+      id: profile-public-empty
+    timeout: 10000

@@ -114,6 +114,18 @@ export default function JobDetailPage(): JSX.Element {
     );
   }, [applications, user?.publicUserId]);
 
+  const backToJobsHref = useMemo(() => {
+    if (isOwner) {
+      return "/jobs/posted";
+    }
+
+    if (isAssignedProvider) {
+      return "/jobs/assigned";
+    }
+
+    return "/jobs/discover";
+  }, [isAssignedProvider, isOwner]);
+
   const runAction = async (
     actionKey: string,
     operation: () => Promise<JobRecord | JobApplicationRecord | ProfileRecord | void>
@@ -220,7 +232,7 @@ export default function JobDetailPage(): JSX.Element {
             title="Applications and lifecycle"
             subtitle="Review applicants, approve/reject, and continue the booking lifecycle."
             actions={
-              <Link href="/jobs">
+              <Link href={backToJobsHref}>
                 <Button variant="ghost">Back to jobs</Button>
               </Link>
             }

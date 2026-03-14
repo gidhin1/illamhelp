@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import { PageShell } from "@/components/PageShell";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
 import {
   Banner,
+  Button,
   Card,
   EmptyState,
-  SectionHeader
 } from "@/components/ui/primitives";
 import {
   ModerationQueueItem,
@@ -22,9 +23,7 @@ function DashboardContent(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
 
     let cancelled = false;
     void (async () => {
@@ -55,70 +54,89 @@ function DashboardContent(): React.JSX.Element {
   }, [queue]);
 
   return (
-    <section className="section">
-      <div className="container stack">
-        <SectionHeader
-          eyebrow="Operations"
-          title="Admin dashboard"
-          subtitle="Track moderation workload and jump into member-level consent and audit history."
-        />
+    <div className="stack" style={{ gap: 0 }}>
+      {/* Sticky Header */}
+      <div className="top-header">
+        <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Operations Dashboard</h2>
+        <div className="section-actions">
+           <Link href="/moderation"><Button variant="secondary">Go to Moderation</Button></Link>
+        </div>
+      </div>
 
+      <div style={{ padding: "var(--spacing-xl)" }}>
         {error ? <Banner tone="error">{error}</Banner> : null}
 
-        <div className="grid three">
-          <Card className="stack" soft>
-            <div className="data-title">Queue size</div>
-            <div style={{ fontSize: "2rem", fontWeight: 700 }}>{kpis.total}</div>
-            <div className="data-meta">Total moderation jobs in current queue view</div>
-          </Card>
-          <Card className="stack" soft>
-            <div className="data-title">Pending review</div>
-            <div style={{ fontSize: "2rem", fontWeight: 700 }}>{kpis.pending}</div>
-            <div className="data-meta">Items waiting for manual decision</div>
-          </Card>
-          <Card className="stack" soft>
-            <div className="data-title">Recent outcomes</div>
-            <div className="data-meta">Approved: {kpis.approved}</div>
-            <div className="data-meta">Rejected: {kpis.rejected}</div>
-          </Card>
+        <div className="stack" style={{ gap: "var(--spacing-2xl)" }}>
+          {/* KPI Section */}
+          <div>
+            <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Moderation Queue Overview</h3>
+            <div className="kpi-grid">
+              <div className="kpi">
+                <div className="kpi-label">Queue Size</div>
+                <div className="kpi-value">{kpis.total}</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">Pending Review</div>
+                <div className="kpi-value" style={{ color: kpis.pending > 0 ? "var(--warning)" : "var(--ink)" }}>{kpis.pending}</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">Approved</div>
+                <div className="kpi-value" style={{ color: "var(--success)" }}>{kpis.approved}</div>
+              </div>
+               <div className="kpi">
+                <div className="kpi-label">Rejected</div>
+                <div className="kpi-value" style={{ color: "var(--danger)" }}>{kpis.rejected}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid two" style={{ alignItems: "start" }}>
+            <Card className="stack">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                 <div style={{ background: "var(--brand-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>1</div>
+                 <h3 style={{ fontFamily: "var(--font-display)" }}>Moderation Workflow</h3>
+              </div>
+              <p className="muted-text" style={{ fontSize: "0.95rem" }}>
+                Process incoming uploads, user avatars, and cover photos for safety and compliance.
+              </p>
+              <div style={{ padding: "12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", marginTop: "4px" }}>
+                 <ul style={{ paddingLeft: "20px", fontSize: "0.95rem", display: "grid", gap: "6px" }} className="muted-text">
+                    <li>Open Moderation queue</li>
+                    <li>Inspect context of assigned media</li>
+                    <li>Decide quickly with policy reason codes</li>
+                 </ul>
+              </div>
+              <Link href="/moderation" style={{ marginTop: 8 }}><Button variant="secondary" style={{ width: "100%" }}>Open Queue →</Button></Link>
+            </Card>
+
+            <Card className="stack">
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                 <div style={{ background: "var(--brand-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>2</div>
+                 <h3 style={{ fontFamily: "var(--font-display)" }}>Consent & Audit Intelligence</h3>
+              </div>
+              <p className="muted-text" style={{ fontSize: "0.95rem" }}>
+                Trace exact authorization flows, privacy settings and interaction logs when managing user disputes.
+              </p>
+               <div style={{ padding: "12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", marginTop: "4px" }}>
+                 <ul style={{ paddingLeft: "20px", fontSize: "0.95rem", display: "grid", gap: "6px" }} className="muted-text">
+                    <li>Look up by member ID</li>
+                    <li>Review privacy access requests and grants</li>
+                    <li>Inspect system-wide audit actions</li>
+                 </ul>
+              </div>
+              <Link href="/audit" style={{ marginTop: 8 }}><Button variant="secondary" style={{ width: "100%" }}>Run Audit Search →</Button></Link>
+            </Card>
+          </div>
+
+          {queue.length === 0 && !error ? (
+            <EmptyState
+              title="All caught up"
+              body="The moderation queue is currently empty. New uploads will appear here after automated technical rules processing."
+            />
+          ) : null}
         </div>
-
-        <div className="grid two">
-          <Card className="stack">
-            <h3>Moderation workflow</h3>
-            <div className="data-row">
-              <div className="data-title">1. Open queue</div>
-              <div className="data-meta">Review pending assets and inspect context.</div>
-            </div>
-            <div className="data-row">
-              <div className="data-title">2. Decide quickly</div>
-              <div className="data-meta">Approve or reject with a policy reason code.</div>
-            </div>
-            <div className="data-row">
-              <div className="data-title">3. Confirm audit trail</div>
-              <div className="data-meta">Every action is recorded in the audit timeline.</div>
-            </div>
-          </Card>
-
-          <Card className="stack">
-            <h3>Consent and audit lookup</h3>
-            <p className="muted-text">
-              Search by member ID to review who requested access, what was granted, and all related audit events.
-            </p>
-            <p className="muted-text">
-              Use this when handling disputes, privacy concerns, or compliance investigations.
-            </p>
-          </Card>
-        </div>
-
-        {queue.length === 0 && !error ? (
-          <EmptyState
-            title="No moderation items right now"
-            body="The queue is currently empty. New uploads will appear here after technical and AI checks."
-          />
-        ) : null}
       </div>
-    </section>
+    </div>
   );
 }
 

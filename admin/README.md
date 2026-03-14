@@ -1,26 +1,68 @@
-# Admin Workspace
+# Admin Portal
 
-IllamHelp operations console for `admin` and `support` roles.
+Next.js operations console for IllamHelp staff with `admin` and `support` roles.
 
-## Features in Sprint 3.4
+## Tech Stack
 
-- Role-gated admin shell (`admin` / `support` only).
-- Media moderation queue with detail inspection and approve/reject actions.
-- Consent + audit timeline lookup by member ID.
+- **Framework**: Next.js 16 (App Router, Turbopack)
+- **UI**: CSS design system consuming `@illamhelp/ui-tokens`
+- **Data tables**: `@tanstack/react-table` for high-volume operational views
+- **Navigation**: Responsive sidebar (desktop) + bottom tab bar (mobile)
+- **Theme**: Purple-Blue brand (`#6A5ACD`)
 
-## Run
+## Start
 
 ```bash
-pnpm --filter @illamhelp/admin dev
+make dev-admin
 ```
 
 Default URL: `http://localhost:3003`
-When API CORS is explicitly configured, ensure `http://localhost:3003` (or your admin origin) is included in `CORS_ORIGINS`.
 
-## Test
-
-Playwright admin suite:
+### Environment Overrides
 
 ```bash
-pnpm run test:ui:admin
+# Custom port
+ADMIN_PORT=3010 make dev-admin
+
+# Custom API base
+NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api/v1 make dev-admin
 ```
+
+When the API has an explicit CORS allowlist, include the admin origin in `CORS_ORIGINS`.
+
+## Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Dashboard with KPI cards for pending workflows |
+| `/moderation` | Media moderation queue with master-detail review |
+| `/verifications` | Identity verification review and approval |
+| `/audit` | Consent and audit event log viewer |
+
+## Access Control
+
+- Requires `admin` or `support` realm role in Keycloak `illamhelp` realm
+- `realm-admin` and `realm-management` admin roles are also accepted
+
+## Build
+
+```bash
+pnpm --filter @illamhelp/admin build
+```
+
+## Lint
+
+```bash
+pnpm --filter @illamhelp/admin lint
+```
+
+## E2E Tests (Playwright)
+
+From repo root:
+
+```bash
+make ui-install       # Install Chromium (first time)
+make ui-test-admin    # Run admin E2E suite
+```
+
+See `tests/playwright/README.md` for environment overrides and debug options.

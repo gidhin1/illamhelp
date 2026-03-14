@@ -19,8 +19,7 @@ async function gotoHome(page: Page): Promise<void> {
 
 async function clickMainNav(page: Page, label: string): Promise<void> {
   await page
-    .locator("header nav")
-    .getByRole("link", { name: new RegExp(`^${label}$`, "i") })
+    .getByRole("link", { name: new RegExp(`\\b${label}\\b`, "i") })
     .first()
     .click();
 }
@@ -34,7 +33,7 @@ async function waitForAuthResponse(
     return await page.waitForResponse(
       (response) =>
         response.url().includes(path) && response.request().method() === method,
-      { timeout: 15_000 }
+      { timeout: 8_000 }
     );
   } catch {
     return null;
@@ -75,7 +74,7 @@ async function registerByUi(page: Page): Promise<void> {
   const user = makeUser("seeker");
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
-    await page.getByRole("link", { name: /create account|register/i }).first().click();
+    await page.getByRole("link", { name: /join now|sign up|create account|register/i }).first().click();
     await page.getByLabel("First name").fill(user.firstName);
     await page.getByLabel("Last name").fill(user.lastName);
     await page.getByLabel("Email").fill(user.email);
@@ -124,11 +123,11 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
   await page
     .locator("input[type='file']")
     .setInputFiles({ name: "work-proof.png", mimeType: "image/png", buffer: payload });
-  await page.getByRole("button", { name: "Upload for review" }).click();
+  await page.getByRole("button", { name: "Upload" }).click();
   await waitForSuccessMessage(page, "Uploaded successfully. Review started.");
-  await expect(page.getByText("State: scanning").first()).toBeVisible();
+  await expect(page.getByText("scanning").first()).toBeVisible();
 
   await page.getByTestId("profile-public-owner-input").fill(memberId);
   await page.getByTestId("profile-public-load-button").click();
-  await expect(page.getByText("No approved media yet").first()).toBeVisible();
+  await expect(page.getByText("Approved entries will appear here.").first()).toBeVisible();
 });

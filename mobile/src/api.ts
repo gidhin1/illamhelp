@@ -117,6 +117,26 @@ export interface ProfileRecord {
   };
 }
 
+export interface DashboardResponse {
+  profile: ProfileRecord;
+  metrics: {
+    totalJobs: number;
+    totalConnections: number;
+    pendingConnections: number;
+    consentRequests: number;
+    activeConsentGrants: number;
+    totalMedia: number;
+  };
+  recentJobs: Array<{
+    id: string;
+    title: string;
+    category: string;
+    status: string;
+    locationText: string;
+    createdAt: string;
+  }>;
+}
+
 export interface AccessRequestRecord {
   id: string;
   requesterUserId: string;
@@ -207,6 +227,13 @@ export interface VerificationRecord {
   updatedAt: string;
 }
 
+interface PaginatedListResponse<T> {
+  items?: T[];
+  total?: number;
+  limit?: number;
+  offset?: number;
+}
+
 function defaultApiBaseUrl(): string {
   if (Platform.OS === "android") {
     return "http://10.0.2.2:4000/api/v1";
@@ -247,6 +274,13 @@ function asErrorMessage(payload: ApiErrorPayload | undefined, fallback: string):
     return payload.error;
   }
   return fallback;
+}
+
+function normalizeListPayload<T>(payload: T[] | PaginatedListResponse<T> | undefined): T[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return payload?.items ?? [];
 }
 
 async function apiRequest<T>(
@@ -339,13 +373,8 @@ export function authMe(accessToken: string): Promise<AuthenticatedUser> {
 
 export function listJobs(accessToken: string): Promise<JobRecord[]> {
   return apiRequest<
-    JobRecord[] | { items?: JobRecord[]; total?: number; limit?: number; offset?: number }
-  >("/jobs", {}, accessToken).then((payload) => {
-    if (Array.isArray(payload)) {
-      return payload;
-    }
-    return payload.items ?? [];
-  });
+    JobRecord[] | PaginatedListResponse<JobRecord>
+  >("/jobs", {}, accessToken).then((payload) => normalizeListPayload(payload));
 }
 
 export function createJob(
@@ -387,11 +416,19 @@ export function listJobApplications(
   jobId: string,
   accessToken: string
 ): Promise<JobApplicationRecord[]> {
-  return apiRequest<JobApplicationRecord[]>(`/jobs/${jobId}/applications`, {}, accessToken);
+  return apiRequest<JobApplicationRecord[] | PaginatedListResponse<JobApplicationRecord>>(
+    `/jobs/${jobId}/applications`,
+    {},
+    accessToken
+  ).then((payload) => normalizeListPayload(payload));
 }
 
 export function listMyJobApplications(accessToken: string): Promise<JobApplicationRecord[]> {
-  return apiRequest<JobApplicationRecord[]>("/jobs/applications/mine", {}, accessToken);
+  return apiRequest<JobApplicationRecord[] | PaginatedListResponse<JobApplicationRecord>>(
+    "/jobs/applications/mine",
+    {},
+    accessToken
+  ).then((payload) => normalizeListPayload(payload));
 }
 
 export function acceptJobApplication(
@@ -516,7 +553,11 @@ export function cancelBooking(
 }
 
 export function listConnections(accessToken: string): Promise<ConnectionRecord[]> {
-  return apiRequest<ConnectionRecord[]>("/connections", {}, accessToken);
+  return apiRequest<ConnectionRecord[] | PaginatedListResponse<ConnectionRecord>>(
+    "/connections",
+    {},
+    accessToken
+  ).then((payload) => normalizeListPayload(payload));
 }
 
 export function requestConnection(
@@ -628,11 +669,23 @@ export function updateMyProfile(
 }
 
 export function listConsentRequests(accessToken: string): Promise<AccessRequestRecord[]> {
-  return apiRequest<AccessRequestRecord[]>("/consent/requests", {}, accessToken);
+  return apiRequest<AccessRequestRecord[] | PaginatedListResponse<AccessRequestRecord>>(
+    "/consent/requests",
+    {},
+    accessToken
+  ).then((payload) => normalizeListPayload(payload));
+}
+
+export function getMyDashboard(accessToken: string): Promise<DashboardResponse> {
+  return apiRequest<DashboardResponse>("/profiles/me/dashboard", {}, accessToken);
 }
 
 export function listConsentGrants(accessToken: string): Promise<ConsentGrantRecord[]> {
-  return apiRequest<ConsentGrantRecord[]>("/consent/grants", {}, accessToken);
+  return apiRequest<ConsentGrantRecord[] | PaginatedListResponse<ConsentGrantRecord>>(
+    "/consent/grants",
+    {},
+    accessToken
+  ).then((payload) => normalizeListPayload(payload));
 }
 
 export function requestConsentAccess(
@@ -706,13 +759,17 @@ export function canViewConsent(
 }
 
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
-  return apiRequest<MediaAssetRecord[]>("/media", {}, accessToken);
+  return apiRequest<MediaAssetRecord[] | PaginatedListResponse<MediaAssetRecord>>(
+    "/media",
+    {},
+    accessToken
+  ).then((payload) => normalizeListPayload(payload));
 }
 
 export function listPublicApprovedMedia(ownerUserId: string): Promise<PublicMediaAssetRecord[]> {
-  return apiRequest<PublicMediaAssetRecord[]>(
+  return apiRequest<PublicMediaAssetRecord[] | PaginatedListResponse<PublicMediaAssetRecord>>(
     `/media/public/${encodeURIComponent(ownerUserId)}`
-  );
+  ).then((payload) => normalizeListPayload(payload));
 }
 
 export function createMediaUploadTicket(

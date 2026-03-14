@@ -31,11 +31,49 @@ async function gotoHome(page: Page): Promise<void> {
 }
 
 async function clickMainNav(page: Page, label: string): Promise<void> {
-  await page
-    .locator("header nav")
-    .getByRole("link", { name: new RegExp(`^${escapeRegex(label)}\\b`, "i") })
-    .first()
-    .click();
+  const candidates = label === "Jobs" ? ["Discover", "Jobs"] : [label];
+
+  for (const candidate of candidates) {
+    const link = page
+      .getByRole("link", { name: new RegExp(`\\b${escapeRegex(candidate)}\\b`, "i") })
+      .first();
+    if (await link.isVisible().catch(() => false)) {
+      await link.click();
+      return;
+    }
+  }
+
+  throw new Error(`Main navigation link not found for label '${label}'.`);
+}
+
+async function openJobsSection(
+  page: Page,
+  section: "discover" | "posted" | "assigned"
+): Promise<void> {
+  await clickMainNav(page, "Jobs");
+
+  const labels = {
+    discover: "Discover",
+    posted: "Posted by me",
+    assigned: "Assigned to me"
+  } as const;
+
+  const expectedHeadings = {
+    discover: /Discover jobs/i,
+    posted: /Jobs posted by me/i,
+    assigned: /Jobs assigned to me/i
+  } as const;
+
+  const targetLink = page
+    .getByRole("link", { name: new RegExp(`^${escapeRegex(labels[section])}$`, "i") })
+    .first();
+  await expect(targetLink).toBeVisible();
+
+  if ((await targetLink.getAttribute("aria-current")) !== "page") {
+    await targetLink.click();
+  }
+
+  await expect(page.getByRole("heading", { name: expectedHeadings[section] }).first()).toBeVisible();
 }
 
 async function waitForAuthResponse(
@@ -47,7 +85,7 @@ async function waitForAuthResponse(
     return await page.waitForResponse(
       (response) =>
         response.url().includes(path) && response.request().method() === method,
-      { timeout: 15_000 }
+      { timeout: 8_000 }
     );
   } catch {
     return null;
@@ -113,7 +151,7 @@ async function resetBrowserSession(page: Page): Promise<void> {
 async function openAuthEntry(page: Page, mode: "register" | "login"): Promise<void> {
   await gotoHome(page);
   if (mode === "register") {
-    await page.getByRole("link", { name: /create account|register/i }).first().click();
+    await page.getByRole("link", { name: /join now|sign up|create account|register/i }).first().click();
     await expect(page.getByLabel("First name")).toBeVisible();
     return;
   }
@@ -222,7 +260,7 @@ test("web guest home shows primary auth call-to-actions", async ({ page }) => {
   await resetBrowserSession(page);
   await gotoHome(page);
 
-  await expect(page.getByRole("link", { name: "Create account" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /join now|sign up/i }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" }).first()).not.toBeVisible();
 });
@@ -258,9 +296,9 @@ test("web authenticated home hides guest auth call-to-actions", async ({ page })
   await loginAsShared(page);
   await gotoHome(page);
 
-  await expect(page.getByRole("link", { name: "Browse jobs" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "View profile" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Create account" }).first()).not.toBeVisible();
+  await expect(page.getByRole("link", { name: "Post a job" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /join now|sign up/i }).first()).not.toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).not.toBeVisible();
 });
 
@@ -274,10 +312,10 @@ test("web protected pages show sign-in card when signed out", async ({ page }) =
 
 test("web jobs page shows validation feedback for short payload", async ({ page }) => {
   await loginAsShared(page);
-  await clickMainNav(page, "Jobs");
+  await openJobsSection(page, "posted");
 
   await page.getByLabel("Category").fill("p");
-  await page.getByLabel("Location text").fill("k");
+  await page.getByLabel("Location").fill("k");
   await page.getByLabel("Title").fill("abc");
   await page.getByLabel("Description").fill("Description is long enough for browser validation.");
   await page.getByRole("button", { name: "Post job" }).click();
@@ -289,8 +327,8 @@ test("web jobs page shows validation feedback for short payload", async ({ page 
 
 test("web jobs create form defaults visibility to public", async ({ page }) => {
   await loginAsShared(page);
-  await clickMainNav(page, "Jobs");
-  await expect(page.getByRole("combobox", { name: "Visibility" }).first()).toHaveValue("public");
+  await openJobsSection(page, "posted");
+  await expect(page.getByLabel("Visibility").first()).toHaveValue("public");
 });
 
 test("web jobs page posts a valid job", async ({ page }) => {
@@ -298,10 +336,10 @@ test("web jobs page posts a valid job", async ({ page }) => {
   const jobTitle = `E2E job ${shortId}`;
 
   await loginAsShared(page);
-  await clickMainNav(page, "Jobs");
+  await openJobsSection(page, "posted");
 
   await page.getByLabel("Category").fill("plumber");
-  await page.getByLabel("Location text").fill("Kakkanad, Kochi");
+  await page.getByLabel("Location").fill("Kakkanad, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page.getByLabel("Description").fill("Need urgent kitchen sink leak repair service.");
   await page.getByRole("button", { name: "Post job" }).click();
@@ -316,25 +354,20 @@ test("web jobs page posts connections-only job and shows visibility in posted se
   const shortId = Date.now().toString(36).slice(-5);
   const jobTitle = `Connections-only ${shortId}`;
   await loginAsShared(page);
-  await clickMainNav(page, "Jobs");
+  await openJobsSection(page, "posted");
 
   await page.getByLabel("Category").fill("electrician");
-  await page.getByLabel("Location text").fill("Aluva, Kochi");
+  await page.getByLabel("Location").fill("Aluva, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page
     .getByLabel("Description")
     .fill("Connections-only posting for trusted-network visibility checks.");
-  await page.getByRole("combobox").first().selectOption("connections_only");
+  await page.getByRole("combobox", { name: /Visibility/i }).first().selectOption("connections_only");
   await page.getByRole("button", { name: "Post job" }).click();
   await waitForSuccessMessage(page, "Job posted successfully.");
 
-  const postedByMeCard = await cardByHeading(page, "Jobs posted by me");
-  const targetJobCard = postedByMeCard
-    .locator(".card")
-    .filter({ hasText: jobTitle })
-    .first();
-  await expect(targetJobCard).toBeVisible();
-  await expect(targetJobCard.getByText("Visibility: Connections only")).toBeVisible();
+  await page.getByRole("link", { name: jobTitle }).first().click();
+  await expect(page.getByText("Visibility: Connections only").first()).toBeVisible();
 });
 
 test("web jobs page shows posted job under 'Jobs posted by me' with applicant-management action", async ({
@@ -343,10 +376,10 @@ test("web jobs page shows posted job under 'Jobs posted by me' with applicant-ma
   const shortId = Date.now().toString(36).slice(-5);
   const jobTitle = `Posted by me ${shortId}`;
   await loginAsShared(page);
-  await clickMainNav(page, "Jobs");
+  await openJobsSection(page, "posted");
 
   await page.getByLabel("Category").fill("plumber");
-  await page.getByLabel("Location text").fill("Kakkanad, Kochi");
+  await page.getByLabel("Location").fill("Kakkanad, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page
     .getByLabel("Description")
@@ -354,23 +387,19 @@ test("web jobs page shows posted job under 'Jobs posted by me' with applicant-ma
   await page.getByRole("button", { name: "Post job" }).click();
   await waitForSuccessMessage(page, "Job posted successfully.");
 
-  const postedByMeCard = await cardByHeading(page, "Jobs posted by me");
-  const targetJobCard = postedByMeCard
-    .locator(".card")
-    .filter({ hasText: jobTitle })
-    .first();
-  await expect(targetJobCard).toBeVisible();
-  await expect(targetJobCard.getByRole("button", { name: "Manage applicants" })).toBeVisible();
+  const targetJobRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
+  await expect(targetJobRow).toBeVisible();
+  await expect(targetJobRow.getByRole("button", { name: "Manage" })).toBeVisible();
 });
 
 test("web jobs posted by me opens applicant manager with empty applicants state", async ({ page }) => {
   const shortId = Date.now().toString(36).slice(-5);
   const jobTitle = `Applicants empty ${shortId}`;
   await loginAsShared(page);
-  await clickMainNav(page, "Jobs");
+  await openJobsSection(page, "posted");
 
   await page.getByLabel("Category").fill("plumber");
-  await page.getByLabel("Location text").fill("Kakkanad, Kochi");
+  await page.getByLabel("Location").fill("Kakkanad, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page
     .getByLabel("Description")
@@ -378,21 +407,17 @@ test("web jobs posted by me opens applicant manager with empty applicants state"
   await page.getByRole("button", { name: "Post job" }).click();
   await waitForSuccessMessage(page, "Job posted successfully.");
 
-  const postedByMeCard = await cardByHeading(page, "Jobs posted by me");
-  const targetJobCard = postedByMeCard
-    .locator(".card")
-    .filter({ hasText: jobTitle })
-    .first();
-  await expect(targetJobCard).toBeVisible();
-  await targetJobCard.getByRole("button", { name: "Manage applicants" }).click();
+  const targetJobRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
+  await expect(targetJobRow).toBeVisible();
+  await targetJobRow.getByRole("button", { name: "Manage" }).click();
 
   await expect(page).toHaveURL(/\/jobs\/.+$/);
   await expect(page.getByRole("heading", { name: "Applicants", exact: true })).toBeVisible();
   await expect(page.getByText("No applications yet").first()).toBeVisible();
   await expect(page.getByText("Once people apply, you can approve or reject them here.").first()).toBeVisible();
   await page.getByRole("button", { name: "Back to jobs" }).click();
-  await expect(page).toHaveURL(/\/jobs$/);
-  await expect(page.getByRole("heading", { name: "Find work and manage your postings" })).toBeVisible();
+  await expect(page).toHaveURL(/\/jobs\/posted$/);
+  await expect(page.getByRole("heading", { name: "Jobs posted by me", exact: true }).first()).toBeVisible();
 });
 
 test("web connections page validates empty query", async ({ page }) => {
@@ -419,27 +444,23 @@ test("web notifications page lists unread connection alert and allows mark-read"
   await loginAsShared(page);
   await clickMainNav(page, "Alerts");
 
-  await page.getByRole("button", { name: "Show unread only" }).click();
-  const markReadButtons = page.getByRole("button", { name: "Mark read" });
-  await expect
-    .poll(async () => markReadButtons.count(), { timeout: 20_000 })
-    .toBeGreaterThan(0);
-
-  const countBeforeClick = await markReadButtons.count();
-  await markReadButtons.first().click();
-  await expect.poll(async () => markReadButtons.count()).toBeLessThan(countBeforeClick);
+  await page.getByRole("button", { name: "Unread only" }).click();
+  const firstMarkReadButton = page.getByRole("button", { name: "Mark read" }).first();
+  await expect(firstMarkReadButton).toBeVisible();
+  await firstMarkReadButton.click();
+  await expect(firstMarkReadButton).not.toBeVisible();
 });
 
 test("web notifications page toggles unread filter labels", async ({ page }) => {
   await loginAsShared(page);
   await clickMainNav(page, "Alerts");
 
-  const unreadToggle = page.getByRole("button", { name: "Show unread only" }).first();
+  const unreadToggle = page.getByRole("button", { name: "Unread only" }).first();
   await expect(unreadToggle).toBeVisible();
   await unreadToggle.click();
   await expect(page.getByRole("button", { name: "Show all" }).first()).toBeVisible();
   await page.getByRole("button", { name: "Show all" }).first().click();
-  await expect(page.getByRole("button", { name: "Show unread only" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unread only" }).first()).toBeVisible();
 });
 
 test("web notifications mark-all-read clears unread state when present", async ({ page }) => {
@@ -460,7 +481,7 @@ test("web connections search finds a member by service/location query", async ({
   await clickMainNav(page, "People");
   await page.getByLabel("Find a person").fill("plumber kakkanad");
   await page.getByRole("button", { name: "Search" }).click();
-  const anyMatch = page.locator(".card").filter({ hasText: /Member ID:/i }).first();
+  const anyMatch = page.locator(".card").filter({ hasText: /ID:/i }).first();
   await expect(anyMatch).toBeVisible();
 });
 
@@ -469,7 +490,7 @@ test("web consent page shows empty state when no consent activity exists", async
   await clickMainNav(page, "Privacy");
 
   await expect(page.getByText("No access requests").first()).toBeVisible();
-  await expect(page.getByText("No consent grants").first()).toBeVisible();
+  await expect(page.getByText("No sharing events").first()).toBeVisible();
 });
 
 test("web profile page updates details", async ({ page }) => {

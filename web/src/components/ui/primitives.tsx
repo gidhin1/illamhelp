@@ -21,10 +21,10 @@ export function SectionHeader({
 }): JSX.Element {
   return (
     <div className="section-header">
-      <div className="stack" style={{ gap: "10px" }}>
+      <div className="stack" style={{ gap: "6px" }}>
         {eyebrow ? <div className="pill">{eyebrow}</div> : null}
-        <h1 className="display-title">{title}</h1>
-        {subtitle ? <p className="muted-text">{subtitle}</p> : null}
+        <h1 className="display-title" style={{ marginTop: eyebrow ? "4px" : 0 }}>{title}</h1>
+        {subtitle ? <p className="muted-text" style={{ maxWidth: "48ch" }}>{subtitle}</p> : null}
       </div>
       {actions ? <div className="section-actions">{actions}</div> : null}
     </div>
@@ -34,13 +34,15 @@ export function SectionHeader({
 export function Card({
   children,
   soft,
-  className
+  className,
+  style
 }: {
   children: ReactNode;
   soft?: boolean;
   className?: string;
+  style?: React.CSSProperties;
 }): JSX.Element {
-  return <div className={`card ${soft ? "soft" : ""} ${className ?? ""}`}>{children}</div>;
+  return <div className={`card ${soft ? "soft" : ""} ${className ?? ""}`} style={style}>{children}</div>;
 }
 
 export function Button({
@@ -79,7 +81,7 @@ export function Field({
   children: ReactNode;
 }): JSX.Element {
   return (
-    <label className="stack field" style={{ gap: "8px" }}>
+    <label className="field">
       <span className="field-label">{label}</span>
       {children}
       {hint ? <span className="field-hint">{hint}</span> : null}
@@ -123,9 +125,11 @@ export function EmptyState({
   body: string;
 }): JSX.Element {
   return (
-    <Card soft className="stack" >
-      <h3>{title}</h3>
-      <p className="muted-text">{body}</p>
+    <Card soft>
+      <div style={{ textAlign: "center", padding: "var(--spacing-lg) var(--spacing-md)" }}>
+        <h3 style={{ marginBottom: "6px" }}>{title}</h3>
+        <p className="muted-text">{body}</p>
+      </div>
     </Card>
   );
 }

@@ -51,14 +51,14 @@ Recalibration checkpoint completed:
 - Per-task status audit added to `docs/TASKS_AND_MILESTONES.md` using `Done / In Progress / Pending / Unknown`.
 - Confirmed implemented backend slices: auth (`register/login/me`), jobs (`list/create`), connections (`list/request/accept`), consent (`request/grant/revoke/can-view`) with PostgreSQL persistence and OPA consent checks.
 - Confirmed mobile + web UI coverage for auth/jobs/connections/consent user journeys against live backend APIs.
-- Confirmed test harnesses exist for Bruno (API E2E), Playwright (web UI E2E), and Detox (mobile native E2E), with Detox stability still an active blocker.
+- Confirmed test harnesses exist for Bruno (API E2E), Playwright (web/admin UI E2E), and Maestro (mobile native UI E2E).
 - Logged major current gaps: profiles/media modules not implemented, no OpenTofu IaC path, no booking/search/payments modules, no admin implementation.
 - Documented immediate next plan phases in milestones file to prioritize test stability and Milestone 1 completion.
 
 Phase 1 stabilization work started:
 
 - Mobile Jobs screen submit path hardened against stale state by reading latest input refs and validating payload client-side before API submit.
-- Detox jobs-submit flow strengthened with pre-submit form snapshot validation and richer diagnostics when submit produces no backend effect.
+- Mobile UI E2E is now being split into focused Maestro flows instead of one monolithic native suite.
 - Playwright web full-flow stabilized for profile ID parsing by switching to explicit `data-testid` (`profile-user-id`) instead of brittle text-line parsing.
 - Added startup preflight guard (`scripts/preflight.sh`) and wired it into critical make targets (`dev`, `backend-start`, `ui-test-*`) for fast failure on missing env/runtime prerequisites.
 - Sanitized `.env.example` by removing non-empty credential values.

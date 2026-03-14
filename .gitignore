@@ -37,6 +37,11 @@ npm-debug.log*
 pnpm-debug.log*
 .eslintcache
 
+# accidental local command artifacts
+/bash
+/pnpm
+/illamhelp@0.1.0
+
 # os/editor
 .DS_Store
 .idea/

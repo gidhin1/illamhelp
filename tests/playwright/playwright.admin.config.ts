@@ -15,7 +15,9 @@ const defaultAdminApiCorsOrigins = [
   webBaseUrl.replace("localhost", "127.0.0.1")
 ].join(",");
 const adminCorsOrigins = process.env.PW_ADMIN_API_CORS_ORIGINS ?? defaultAdminApiCorsOrigins;
-const reuseExistingServer = process.env.PW_REUSE_EXISTING_SERVERS === "true";
+const reuseExistingServer = process.env.PW_REUSE_EXISTING_SERVERS
+  ? process.env.PW_REUSE_EXISTING_SERVERS === "true"
+  : !process.env.CI;
 const headless = process.env.PW_HEADLESS === "true";
 
 process.env.PW_ADMIN_BASE_URL = adminBaseUrl;
@@ -46,9 +48,9 @@ export default defineConfig({
   testDir: "./admin",
   fullyParallel: false,
   workers: 1,
-  timeout: 180_000,
+  timeout: 10_000,
   expect: {
-    timeout: 20_000
+    timeout: 10_000
   },
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { open: "never", outputFolder: "./reports/admin" }]],

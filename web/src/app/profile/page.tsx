@@ -8,10 +8,13 @@ import {
   useRef,
   useState
 } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 
 import { PageShell } from "@/components/PageShell";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
+import { DataTable } from "@/components/ui/DataTable";
 import {
   Banner,
   Button,
@@ -78,44 +81,30 @@ function parseServiceCategories(value: string): string[] {
 }
 
 function inferMediaKind(contentType: string): MediaKind | null {
-  if (contentType.startsWith("image/")) {
-    return "image";
-  }
-  if (contentType.startsWith("video/")) {
-    return "video";
-  }
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
   return null;
 }
 
 async function sha256Hex(file: File): Promise<string> {
   if (!globalThis.crypto?.subtle) {
-    throw new Error("Your browser does not support file checksum calculation.");
+    throw new Error("Browser does not support file checksums.");
   }
-
-  // For small files (< 4MB), use the simple approach
   if (file.size < 4 * 1024 * 1024) {
     const buffer = await file.arrayBuffer();
     const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
-    const bytes = Array.from(new Uint8Array(digest));
-    return bytes.map((value) => value.toString(16).padStart(2, "0")).join("");
+    return Array.from(new Uint8Array(digest)).map((v) => v.toString(16).padStart(2, "0")).join("");
   }
-
-  // For large files, read in chunks to avoid blocking the main thread
-  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB chunks
+  const CHUNK_SIZE = 2 * 1024 * 1024;
   const chunks: Uint8Array[] = [];
   let offset = 0;
-
   while (offset < file.size) {
     const slice = file.slice(offset, offset + CHUNK_SIZE);
     const buffer = await slice.arrayBuffer();
     chunks.push(new Uint8Array(buffer));
     offset += CHUNK_SIZE;
-
-    // Yield to the main thread between chunks
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
-
-  // Combine chunks and hash
   const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const combined = new Uint8Array(totalLength);
   let pos = 0;
@@ -123,19 +112,13 @@ async function sha256Hex(file: File): Promise<string> {
     combined.set(chunk, pos);
     pos += chunk.length;
   }
-
   const digest = await globalThis.crypto.subtle.digest("SHA-256", combined);
-  const bytes = Array.from(new Uint8Array(digest));
-  return bytes.map((value) => value.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest)).map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
 function formatBytes(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -159,11 +142,13 @@ export default function ProfilePage(): JSX.Element {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
   const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [recentJobs, setRecentJobs] = useState<DashboardResponse["recentJobs"]>([]);
 
   const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
     const normalizedOwnerId = ownerUserId.trim().toLowerCase();
@@ -172,18 +157,13 @@ export default function ProfilePage(): JSX.Element {
       setPublicMediaAssets([]);
       return;
     }
-
     setPublicGalleryLoading(true);
     setPublicGalleryError(null);
     try {
       const assets = await listPublicApprovedMedia(normalizedOwnerId);
       setPublicMediaAssets(assets);
     } catch (requestError) {
-      setPublicGalleryError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load public media"
-      );
+      setPublicGalleryError(requestError instanceof Error ? requestError.message : "Unable to load public media");
       setPublicMediaAssets([]);
     } finally {
       setPublicGalleryLoading(false);
@@ -191,9 +171,7 @@ export default function ProfilePage(): JSX.Element {
   }, []);
 
   const loadProfileData = useCallback(async (): Promise<void> => {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
     setLoading(true);
     setError(null);
     try {
@@ -215,11 +193,7 @@ export default function ProfilePage(): JSX.Element {
       setPublicGalleryOwner(dashboard.profile.userId);
       await loadPublicGallery(dashboard.profile.userId);
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to load profile analytics"
-      );
+      setError(requestError instanceof Error ? requestError.message : "Unable to load profile analytics");
     } finally {
       setLoading(false);
     }
@@ -229,8 +203,6 @@ export default function ProfilePage(): JSX.Element {
     void loadProfileData();
   }, [loadProfileData]);
 
-  const [recentJobs, setRecentJobs] = useState<DashboardResponse["recentJobs"]>([]);
-
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const selected = event.target.files?.[0] ?? null;
     setUploadFile(selected);
@@ -239,71 +211,36 @@ export default function ProfilePage(): JSX.Element {
   };
 
   const onUploadMedia = async (): Promise<void> => {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
     if (!uploadFile) {
       setUploadError("Choose a photo or video to upload.");
       return;
     }
-
     const contentType = uploadFile.type.trim().toLowerCase();
     const kind = inferMediaKind(contentType);
     if (!kind) {
       setUploadError("Only professional image/video files are supported.");
       return;
     }
-
     setUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
     try {
       const checksumSha256 = await sha256Hex(uploadFile);
       const ticket = await createMediaUploadTicket(
-        {
-          kind,
-          contentType,
-          fileSizeBytes: uploadFile.size,
-          checksumSha256,
-          originalFileName: uploadFile.name
-        },
+        { kind, contentType, fileSizeBytes: uploadFile.size, checksumSha256, originalFileName: uploadFile.name },
         accessToken
       );
-
-      const uploadResponse = await fetch(ticket.uploadUrl, {
-        method: "PUT",
-        headers: ticket.requiredHeaders,
-        body: uploadFile
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed with status ${uploadResponse.status}`);
-      }
-
+      const uploadResponse = await fetch(ticket.uploadUrl, { method: "PUT", headers: ticket.requiredHeaders, body: uploadFile });
+      if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
       const etagHeader = uploadResponse.headers.get("etag") ?? undefined;
-      const completed = await completeMediaUpload(
-        ticket.mediaId,
-        {
-          etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined
-        },
-        accessToken
-      );
-
-      setMediaAssets((previous) => [
-        completed,
-        ...previous.filter((item) => item.id !== completed.id)
-      ]);
+      const completed = await completeMediaUpload(ticket.mediaId, { etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined }, accessToken);
+      setMediaAssets((previous) => [completed, ...previous.filter((item) => item.id !== completed.id)]);
       setUploadSuccess("Uploaded successfully. Review started.");
       setUploadFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (requestError) {
-      setUploadError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Unable to upload media file"
-      );
+      setUploadError(requestError instanceof Error ? requestError.message : "Unable to upload media file");
     } finally {
       setUploading(false);
     }
@@ -311,9 +248,7 @@ export default function ProfilePage(): JSX.Element {
 
   const onSave = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    if (!accessToken || !form) {
-      return;
-    }
+    if (!accessToken || !form) return;
     setSaving(true);
     setError(null);
     setSaveMessage(null);
@@ -336,13 +271,69 @@ export default function ProfilePage(): JSX.Element {
       setForm(buildForm(updated));
       setSaveMessage("Profile updated.");
     } catch (requestError) {
-      setError(
-        requestError instanceof Error ? requestError.message : "Unable to update profile"
-      );
+      setError(requestError instanceof Error ? requestError.message : "Unable to update profile");
     } finally {
       setSaving(false);
     }
   };
+
+  const mediaColumns: ColumnDef<MediaAssetRecord>[] = [
+    {
+      accessorKey: "kind",
+      header: "Type",
+      cell: ({ row }) => <span className="pill" style={{ textTransform: "capitalize" }}>{row.original.kind}</span>
+    },
+    {
+      accessorKey: "objectKey",
+      header: "Filename",
+      cell: ({ row }) => {
+        const parts = row.original.objectKey.split("/");
+        return <span style={{ fontWeight: 600, color: "var(--ink)" }}>{parts.at(-1) ?? "unknown"}</span>;
+      }
+    },
+    {
+      accessorKey: "state",
+      header: "Status",
+      cell: ({ row }) => <span className="pill" style={{ background: "var(--surface-2)" }}>{row.original.state.replaceAll("_", " ")}</span>
+    },
+    {
+      accessorKey: "fileSizeBytes",
+      header: "Size",
+      cell: ({ row }) => <span className="muted-text">{formatBytes(row.original.fileSizeBytes)}</span>
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Date",
+      cell: ({ row }) => <span className="muted-text">{formatDate(row.original.createdAt).split(",")[0]}</span>
+    }
+  ];
+
+  const recentJobsColumns: ColumnDef<DashboardResponse["recentJobs"][0]>[] = [
+    {
+      accessorKey: "title",
+      header: "Job",
+      cell: ({ row }) => <span style={{ fontWeight: 600, color: "var(--ink)" }}>{row.original.title}</span>
+    },
+    {
+      accessorKey: "category",
+      header: "Category",
+    },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => <span className="pill">{row.original.status}</span>
+    },
+    {
+      accessorKey: "locationText",
+      header: "Location",
+      cell: ({ row }) => <span className="muted-text">{row.original.locationText}</span>
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Date",
+      cell: ({ row }) => <span className="muted-text">{formatDate(row.original.createdAt).split(",")[0]}</span>
+    }
+  ];
 
   return (
     <PageShell>
@@ -350,8 +341,8 @@ export default function ProfilePage(): JSX.Element {
         <div className="container stack">
           <SectionHeader
             eyebrow="Profile"
-            title="Your account at a glance"
-            subtitle="Update your details and control what others can see."
+            title="Manage Your Settings"
+            subtitle="Update identity details, review metrics, and control contact sharing."
           />
           <RequireSession>
             <div className="stack">
@@ -359,7 +350,7 @@ export default function ProfilePage(): JSX.Element {
               {saveMessage ? <Banner tone="success">{saveMessage}</Banner> : null}
               <div className="kpi-grid">
                 <div className="kpi">
-                  <div className="kpi-label">Your jobs</div>
+                  <div className="kpi-label">Your Jobs</div>
                   <div className="kpi-value">{metrics.totalJobs}</div>
                 </div>
                 <div className="kpi">
@@ -367,275 +358,141 @@ export default function ProfilePage(): JSX.Element {
                   <div className="kpi-value">{metrics.totalConnections}</div>
                 </div>
                 <div className="kpi">
-                  <div className="kpi-label">Active contact shares</div>
+                  <div className="kpi-label">Active Shares</div>
                   <div className="kpi-value">{metrics.activeConsentGrants}</div>
                 </div>
                 <div className="kpi">
-                  <div className="kpi-label">Media in review</div>
+                  <div className="kpi-label">Media in Review</div>
                   <div className="kpi-value">
-                    {
-                      mediaAssets.filter((item) =>
-                        ["uploaded", "scanning", "ai_reviewed", "human_review_pending"].includes(
-                          item.state
-                        )
-                      ).length
-                    }
+                    {mediaAssets.filter((item) => ["uploaded", "scanning", "ai_reviewed", "human_review_pending"].includes(item.state)).length}
                   </div>
                 </div>
               </div>
 
-              <div className="grid two">
+              <div className="grid two" style={{ alignItems: "start" }}>
                 <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Identity</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Identity Snapshot</h3>
                   <div className="data-row">
-                    <div className="data-title">Member ID</div>
-                    <div className="data-meta" data-testid="profile-user-id">
+                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Member ID</div>
+                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }} data-testid="profile-user-id">
                       {profile?.userId ?? user?.publicUserId}
                     </div>
                   </div>
                   <div className="data-row">
-                    <div className="data-title">Display name</div>
-                    <div className="data-meta">{profile?.displayName ?? "-"}</div>
-                  </div>
-                  <div className="data-row">
-                    <div className="data-title">Account</div>
-                    <div className="data-meta">Member</div>
+                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Display Name</div>
+                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{profile?.displayName ?? "-"}</div>
                   </div>
                 </Card>
 
                 <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Safety snapshot</h3>
-                  <div className="data-row">
-                    <div className="data-title">Pending connections</div>
-                    <div className="data-meta">{metrics.pendingConnections}</div>
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Safety Defaults</h3>
+                  <p className="muted-text" style={{ fontSize: "0.95rem" }}>
+                    Your contact information is permanently hidden from the public. Only approved mutual connections can securely view the details below.
+                  </p>
+                  <div className="data-row" style={{ marginTop: "10px" }}>
+                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Pending Conns</div>
+                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{metrics.pendingConnections}</div>
                   </div>
                   <div className="data-row">
-                    <div className="data-title">Contact share requests</div>
-                    <div className="data-meta">{metrics.consentRequests}</div>
+                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Contact Requests</div>
+                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{metrics.consentRequests}</div>
                   </div>
-                  <div className="data-row">
-                    <div className="data-title">Photo/video review</div>
-                    <div className="data-meta">
-                      Only professional work-related media is reviewed for publishing.
-                    </div>
+                  <div style={{ marginTop: "10px" }}>
+                    <Link href="/consent" className="button-link">
+                      <Button variant="ghost">Manage details sharing →</Button>
+                    </Link>
                   </div>
                 </Card>
               </div>
 
-              {form ? (
+              {form && (
                 <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Edit profile</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Personal Info</h3>
                   <form className="grid two" onSubmit={onSave}>
-                    <Field label="First name">
-                      <TextInput
-                        value={form.firstName}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, firstName: event.target.value } : previous
-                          )
-                        }
-                        required
-                      />
+                    <Field label="First Name" hint="Required">
+                      <TextInput value={form.firstName} onChange={(e) => setForm(prev => prev ? { ...prev, firstName: e.target.value } : prev)} required />
                     </Field>
-                    <Field label="Last name">
-                      <TextInput
-                        value={form.lastName}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, lastName: event.target.value } : previous
-                          )
-                        }
-                      />
+                    <Field label="Last Name">
+                      <TextInput value={form.lastName} onChange={(e) => setForm(prev => prev ? { ...prev, lastName: e.target.value } : prev)} />
                     </Field>
                     <Field label="City">
-                      <TextInput
-                        value={form.city}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, city: event.target.value } : previous
-                          )
-                        }
-                      />
+                      <TextInput value={form.city} onChange={(e) => setForm(prev => prev ? { ...prev, city: e.target.value } : prev)} />
                     </Field>
                     <Field label="Area">
-                      <TextInput
-                        value={form.area}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, area: event.target.value } : previous
-                          )
-                        }
-                      />
+                      <TextInput value={form.area} onChange={(e) => setForm(prev => prev ? { ...prev, area: e.target.value } : prev)} />
                     </Field>
-                    <Field label="Services offered" hint="Comma-separated: maid, plumber, electrician">
-                      <TextInput
-                        value={form.serviceCategories}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous
-                              ? { ...previous, serviceCategories: event.target.value }
-                              : previous
-                          )
-                        }
-                      />
+                    <Field label="Services Offered" hint="Comma-separated: maid, plumber, electrician">
+                      <TextInput value={form.serviceCategories} onChange={(e) => setForm(prev => prev ? { ...prev, serviceCategories: e.target.value } : prev)} />
                     </Field>
-                    <Field
-                      label="Email"
-                      hint={
-                        profile?.contact.emailMasked
-                          ? `Masked for others: ${profile.contact.emailMasked}`
-                          : "Add email to share only when you approve."
-                      }
-                    >
-                      <TextInput
-                        type="email"
-                        value={form.email}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, email: event.target.value } : previous
-                          )
-                        }
-                      />
+                    <Field label="Email" hint={profile?.contact.emailMasked ? `Masked for others: ${profile.contact.emailMasked}` : "Private email address."}>
+                      <TextInput type="email" value={form.email} onChange={(e) => setForm(prev => prev ? { ...prev, email: e.target.value } : prev)} />
                     </Field>
-                    <Field
-                      label="Phone"
-                      hint={
-                        profile?.contact.phoneMasked
-                          ? `Masked for others: ${profile.contact.phoneMasked}`
-                          : "Add phone to share only when you approve."
-                      }
-                    >
-                      <TextInput
-                        data-testid="profile-phone-input"
-                        value={form.phone}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, phone: event.target.value } : previous
-                          )
-                        }
-                      />
+                    <Field label="Phone" hint={profile?.contact.phoneMasked ? `Masked for others: ${profile.contact.phoneMasked}` : "Private primary phone."}>
+                      <TextInput data-testid="profile-phone-input" value={form.phone} onChange={(e) => setForm(prev => prev ? { ...prev, phone: e.target.value } : prev)} />
                     </Field>
-                    <Field label="Alternate phone">
-                      <TextInput
-                        data-testid="profile-alt-phone-input"
-                        value={form.alternatePhone}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous
-                              ? { ...previous, alternatePhone: event.target.value }
-                              : previous
-                          )
-                        }
-                      />
+                    <Field label="Alt Phone">
+                      <TextInput data-testid="profile-alt-phone-input" value={form.alternatePhone} onChange={(e) => setForm(prev => prev ? { ...prev, alternatePhone: e.target.value } : prev)} />
                     </Field>
-                    <Field label="Address">
-                      <TextInput
-                        value={form.fullAddress}
-                        onChange={(event) =>
-                          setForm((previous) =>
-                            previous ? { ...previous, fullAddress: event.target.value } : previous
-                          )
-                        }
-                      />
+                    <Field label="Address" hint="Never exposed without explicit consent.">
+                      <TextInput value={form.fullAddress} onChange={(e) => setForm(prev => prev ? { ...prev, fullAddress: e.target.value } : prev)} />
                     </Field>
-                    <div>
-                      <Button type="submit" disabled={saving}>
-                        {saving ? "Saving..." : "Save profile"}
-                      </Button>
+                    <div style={{ display: "flex", alignItems: "flex-end" }}>
+                      <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Profile"}</Button>
                     </div>
                   </form>
                 </Card>
-              ) : null}
+              )}
 
               <Card className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Professional media</h3>
-                <p className="muted-text">
-                  Upload only service-related photos/videos. Each file is reviewed before public
-                  display.
-                </p>
-                {uploadError ? <Banner tone="error">{uploadError}</Banner> : null}
-                {uploadSuccess ? <Banner tone="success">{uploadSuccess}</Banner> : null}
-                <Field
-                  label="Choose file"
-                  hint="Allowed: JPEG, PNG, WEBP, MP4, MOV, WEBM. Keep content strictly work-related."
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-                    onChange={onFileChange}
-                  />
-                </Field>
-                {uploadFile ? (
-                  <div className="data-row">
-                    <div className="data-title">{uploadFile.name}</div>
-                    <div className="data-meta">{formatBytes(uploadFile.size)}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "15px" }}>
+                  <div>
+                    <h3 style={{ fontFamily: "var(--font-display)" }}>Professional Media</h3>
+                    <p className="muted-text">Upload photos/videos of your work. Content is strictly reviewed.</p>
                   </div>
-                ) : null}
-                <div>
-                  <Button type="button" disabled={uploading} onClick={() => void onUploadMedia()}>
-                    {uploading ? "Uploading..." : "Upload for review"}
-                  </Button>
+                  <div>
+                    {uploadError && <Banner tone="error">{uploadError}</Banner>}
+                    {uploadSuccess && <Banner tone="success">{uploadSuccess}</Banner>}
+                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" onChange={onFileChange} style={{ maxWidth: 220 }} />
+                      <Button type="button" disabled={uploading} onClick={() => void onUploadMedia()}>{uploading ? "Uploading..." : "Upload"}</Button>
+                    </div>
+                  </div>
                 </div>
+                
                 {mediaAssets.length === 0 ? (
-                  <EmptyState
-                    title="No media uploaded"
-                    body="Your photos/videos will appear here after upload."
-                  />
+                  <EmptyState title="No media uploaded" body="Your professional verification and work photos will appear here." />
                 ) : (
-                  <div className="grid two">
-                    {mediaAssets.slice(0, 8).map((asset) => (
-                      <div key={asset.id} className="data-row">
-                        <div className="pill">{asset.kind}</div>
-                        <div className="data-title">{asset.objectKey.split("/").at(-1)}</div>
-                        <div className="data-meta">State: {asset.state.replaceAll("_", " ")}</div>
-                        <div className="data-meta">{formatBytes(asset.fileSizeBytes)}</div>
-                        <div className="field-hint">{formatDate(asset.createdAt)}</div>
-                      </div>
-                    ))}
-                  </div>
+                  <DataTable columns={mediaColumns} data={mediaAssets} />
                 )}
               </Card>
 
               <Card className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Public gallery preview</h3>
-                <p className="muted-text">
-                  This is what others can view publicly. Only approved files appear here.
-                </p>
-                {publicGalleryError ? <Banner tone="error">{publicGalleryError}</Banner> : null}
-                <div className="grid two">
+                <h3 style={{ fontFamily: "var(--font-display)" }}>Public Gallery Previews</h3>
+                <p className="muted-text">Preview approved public files. Enter member ID below.</p>
+                {publicGalleryError && <Banner tone="error">{publicGalleryError}</Banner>}
+                <div className="grid two" style={{ alignItems: "end" }}>
                   <Field label="Member ID">
-                    <TextInput
-                      data-testid="profile-public-owner-input"
-                      value={publicGalleryOwner}
-                      onChange={(event) => setPublicGalleryOwner(event.target.value)}
-                    />
+                    <TextInput data-testid="profile-public-owner-input" value={publicGalleryOwner} onChange={(e) => setPublicGalleryOwner(e.target.value)} />
                   </Field>
-                  <div style={{ alignSelf: "end" }}>
-                    <Button
-                      type="button"
-                      data-testid="profile-public-load-button"
-                      disabled={publicGalleryLoading}
-                      onClick={() => void loadPublicGallery(publicGalleryOwner)}
-                    >
-                      {publicGalleryLoading ? "Loading..." : "Load approved media"}
+                  <div>
+                    <Button type="button" data-testid="profile-public-load-button" disabled={publicGalleryLoading} onClick={() => void loadPublicGallery(publicGalleryOwner)}>
+                      {publicGalleryLoading ? "Loading..." : "Load public media"}
                     </Button>
                   </div>
                 </div>
                 {publicMediaAssets.length === 0 ? (
-                  <EmptyState
-                    title="No approved media yet"
-                    body="Approved files will appear here once moderation is complete."
-                  />
+                  <div style={{ marginTop: "10px", padding: "20px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", textAlign: "center" }}>
+                    <p className="muted-text">Approved entries will appear here.</p>
+                  </div>
                 ) : (
-                  <div className="grid two" data-testid="profile-public-media-grid">
+                  <div className="grid two" data-testid="profile-public-media-grid" style={{ marginTop: "15px" }}>
                     {publicMediaAssets.map((asset) => (
-                      <div key={asset.id} className="data-row" data-testid="profile-public-media-item">
-                        <div className="pill">{asset.kind}</div>
-                        <div className="data-meta">{formatBytes(asset.fileSizeBytes)}</div>
-                        <div className="field-hint">{formatDate(asset.createdAt)}</div>
-                        <a href={asset.downloadUrl} target="_blank" rel="noreferrer">
-                          Open approved file
+                      <div key={asset.id} className="card soft" data-testid="profile-public-media-item" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        <span className="pill" style={{ alignSelf: "flex-start" }}>{asset.kind}</span>
+                        <div style={{ color: "var(--ink)", fontWeight: 600 }}>{formatBytes(asset.fileSizeBytes)}</div>
+                        <div className="muted-text" style={{ fontSize: "0.85rem" }}>{formatDate(asset.createdAt)}</div>
+                        <a href={asset.downloadUrl} target="_blank" rel="noreferrer" style={{ marginTop: "10px", color: "var(--brand)", fontSize: "0.9rem", fontWeight: 600 }}>
+                          Open Original File →
                         </a>
                       </div>
                     ))}
@@ -644,27 +501,13 @@ export default function ProfilePage(): JSX.Element {
               </Card>
 
               <Card className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Recent jobs</h3>
+                <h3 style={{ fontFamily: "var(--font-display)" }}>Recent Jobs</h3>
                 {loading ? <p className="muted-text">Loading activity...</p> : null}
                 {!loading && recentJobs.length === 0 ? (
-                  <EmptyState
-                    title="No jobs recorded"
-                    body="Create a job in the Jobs page to see activity here."
-                  />
-                ) : null}
-                {!loading ? (
-                  <div className="grid three">
-                    {recentJobs.map((job) => (
-                      <div key={job.id} className="data-row">
-                        <div className="pill">{job.status}</div>
-                        <div className="data-title">{job.title}</div>
-                        <div className="data-meta">{job.category}</div>
-                        <div className="data-meta">{job.locationText}</div>
-                        <div className="field-hint">{formatDate(job.createdAt)}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
+                  <EmptyState title="No recent activity" body="Create a job to view updates here." />
+                ) : (
+                  <DataTable columns={recentJobsColumns} data={recentJobs} />
+                )}
               </Card>
             </div>
           </RequireSession>

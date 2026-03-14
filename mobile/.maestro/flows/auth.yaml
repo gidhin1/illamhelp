@@ -1,0 +1,45 @@
+appId: ${APP_ID}
+name: Auth entry, register, invalid login, valid login
+---
+- runFlow:
+    file: ../subflows/launch.yaml
+- assertVisible:
+    id: auth-mode-login
+- assertVisible:
+    id: auth-mode-register
+- runFlow:
+    file: ../subflows/register-user.yaml
+    env:
+      FIRST_NAME: ${AUTH_MEMBER_FIRST_NAME}
+      LAST_NAME: ${AUTH_MEMBER_LAST_NAME}
+      EMAIL: ${AUTH_MEMBER_EMAIL}
+      USERNAME: ${AUTH_MEMBER_USERNAME}
+      PHONE: ${AUTH_MEMBER_PHONE}
+      PASSWORD: ${AUTH_MEMBER_PASSWORD}
+- runFlow:
+    file: ../subflows/sign-out.yaml
+- tapOn:
+    id: auth-mode-login
+- tapOn:
+    id: auth-login-username
+- inputText: ${AUTH_MEMBER_USERNAME}
+- tapOn:
+    id: auth-login-password
+- inputText: ${AUTH_MEMBER_PASSWORD}x
+- hideKeyboard
+- tapOn:
+    id: auth-login-submit
+- extendedWaitUntil:
+    visible:
+      id: auth-error-banner
+    timeout: 10000
+- stopApp
+- launchApp:
+    clearState: false
+- runFlow:
+    file: ../subflows/login-user.yaml
+    env:
+      USERNAME: ${AUTH_MEMBER_USERNAME}
+      PASSWORD: ${AUTH_MEMBER_PASSWORD}
+- assertVisible:
+    id: tab-home

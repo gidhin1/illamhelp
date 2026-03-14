@@ -1,0 +1,12 @@
+appId: ${APP_ID}
+---
+- runFlow:
+    file: open-drawer.yaml
+- tapOn:
+    id: drawer-nav-jobs-toggle
+- extendedWaitUntil:
+    visible:
+      id: drawer-nav-${JOBS_SECTION}
+    timeout: 10000
+- tapOn:
+    id: drawer-nav-${JOBS_SECTION}

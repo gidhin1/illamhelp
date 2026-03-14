@@ -2,17 +2,18 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { ColumnDef } from "@tanstack/react-table";
 
 import { PageShell } from "@/components/PageShell";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
+import { DataTable } from "@/components/ui/DataTable";
 import {
   Banner,
   Button,
   Card,
   EmptyState,
   Field,
-  SectionHeader,
   SelectInput,
   TextArea
 } from "@/components/ui/primitives";
@@ -20,7 +21,6 @@ import {
   ModerationDetails,
   ModerationProcessResult,
   ModerationQueueItem,
-  formatDate,
   getModerationDetails,
   listModerationQueue,
   processModerationQueue,
@@ -52,18 +52,13 @@ function ModerationContent(): React.JSX.Element {
   }, [queue]);
 
   useEffect(() => {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
 
     let cancelled = false;
     void (async () => {
       setLoadingQueue(true);
       try {
-        const items = await listModerationQueue(accessToken, {
-          status: statusFilter,
-          limit: 100
-        });
+        const items = await listModerationQueue(accessToken, { status: statusFilter, limit: 100 });
         if (!cancelled) {
           setQueue(items);
           setBanner(null);
@@ -85,30 +80,21 @@ function ModerationContent(): React.JSX.Element {
           });
         }
       } finally {
-        if (!cancelled) {
-          setLoadingQueue(false);
-        }
+        if (!cancelled) setLoadingQueue(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [accessToken, selectedMediaId, statusFilter]);
 
   useEffect(() => {
-    if (!accessToken || !selectedMediaId) {
-      return;
-    }
+    if (!accessToken || !selectedMediaId) return;
 
     let cancelled = false;
     void (async () => {
       setLoadingDetails(true);
       try {
         const result = await getModerationDetails(selectedMediaId, accessToken);
-        if (!cancelled) {
-          setDetails(result);
-        }
+        if (!cancelled) setDetails(result);
       } catch (requestError) {
         if (!cancelled) {
           setDetails(null);
@@ -118,26 +104,16 @@ function ModerationContent(): React.JSX.Element {
           });
         }
       } finally {
-        if (!cancelled) {
-          setLoadingDetails(false);
-        }
+        if (!cancelled) setLoadingDetails(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [accessToken, selectedMediaId]);
 
   async function refreshQueueAndDetails(activeMediaId: string | null): Promise<void> {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
 
-    const items = await listModerationQueue(accessToken, {
-      status: statusFilter,
-      limit: 100
-    });
+    const items = await listModerationQueue(accessToken, { status: statusFilter, limit: 100 });
     setQueue(items);
 
     if (activeMediaId && items.some((item) => item.mediaId === activeMediaId)) {
@@ -159,9 +135,7 @@ function ModerationContent(): React.JSX.Element {
   }
 
   async function onProcessPending(): Promise<void> {
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
 
     setSubmitting(true);
     try {
@@ -170,32 +144,23 @@ function ModerationContent(): React.JSX.Element {
       await refreshQueueAndDetails(selectedMediaId);
       setBanner({
         tone: "success",
-        message: `Processed ${result.processed} moderation jobs (${result.technicalApproved} technical approvals, ${result.technicalRejected} technical rejects, ${result.aiCompleted} AI decisions).`
+        message: `Processed ${result.processed} jobs (${result.technicalApproved} technical approvals, ${result.aiCompleted} AI decisions).`
       });
     } catch (requestError) {
-      setBanner({
-        tone: "error",
-        message: requestError instanceof Error ? requestError.message : "Failed to process queue"
-      });
+      setBanner({ tone: "error", message: requestError instanceof Error ? requestError.message : "Failed to process queue" });
     } finally {
       setSubmitting(false);
     }
   }
 
   async function onReview(decision: "approved" | "rejected"): Promise<void> {
-    if (!accessToken || !selectedMediaId) {
-      return;
-    }
+    if (!accessToken || !selectedMediaId) return;
 
     setSubmitting(true);
     try {
       await reviewMedia(
         selectedMediaId,
-        {
-          decision,
-          reasonCode,
-          notes: notes.trim() || undefined
-        },
+        { decision, reasonCode, notes: notes.trim() || undefined },
         accessToken
       );
       await refreshQueueAndDetails(selectedMediaId);
@@ -205,223 +170,185 @@ function ModerationContent(): React.JSX.Element {
         message: decision === "approved" ? "Media approved." : "Media rejected."
       });
     } catch (requestError) {
-      setBanner({
-        tone: "error",
-        message: requestError instanceof Error ? requestError.message : "Failed to submit review"
-      });
+      setBanner({ tone: "error", message: requestError instanceof Error ? requestError.message : "Failed to submit review" });
     } finally {
       setSubmitting(false);
     }
   }
 
+  const queueColumns: ColumnDef<ModerationQueueItem>[] = [
+    {
+      accessorKey: "kind",
+      header: "Type",
+      cell: ({ row }) => <span style={{ fontWeight: 600, textTransform: "capitalize", color: "var(--ink)" }}>{row.original.kind}</span>
+    },
+    {
+      accessorKey: "mediaState",
+      header: "State",
+      cell: ({ row }) => <span className="pill">{row.original.mediaState.replaceAll("_", " ")}</span>
+    },
+    {
+      accessorKey: "status",
+      header: "Job Status",
+      cell: ({ row }) => <span className="muted-text" style={{ textTransform: "capitalize" }}>{row.original.status}</span>
+    },
+    {
+      id: "actions",
+      header: "Action",
+      cell: ({ row }) => (
+        <Button
+          variant={selectedMediaId === row.original.mediaId ? "primary" : "ghost"}
+          style={{ padding: "4px 8px", fontSize: "0.8rem", width: "100%" }}
+          onClick={() => setSelectedMediaId(row.original.mediaId)}
+        >
+          {selectedMediaId === row.original.mediaId ? "Reviewing" : "Select"}
+        </Button>
+      )
+    }
+  ];
+
   return (
-    <section className="section">
-      <div className="container stack">
-        <SectionHeader
-          eyebrow="Admin"
-          title="Moderation queue"
-          subtitle="Review queued media items and take approval/rejection actions with policy reasons."
-          actions={
-            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <Field label="Status" hint="Queue filter">
-                <SelectInput
-                  data-testid="moderation-status-filter"
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value)}
-                >
-                  {statusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </SelectInput>
-              </Field>
-              <Button
-                type="button"
-                variant="secondary"
-                data-testid="moderation-process-pending"
-                disabled={submitting}
-                onClick={() => {
-                  void onProcessPending();
-                }}
-              >
-                Process pending machine checks
-              </Button>
-            </div>
-          }
-        />
+    <div className="stack" style={{ gap: 0, height: "100vh" }}>
+      <div className="top-header">
+        <div>
+           <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Content Safety</div>
+           <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Moderation Queue</h2>
+        </div>
+        <div className="section-actions">
+           <Button type="button" variant="secondary" data-testid="moderation-process-pending" disabled={submitting} onClick={() => void onProcessPending()}>
+             Run Machine Checks
+           </Button>
+        </div>
+      </div>
 
-        {banner ? <Banner tone={banner.tone}>{banner.message}</Banner> : null}
-        {processingResult ? (
-          <Banner tone="info">
-            Selected: {processingResult.selected}, Processed: {processingResult.processed}, Errors: {processingResult.errors}
-          </Banner>
-        ) : null}
+      <div style={{ padding: "var(--spacing-xl)", flex: 1, minHeight: 0 }}>
+        {banner && <div style={{ marginBottom: "var(--spacing-md)" }}><Banner tone={banner.tone}>{banner.message}</Banner></div>}
+        {processingResult && (
+           <div style={{ marginBottom: "var(--spacing-md)" }}>
+             <Banner tone="info">Selected: {processingResult.selected}, Processed: {processingResult.processed}, Errors: {processingResult.errors}</Banner>
+           </div>
+        )}
 
-        <div className="grid two">
-          <Card className="stack">
-            <h3>Queue items</h3>
-            <div className="muted-text">
-              Total: {queueSummary.total} · Pending: {queueSummary.pending} · Reviewed: {queueSummary.reviewed}
+        {/* Master Detail Grid Layout */}
+        <div className="grid" style={{ gridTemplateColumns: "1fr 400px", alignItems: "start", height: "100%" }}>
+          {/* Master List */}
+          <Card className="stack" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "var(--spacing-md)", borderBottom: "1px solid var(--line)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
+               <div>
+                  <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>Queue items</h3>
+                  <div className="muted-text" style={{ fontSize: "0.85rem" }}>
+                    {queueSummary.total} total · {queueSummary.pending} pending · {queueSummary.reviewed} reviewed
+                  </div>
+               </div>
+               <div style={{ minWidth: 150 }}>
+                   <SelectInput data-testid="moderation-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: "0.85rem" }}>
+                     {statusOptions.map((opt) => <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>)}
+                   </SelectInput>
+               </div>
             </div>
-            {loadingQueue ? <Banner tone="info">Loading queue...</Banner> : null}
-            {queue.length === 0 && !loadingQueue ? (
-              <EmptyState
-                title="No items found"
-                body="Try another status filter or run machine checks to move items to review."
-              />
-            ) : null}
-            <div className="stack">
-              {queue.map((item) => {
-                const active = item.mediaId === selectedMediaId;
-                return (
-                  <button
-                    key={item.mediaId}
-                    type="button"
-                    data-testid={`moderation-item-${item.mediaId}`}
-                    className="data-row"
-                    style={{
-                      textAlign: "left",
-                      borderColor: active ? "rgba(81, 66, 177, 0.45)" : undefined,
-                      cursor: "pointer"
-                    }}
-                    onClick={() => {
-                      setSelectedMediaId(item.mediaId);
-                    }}
-                  >
-                    <div className="data-title">
-                      {item.kind.toUpperCase()} · {item.status}
-                    </div>
-                    <div className="data-meta">Current state: {item.mediaState}</div>
-                    <div className="data-meta">Queued at: {formatDate(item.moderationCreatedAt)}</div>
-                  </button>
-                );
-              })}
+
+            <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+               {loadingQueue && (
+                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}>Loading...</div>
+               )}
+               {!loadingQueue && queue.length === 0 ? (
+                  <div style={{ padding: "var(--spacing-xl)" }}>
+                     <EmptyState title="No items found" body="Try another filter or run machine checks to pull new items." />
+                  </div>
+               ) : (
+                  <DataTable columns={queueColumns} data={queue} />
+               )}
             </div>
           </Card>
 
-          <Card className="stack" data-testid="moderation-details-panel">
-            <h3>Selected item</h3>
-            {loadingDetails ? <Banner tone="info">Loading details...</Banner> : null}
+          {/* Details Panel */}
+          <Card className="stack" data-testid="moderation-details-panel" style={{ height: "calc(100vh - 160px)", overflowY: "auto", borderLeft: "4px solid var(--brand)", padding: "var(--spacing-lg)" }}>
+            <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem", paddingBottom: "10px", borderBottom: "1px solid var(--line)" }}>Review Details</h3>
+            
+            {loadingDetails && <p className="muted-text">Loading Details...</p>}
+            
             {!loadingDetails && !details ? (
-              <EmptyState
-                title="Select an item"
-                body="Choose a queue item to inspect AI scores and moderation history."
-              />
-            ) : null}
-            {details ? (
-              <>
-                <div className="data-row" data-testid="moderation-media-summary">
-                  <div className="data-title">{details.media.kind.toUpperCase()} media</div>
-                  <div className="data-meta">Content type: {details.media.contentType}</div>
-                  <div className="data-meta">Size: {details.media.fileSizeBytes} bytes</div>
-                  <div className="data-meta">State: {details.media.state}</div>
-                  <div className="data-meta">
-                    Preview URL expires: {formatDate(details.media.previewUrlExpiresAt)}
+                <EmptyState title="Select an item" body="Choose a queue item to inspect AI scores and moderation history." />
+            ) : details ? (
+              <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
+                {/* Media Spec */}
+                <div className="data-row" data-testid="moderation-media-summary" style={{ padding: "8px 12px", background: "var(--surface)" }}>
+                  <div className="data-title" style={{ fontSize: "1rem" }}>{details.media.kind.toUpperCase()} file</div>
+                  <div className="grid two" style={{ gap: "4px" }}>
+                     <div className="data-meta" style={{ fontSize: "0.8rem" }}>Type: {details.media.contentType}</div>
+                     <div className="data-meta" style={{ fontSize: "0.8rem" }}>Size: {(details.media.fileSizeBytes / 1024).toFixed(1)} KB</div>
                   </div>
                 </div>
 
-                <div className="data-row" data-testid="moderation-media-preview">
-                  <div className="data-title">Preview</div>
+                {/* Media Preview Component */}
+                <div data-testid="moderation-media-preview" style={{ background: "#000", borderRadius: "12px", display: "flex", justifyContent: "center", alignItems: "center", minHeight: "200px", padding: 8 }}>
                   {details.media.kind === "image" ? (
                     <Image
                       data-testid="moderation-preview-image"
                       src={details.media.previewUrl}
-                      alt={`Media preview ${details.media.id}`}
+                      alt={`Preview ${details.media.id}`}
                       width={1200}
                       height={800}
                       unoptimized
-                      style={{
-                        maxWidth: "100%",
-                        width: "auto",
-                        height: "auto",
-                        maxHeight: "320px",
-                        borderRadius: "12px",
-                        border: "1px solid rgba(27, 31, 36, 0.12)"
-                      }}
+                      style={{ maxWidth: "100%", maxHeight: "250px", height: "auto", width: "auto", borderRadius: "8px" }}
                     />
                   ) : (
                     <video
                       data-testid="moderation-preview-video"
                       controls
                       preload="metadata"
-                      style={{
-                        width: "100%",
-                        maxHeight: "360px",
-                        borderRadius: "12px",
-                        border: "1px solid rgba(27, 31, 36, 0.12)"
-                      }}
+                      style={{ width: "100%", maxHeight: "250px", borderRadius: "8px" }}
                     >
                       <source src={details.media.previewUrl} type={details.media.contentType} />
                     </video>
                   )}
                 </div>
 
-                <div className="stack">
-                  <h4>Moderation history</h4>
+                {/* Form Elements */}
+                <div className="stack" style={{ gap: "var(--spacing-md)", background: "var(--surface-2)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--line)" }}>
+                    <Field label="Policy Rationale Code">
+                      <SelectInput data-testid="moderation-reason-code" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)}>
+                        <option value="policy_manual_review">policy_manual_review</option>
+                        <option value="policy_safe_service_media">policy_safe_service_media</option>
+                        <option value="policy_prohibited_content">policy_prohibited_content</option>
+                        <option value="policy_unrelated_media">policy_unrelated_media</option>
+                      </SelectInput>
+                    </Field>
+
+                    <Field label="Moderator Notes" hint="Optional internal notes">
+                      <TextArea data-testid="moderation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Rationale..." style={{ minHeight: "60px" }} />
+                    </Field>
+
+                    <div style={{ display: "flex", gap: "8px", paddingTop: "8px" }}>
+                      <Button type="button" data-testid="moderation-approve" disabled={submitting} onClick={() => void onReview("approved")} style={{ flex: 1 }}>
+                        ✅ Approve
+                      </Button>
+                      <Button type="button" variant="secondary" data-testid="moderation-reject" disabled={submitting} onClick={() => void onReview("rejected")} style={{ flex: 1, color: "var(--danger)" }}>
+                        ❌ Reject
+                      </Button>
+                    </div>
+                </div>
+
+                {/* Machine Job History */}
+                <div className="stack" style={{ gap: "8px" }}>
+                  <h4 style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Job Log</h4>
                   {details.moderationJobs.map((job) => (
-                    <div key={job.id} className="data-row">
-                      <div className="data-title">
-                        {job.stage} · {job.status}
+                    <div key={job.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", padding: "8px 12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", fontSize: "0.8rem", border: "1px solid var(--line)" }}>
+                      <div>
+                        <div style={{ fontWeight: 600, color: "var(--ink)", textTransform: "capitalize" }}>{job.stage}</div>
+                        {job.reasonCode ? <div className="muted-text">Reason: {job.reasonCode}</div> : null}
                       </div>
-                      <div className="data-meta">Created: {formatDate(job.createdAt)}</div>
-                      <div className="data-meta">Completed: {formatDate(job.completedAt)}</div>
-                      {job.reasonCode ? <div className="data-meta">Reason: {job.reasonCode}</div> : null}
+                      <span className="pill" style={{ padding: "2px 8px" }}>{job.status}</span>
                     </div>
                   ))}
                 </div>
 
-                <Field label="Reason code" hint="Stored in moderation audit trail">
-                  <SelectInput
-                    data-testid="moderation-reason-code"
-                    value={reasonCode}
-                    onChange={(event) => setReasonCode(event.target.value)}
-                  >
-                    <option value="policy_manual_review">policy_manual_review</option>
-                    <option value="policy_safe_service_media">policy_safe_service_media</option>
-                    <option value="policy_prohibited_content">policy_prohibited_content</option>
-                    <option value="policy_unrelated_media">policy_unrelated_media</option>
-                  </SelectInput>
-                </Field>
-
-                <Field label="Moderator notes" hint="Optional notes for handoff and traceability">
-                  <TextArea
-                    data-testid="moderation-notes"
-                    value={notes}
-                    onChange={(event) => setNotes(event.target.value)}
-                    placeholder="Add a short rationale"
-                  />
-                </Field>
-
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                  <Button
-                    type="button"
-                    data-testid="moderation-approve"
-                    disabled={submitting}
-                    onClick={() => {
-                      void onReview("approved");
-                    }}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    data-testid="moderation-reject"
-                    disabled={submitting}
-                    onClick={() => {
-                      void onReview("rejected");
-                    }}
-                  >
-                    Reject
-                  </Button>
-                </div>
-              </>
+              </div>
             ) : null}
           </Card>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 

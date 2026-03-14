@@ -44,7 +44,7 @@ async function waitForAuthResponse(
     return await page.waitForResponse(
       (response) =>
         response.url().includes(path) && response.request().method() === method,
-      { timeout: 15_000 }
+      { timeout: 8_000 }
     );
   } catch {
     return null;
@@ -93,8 +93,7 @@ async function gotoWebHome(page: Page): Promise<void> {
 }
 
 async function gotoAdminHome(page: Page): Promise<void> {
-  await page.goto(adminBaseUrl);
-  await expect(page.getByRole("link", { name: /IllamHelp/i }).first()).toBeVisible();
+  await page.goto(adminBaseUrl, { waitUntil: "domcontentloaded" });
 }
 
 async function signOutIfVisible(page: Page): Promise<void> {
@@ -121,7 +120,7 @@ async function resetWebBrowserSession(page: Page): Promise<void> {
 async function openWebAuthEntry(page: Page, mode: "register" | "login"): Promise<void> {
   await gotoWebHome(page);
   if (mode === "register") {
-    await page.getByRole("link", { name: /create account|register/i }).first().click();
+    await page.getByRole("link", { name: /join now|sign up|create account|register/i }).first().click();
     await expect(page.getByLabel("First name")).toBeVisible();
     return;
   }
@@ -190,16 +189,14 @@ async function loginWebUser(page: Page, user: E2eUser): Promise<AuthSession> {
 
 async function clickWebNav(page: Page, label: string): Promise<void> {
   await page
-    .locator("header nav")
-    .getByRole("link", { name: new RegExp(`^${escapeRegex(label)}\\b`, "i") })
+    .getByRole("link", { name: new RegExp(`\\b${escapeRegex(label)}\\b`, "i") })
     .first()
     .click();
 }
 
 async function clickAdminNav(page: Page, label: string): Promise<void> {
   await page
-    .locator("header nav")
-    .getByRole("link", { name: new RegExp(`^${escapeRegex(label)}\\b`, "i") })
+    .getByRole("link", { name: new RegExp(`\\b${escapeRegex(label)}\\b`, "i") })
     .first()
     .click();
 }
@@ -212,17 +209,24 @@ async function loginAdminPortalByUi(page: Page, user: AdminPortalUser): Promise<
     await page.getByRole("link", { name: /sign in/i }).first().click();
   }
 
-  await expect(userInput).toBeVisible({ timeout: 20_000 });
+  await expect(userInput).toBeVisible({ timeout: 10_000 });
   await userInput.fill(user.username);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("main").getByRole("button", { name: "Sign in" }).click();
 
-  await expect(page.getByTestId("admin-role-pill")).toContainText("Admin Access", {
-    timeout: 30_000
-  });
+  await waitForAnyVisible(
+    [
+      page.getByRole("heading", { name: /Operations Dashboard/i }).first(),
+      page.getByRole("heading", { name: /Moderation Queue/i }).first(),
+      page.getByRole("heading", { name: /Verification Processing/i }).first(),
+      page.getByRole("button", { name: /Run Machine Checks/i }).first(),
+      page.getByRole("button", { name: /sign out/i }).first()
+    ],
+    10_000
+  );
 }
 
-async function waitForAnyVisible(locators: Locator[], timeoutMs = 20_000): Promise<Locator> {
+async function waitForAnyVisible(locators: Locator[], timeoutMs = 10_000): Promise<Locator> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for (const locator of locators) {
@@ -252,7 +256,7 @@ test("admin portal login shows error for invalid credentials", async ({ page }) 
   await page.getByRole("main").getByRole("button", { name: "Sign in" }).click();
 
   const errorBanner = page.locator(".banner.error").first();
-  await expect(errorBanner).toBeVisible({ timeout: 20_000 });
+  await expect(errorBanner).toBeVisible({ timeout: 10_000 });
   await expect(errorBanner).toContainText(
     /invalid|unauthorized|forbidden|failed|too many|authentication/i
   );
@@ -262,17 +266,16 @@ test("admin portal login, navigation, and sign out flow works", async ({ page })
   const adminUser = readAdminPortalUser();
   await loginAdminPortalByUi(page, adminUser);
 
-  await expect(page.getByRole("heading", { name: "Admin dashboard" })).toBeVisible();
-  await expect(page.getByTestId("admin-role-pill")).toContainText("Admin Access");
+  await expect(page.getByRole("heading", { name: /Operations Dashboard/i })).toBeVisible();
 
   await clickAdminNav(page, "Moderation");
-  await expect(page.getByRole("heading", { name: "Moderation queue" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Moderation Queue/i })).toBeVisible();
 
   await clickAdminNav(page, "Verifications");
-  await expect(page.getByRole("heading", { name: "Verification queue" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Verification Processing/i })).toBeVisible();
 
   await clickAdminNav(page, "Consent + Audit");
-  await expect(page.getByRole("heading", { name: "Consent + audit timeline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Consent & Audit Timeline/i })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).first().click();
   await expect(page.getByRole("link", { name: /sign in/i }).first()).toBeVisible();
@@ -286,7 +289,7 @@ test("admin moderation page renders queue controls and stable states", async ({ 
   await loginAdminPortalByUi(page, adminUser);
   await clickAdminNav(page, "Moderation");
 
-  await expect(page.getByRole("heading", { name: "Moderation queue" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Moderation Queue/i })).toBeVisible();
   await expect(page.getByTestId("moderation-status-filter")).toBeVisible();
   await expect(page.getByTestId("moderation-process-pending")).toBeVisible();
   await expect(page.getByTestId("moderation-details-panel")).toBeVisible();
@@ -298,7 +301,7 @@ test("admin moderation page renders queue controls and stable states", async ({ 
       page.getByText("No items found").first(),
       page.getByText("Loading queue...").first()
     ],
-    20_000
+    10_000
   );
 });
 
@@ -307,21 +310,21 @@ test("admin verifications page supports filter and refresh interactions", async 
   await loginAdminPortalByUi(page, adminUser);
   await clickAdminNav(page, "Verifications");
 
-  await expect(page.getByRole("heading", { name: "Verification queue" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Verification Processing/i })).toBeVisible();
 
-  const filters = ["Pending", "Under review", "Approved", "Rejected", "All"];
+  const filters = ["Pending", "Under review", "Approved", "Rejected", "All Records"];
   for (const filter of filters) {
     await page.getByRole("button", { name: new RegExp(filter, "i") }).first().click();
   }
-  await page.getByRole("button", { name: "Refresh" }).first().click();
 
   await waitForAnyVisible(
     [
-      page.locator("[data-testid^='verification-card-']").first(),
+      page.getByText("Current Queue").first(),
+      page.getByRole("table").first(),
       page.getByText("No verification requests").first(),
-      page.getByText("Loading verifications...").first()
+      page.getByText("Loading...").first()
     ],
-    20_000
+    10_000
   );
 });
 
@@ -330,8 +333,8 @@ test("admin audit page shows empty state and handles lookup attempts", async ({ 
   await loginAdminPortalByUi(page, adminUser);
   await clickAdminNav(page, "Consent + Audit");
 
-  await expect(page.getByRole("heading", { name: "Consent + audit timeline" })).toBeVisible();
-  await expect(page.getByText("No member selected").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Consent & Audit Timeline/i })).toBeVisible();
+  await expect(page.getByText("Investigate Activity").first()).toBeVisible();
 
   await page.getByTestId("timeline-member-id").fill(`missing_member_${Date.now().toString(36)}`);
   await page.getByTestId("timeline-search").click();
@@ -340,9 +343,9 @@ test("admin audit page shows empty state and handles lookup attempts", async ({ 
     [
       page.getByTestId("timeline-member-summary"),
       page.locator(".banner.error").first(),
-      page.getByText("No member selected").first()
+      page.getByText("Investigate Activity").first()
     ],
-    20_000
+    10_000
   );
 });
 
@@ -364,8 +367,8 @@ test("admin portal E2E verification lifecycle: member submit -> admin review -> 
 
     await clickWebNav(memberPage, "Verify");
     await memberPage.getByLabel("Document media IDs").fill("11111111-1111-4111-8111-111111111111");
-    await memberPage.getByLabel("Notes (optional)").fill(submissionNote);
-    await memberPage.getByRole("button", { name: "Submit verification request" }).click();
+    await memberPage.getByLabel("Notes for Reviewer (optional)").fill(submissionNote);
+    await memberPage.getByRole("button", { name: "Submit Verification" }).click();
     await expect(
       memberPage.getByText("Verification request submitted! We'll review your documents shortly.").first()
     ).toBeVisible();
@@ -373,48 +376,33 @@ test("admin portal E2E verification lifecycle: member submit -> admin review -> 
 
     await loginAdminPortalByUi(adminPage, adminUser);
     await clickAdminNav(adminPage, "Verifications");
-    await adminPage.getByRole("button", { name: /^All$/i }).first().click().catch(() => undefined);
+    await adminPage.getByRole("button", { name: /^All Records$/i }).first().click();
 
-    const verificationCard = await test.step("wait for verification item", async () => {
-      const cards = adminPage.locator("[data-testid^='verification-card-']");
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        const byIdAndNote = cards
-          .filter({ hasText: memberUserId })
-          .filter({ hasText: submissionNote })
-          .first();
-        if (await byIdAndNote.isVisible().catch(() => false)) {
-          return byIdAndNote;
+    const verificationRow = await test.step("wait for verification row", async () => {
+      const deadline = Date.now() + 10_000;
+      while (Date.now() < deadline) {
+        const row = adminPage.getByRole("row").filter({ hasText: memberUserId }).first();
+        if (await row.isVisible().catch(() => false)) {
+          return row;
         }
-
-        const byIdOnly = cards.filter({ hasText: memberUserId }).first();
-        if (await byIdOnly.isVisible().catch(() => false)) {
-          return byIdOnly;
-        }
-
-        const byNoteOnly = cards.filter({ hasText: submissionNote }).first();
-        if (await byNoteOnly.isVisible().catch(() => false)) {
-          return byNoteOnly;
-        }
-
-        const refreshButton = adminPage.getByRole("button", { name: "Refresh" }).first();
-        if (await refreshButton.isVisible().catch(() => false)) {
-          await refreshButton.click();
-        }
-        await adminPage.waitForTimeout(1000);
+        await adminPage.getByRole("button", { name: /^Pending$/i }).first().click().catch(() => undefined);
+        await adminPage.waitForTimeout(300);
+        await adminPage.getByRole("button", { name: /^All Records$/i }).first().click().catch(() => undefined);
+        await adminPage.waitForTimeout(500);
       }
-      throw new Error("Verification card did not appear in admin portal.");
+      throw new Error("Verification row did not appear in admin portal.");
     });
 
-    await verificationCard.getByRole("button", { name: "Review" }).click();
-    await verificationCard.getByPlaceholder("Reason for approval or rejection...").fill(reviewNote);
-    await verificationCard.getByRole("button", { name: /Approve/i }).click();
-    await expect(adminPage.getByText(/Verification approved/i).first()).toBeVisible();
+    await verificationRow.getByRole("button", { name: /Start Review/i }).click();
+    await adminPage.getByLabel("Decision Notes (Audit)").fill(reviewNote);
+    await adminPage.getByRole("button", { name: /^Approve$/i }).click();
+    await expect(adminPage.getByText(/Verification approved successfully\./i).first()).toBeVisible();
 
     await signOutIfVisible(memberPage);
     await loginWebUser(memberPage, member);
 
     await clickWebNav(memberPage, "Alerts");
-    await expect(memberPage.getByText(/Verification approved/i).first()).toBeVisible({ timeout: 30_000 });
+    await expect(memberPage.getByText(/Verification approved/i).first()).toBeVisible({ timeout: 10_000 });
 
     await clickWebNav(memberPage, "Verify");
     await expect(memberPage.getByText("Approved").first()).toBeVisible();

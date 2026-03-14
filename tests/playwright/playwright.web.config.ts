@@ -20,7 +20,9 @@ const defaultCorsOrigins = Array.from(
   new Set([...originsFor(webBaseUrl), ...originsFor(adminBaseUrl)])
 ).join(",");
 const corsOrigins = process.env.PW_WEB_API_CORS_ORIGINS ?? defaultCorsOrigins;
-const reuseExistingServer = process.env.PW_REUSE_EXISTING_SERVERS === "true";
+const reuseExistingServer = process.env.PW_REUSE_EXISTING_SERVERS
+  ? process.env.PW_REUSE_EXISTING_SERVERS === "true"
+  : !process.env.CI;
 const headless = process.env.PW_HEADLESS === "true";
 
 process.env.PW_WEB_BASE_URL = webBaseUrl;
@@ -51,9 +53,9 @@ export default defineConfig({
   testDir: "./web",
   fullyParallel: false,
   workers: 1,
-  timeout: 180_000,
+  timeout: 10_000,
   expect: {
-    timeout: 20_000
+    timeout: 10_000
   },
   retries: process.env.CI ? 1 : 0,
   reporter: [["list"], ["html", { open: "never", outputFolder: "./reports/web" }]],
