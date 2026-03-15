@@ -58,9 +58,15 @@ interface ApplicationRow {
   provider_user_id: string;
   status: ApplicationStatus;
   message: string | null;
-  skill_snapshot: { jobName: string; proficiency: string; source: string } | null;
+  skill_snapshot: ServiceSkillSnapshot | null;
   created_at: Date;
   updated_at: Date;
+}
+
+interface ServiceSkillSnapshot {
+  jobName: string;
+  proficiency: string;
+  source: string;
 }
 
 interface ConnectionRow {
@@ -207,7 +213,7 @@ class InMemoryJobsDatabaseService {
       const jobId = this.readString(params, 0);
       const providerUserId = this.readString(params, 1);
       const message = this.readNullableString(params, 2);
-      const skillSnapshot = this.readNullableJson(params, 3);
+      const skillSnapshot = this.readNullableJson<ServiceSkillSnapshot>(params, 3);
 
       const existing = [...this.applications.values()].find(
         (item) => item.job_id === jobId && item.provider_user_id === providerUserId
@@ -548,7 +554,7 @@ class InMemoryJobsDatabaseService {
     return value;
   }
 
-  private readNullableJson(values: unknown[], index: number): Record<string, unknown> | null {
+  private readNullableJson<T>(values: unknown[], index: number): T | null {
     const value = values[index];
     if (value === undefined || value === null) {
       return null;
@@ -556,7 +562,7 @@ class InMemoryJobsDatabaseService {
     if (typeof value !== "string") {
       throw new Error(`Expected nullable JSON string at params[${index}]`);
     }
-    return JSON.parse(value) as Record<string, unknown>;
+    return JSON.parse(value) as T;
   }
 
   private getJob(jobId: string): JobRow {
