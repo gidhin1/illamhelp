@@ -39,6 +39,17 @@ export class ConnectionsController {
     );
   }
 
+  @Get("discover")
+  discover(
+    @Query("limit") limit: string | undefined,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<ConnectionSearchCandidate[]> {
+    return this.connectionsService.discoverCandidates(
+      user.userId,
+      limit ? parseInt(limit, 10) : undefined
+    );
+  }
+
   @Post("request")
   request(
     @Body() body: RequestConnectionDto,

@@ -183,6 +183,11 @@ function ModerationContent(): React.JSX.Element {
       cell: ({ row }) => <span style={{ fontWeight: 600, textTransform: "capitalize", color: "var(--ink)" }}>{row.original.kind}</span>
     },
     {
+      accessorKey: "context",
+      header: "Context",
+      cell: ({ row }) => <span className="pill">{row.original.context.replaceAll("_", " ")}</span>
+    },
+    {
       accessorKey: "mediaState",
       header: "State",
       cell: ({ row }) => <span className="pill">{row.original.mediaState.replaceAll("_", " ")}</span>
@@ -275,6 +280,7 @@ function ModerationContent(): React.JSX.Element {
                 <div className="data-row" data-testid="moderation-media-summary" style={{ padding: "8px 12px", background: "var(--surface)" }}>
                   <div className="data-title" style={{ fontSize: "1rem" }}>{details.media.kind.toUpperCase()} file</div>
                   <div className="grid two" style={{ gap: "4px" }}>
+                     <div className="data-meta" style={{ fontSize: "0.8rem" }}>Context: {details.media.context.replaceAll("_", " ")}</div>
                      <div className="data-meta" style={{ fontSize: "0.8rem" }}>Type: {details.media.contentType}</div>
                      <div className="data-meta" style={{ fontSize: "0.8rem" }}>Size: {(details.media.fileSizeBytes / 1024).toFixed(1)} KB</div>
                   </div>

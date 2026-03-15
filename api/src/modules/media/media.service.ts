@@ -17,7 +17,7 @@ import {
 } from "../../common/events/protobuf/internal-events.codec";
 import { assertUuid } from "../../common/utils/uuid";
 import { AuditService } from "../audit/audit.service";
-import { MediaKind } from "./dto/create-upload-ticket.dto";
+import { MediaContext, MediaKind } from "./dto/create-upload-ticket.dto";
 
 type MediaState =
   | "uploaded"
@@ -32,6 +32,7 @@ type MediaState =
 interface CreateUploadTicketInput {
   ownerUserId: string;
   kind: MediaKind;
+  context?: MediaContext;
   contentType: string;
   fileSizeBytes: number;
   checksumSha256: string;
@@ -50,6 +51,7 @@ interface DbMediaRow {
   owner_user_id: string;
   job_id: string | null;
   kind: MediaKind;
+  context: MediaContext;
   bucket_name: string;
   object_key: string;
   content_type: string;
@@ -66,6 +68,7 @@ interface DbApprovedMediaRow {
   username: string | null;
   job_id: string | null;
   kind: MediaKind;
+  context: MediaContext;
   bucket_name: string;
   object_key: string;
   content_type: string;
@@ -80,6 +83,7 @@ export interface MediaAssetRecord {
   ownerUserId: string;
   jobId: string | null;
   kind: MediaKind;
+  context: MediaContext;
   bucketName: string;
   objectKey: string;
   contentType: string;
@@ -104,6 +108,7 @@ export interface PublicMediaAssetRecord {
   ownerUserId: string;
   jobId: string | null;
   kind: MediaKind;
+  context: MediaContext;
   contentType: string;
   fileSizeBytes: number;
   state: "approved";
@@ -206,6 +211,7 @@ export class MediaService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -236,6 +242,7 @@ export class MediaService {
         u.username,
         ma.job_id,
         ma.kind,
+        ma.context,
         ma.bucket_name,
         ma.object_key,
         ma.content_type,
@@ -247,6 +254,7 @@ export class MediaService {
       JOIN users u ON u.id = ma.owner_user_id
       WHERE ma.owner_user_id = $1::uuid
         AND ma.state = 'approved'::media_state
+        AND ma.context <> 'profile_avatar'::media_context
       ORDER BY ma.created_at DESC
       `,
       [ownerInternalUserId]
@@ -263,6 +271,7 @@ export class MediaService {
         ownerUserId: this.toPublicUserId(row.owner_user_id, row.username),
         jobId: row.job_id,
         kind: row.kind,
+        context: row.context,
         contentType: row.content_type,
         fileSizeBytes: this.parsePositiveInt(row.file_size_bytes, 0),
         state: "approved",
@@ -302,10 +311,12 @@ export class MediaService {
     const contentType = input.contentType.trim().toLowerCase();
     const checksumSha256 = input.checksumSha256.trim().toLowerCase();
     const originalFileName = input.originalFileName.trim();
+    const context = input.context ?? (input.jobId ? "job_attachment" : "profile_gallery");
 
     this.assertStorageConfigured();
     this.validateMetadata({
       ...input,
+      context,
       contentType,
       checksumSha256,
       originalFileName
@@ -341,6 +352,7 @@ export class MediaService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -353,11 +365,12 @@ export class MediaService {
         $2::uuid,
         $3::uuid,
         $4::media_kind,
-        $5::text,
+        $5::media_context,
         $6::text,
         $7::text,
-        $8::bigint,
-        $9::text,
+        $8::text,
+        $9::bigint,
+        $10::text,
         'uploaded'::media_state
       )
       `,
@@ -366,6 +379,7 @@ export class MediaService {
         input.ownerUserId,
         input.jobId ?? null,
         input.kind,
+        context,
         this.bucketName,
         objectKey,
         contentType,
@@ -395,6 +409,8 @@ export class MediaService {
           source: "upload_ticket",
           expectedContentType: contentType,
           expectedSize: input.fileSizeBytes
+          ,
+          context
         })
       ]
     );
@@ -408,6 +424,7 @@ export class MediaService {
         bucketName: this.bucketName,
         objectKey,
         kind: input.kind,
+        context,
         contentType,
         fileSizeBytes: input.fileSizeBytes,
         expiresAt: expiresAt.toISOString()
@@ -422,6 +439,7 @@ export class MediaService {
       bucketName: this.bucketName,
       objectKey,
       kind: input.kind,
+      context,
       contentType,
       fileSizeBytes: input.fileSizeBytes,
       checksumSha256
@@ -461,6 +479,7 @@ export class MediaService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -556,6 +575,7 @@ export class MediaService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -607,6 +627,55 @@ export class MediaService {
     return this.mapMediaRow(updated.rows[0]);
   }
 
+  async deleteOwnedMedia(mediaId: string, ownerUserId: string): Promise<void> {
+    assertUuid(mediaId, "mediaId");
+    assertUuid(ownerUserId, "ownerUserId");
+
+    await this.databaseService.query(
+      `
+      UPDATE profiles
+      SET active_avatar_media_id = NULL,
+          updated_at = now()
+      WHERE user_id = $1::uuid
+        AND active_avatar_media_id = $2::uuid
+      `,
+      [ownerUserId, mediaId]
+    );
+
+    const result = await this.databaseService.query<{ id: string }>(
+      `
+      DELETE FROM media_assets
+      WHERE id = $1::uuid
+        AND owner_user_id = $2::uuid
+      RETURNING id::text AS id
+      `,
+      [mediaId, ownerUserId]
+    );
+
+    if (!result.rowCount) {
+      throw new NotFoundException("Media asset not found");
+    }
+  }
+
+  async markVerificationDocuments(ownerUserId: string, mediaIds: string[]): Promise<void> {
+    if (mediaIds.length === 0) {
+      return;
+    }
+    for (const mediaId of mediaIds) {
+      assertUuid(mediaId, "mediaId");
+    }
+    await this.databaseService.query(
+      `
+      UPDATE media_assets
+      SET context = 'verification_document'::media_context,
+          updated_at = now()
+      WHERE owner_user_id = $1::uuid
+        AND id = ANY($2::uuid[])
+      `,
+      [ownerUserId, mediaIds]
+    );
+  }
+
   private mapMediaRow(row: DbMediaRow): MediaAssetRecord {
     const fileSizeBytes = this.parsePositiveInt(row.file_size_bytes, 0);
     return {
@@ -614,6 +683,7 @@ export class MediaService {
       ownerUserId: row.owner_user_id,
       jobId: row.job_id,
       kind: row.kind,
+      context: row.context,
       bucketName: row.bucket_name,
       objectKey: row.object_key,
       contentType: row.content_type,
@@ -627,6 +697,7 @@ export class MediaService {
 
   private validateMetadata(input: {
     kind: MediaKind;
+    context: MediaContext;
     contentType: string;
     fileSizeBytes: number;
     checksumSha256: string;
@@ -645,6 +716,14 @@ export class MediaService {
       throw new BadRequestException(
         `Unsupported content type '${input.contentType}' for ${input.kind}`
       );
+    }
+
+    if (input.context === "profile_avatar" && input.kind !== "image") {
+      throw new BadRequestException("Profile avatars must be uploaded as images");
+    }
+
+    if (input.context === "job_attachment" && input.kind !== "image" && input.kind !== "video") {
+      throw new BadRequestException("Job attachments must be media files");
     }
 
     if (!/^[a-f0-9]{64}$/i.test(input.checksumSha256)) {

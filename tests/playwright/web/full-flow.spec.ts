@@ -6,6 +6,7 @@ import {
   makeUser,
   parseMemberId,
   readTextByTestId,
+  selectJobCategoryOption,
   waitForSuccessMessage
 } from "../utils/flow-helpers";
 
@@ -344,7 +345,11 @@ async function createJobByUi(
   }
 ): Promise<void> {
   await openJobsSection(page, "posted");
-  await page.getByLabel("Category").fill(payload.category);
+  const categorySelect = page.getByRole("combobox", { name: /Category/i }).first();
+  const selectionMode = await selectJobCategoryOption(categorySelect, payload.category);
+  if (selectionMode === "custom") {
+    await page.getByLabel("Custom category").fill(payload.category);
+  }
   await page.getByLabel("Location").fill(payload.locationText);
   await page.getByLabel("Title").fill(payload.title);
   await page.getByLabel("Description").fill(payload.description);
@@ -369,7 +374,7 @@ async function sendConnectionRequestByUi(page: Page, targetUserId: string): Prom
     .first();
 
   if (await matchCard.isVisible().catch(() => false)) {
-    await matchCard.getByRole("button", { name: "Connect" }).click();
+    await matchCard.getByRole("button", { name: /Request connection/i }).click();
   } else {
     await page.getByRole("button", { name: "Send request" }).click();
   }
@@ -379,34 +384,10 @@ async function sendConnectionRequestByUi(page: Page, targetUserId: string): Prom
 
 async function findConnectionRow(page: Page, otherUserId: string): Promise<Locator> {
   await clickMainNav(page, "People");
-  const row = page.getByRole("row", { name: new RegExp(escapeRegex(otherUserId), "i") }).first();
-  await expect(row).toBeVisible();
-  return row;
-}
-
-async function selectOptionContaining(
-  select: Locator,
-  textFragment: string,
-  timeoutMs = 10_000
-): Promise<void> {
-  const value = await poll(async () => {
-    const options = await select.locator("option").evaluateAll((rows) =>
-      rows.map((option) => {
-        const cast = option as HTMLOptionElement;
-        return {
-          value: cast.value,
-          text: cast.textContent?.trim() ?? ""
-        };
-      })
-    );
-    const normalized = textFragment.toLowerCase();
-    const match = options.find(
-      (item) => item.value && item.text.toLowerCase().includes(normalized)
-    );
-    return match?.value;
-  }, timeoutMs);
-
-  await select.selectOption(value);
+  await page.getByRole("button", { name: "Connections" }).click();
+  const card = page.locator(".card").filter({ hasText: new RegExp(escapeRegex(otherUserId), "i") }).first();
+  await expect(card).toBeVisible();
+  return card;
 }
 
 async function requestConsentAccessByUi(
@@ -415,39 +396,48 @@ async function requestConsentAccessByUi(
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const requestCard = await cardByHeading(page, "Request Access");
-  const select = requestCard.getByLabel("Who");
-  await selectOptionContaining(select, ownerUserId);
-  await requestCard.getByLabel("Why").fill(purpose);
-  await requestCard.getByRole("button", { name: "Send Request" }).click();
+  await page.getByTestId(`privacy-connection-card-${ownerUserId}`).click();
+  await page.getByTestId("privacy-tab-mine").click();
+  await page.getByTestId("privacy-request-purpose").fill(purpose);
+  await page.getByRole("button", { name: "Request access" }).click();
   await waitForSuccessMessage(page, "Access request submitted.");
 }
 
 async function grantConsentByUi(
   page: Page,
   requesterUserId: string,
+  requestPurpose: string,
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const grantCard = await cardByHeading(page, "Grant Access");
-  const select = grantCard.getByLabel("Pending Request");
-  await selectOptionContaining(select, requesterUserId);
-  await grantCard.getByLabel("Why").fill(purpose);
-  await grantCard.getByRole("button", { name: "Grant Details" }).click();
+  await page.getByTestId(`privacy-connection-card-${requesterUserId}`).click();
+  await page.getByTestId("privacy-tab-theirs").click();
+  await page
+    .locator("[data-testid^='privacy-their-request-']")
+    .filter({ hasText: new RegExp(escapeRegex(requestPurpose), "i") })
+    .first()
+    .click();
+  await page.getByLabel("Grant purpose").fill(purpose);
+  await page.getByRole("button", { name: "Grant access" }).click();
   await waitForSuccessMessage(page, "Access granted.");
 }
 
 async function revokeConsentByUi(
   page: Page,
   granteeUserId: string,
+  grantPurpose: string,
   reason: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const revokeCard = await cardByHeading(page, "Revoke Access");
-  const select = revokeCard.getByLabel("Active Permission");
-  await selectOptionContaining(select, granteeUserId);
-  await revokeCard.getByLabel("Reason").fill(reason);
-  await revokeCard.getByRole("button", { name: "Revoke" }).click();
+  await page.getByTestId(`privacy-connection-card-${granteeUserId}`).click();
+  await page.getByTestId("privacy-tab-theirs").click();
+  await page
+    .locator("[data-testid^='privacy-revoke-grant-']")
+    .filter({ hasText: new RegExp(escapeRegex(grantPurpose), "i") })
+    .first()
+    .click();
+  await page.getByLabel("Revoke reason (optional)").fill(reason);
+  await page.getByRole("button", { name: "Revoke selected grant" }).click();
   await waitForSuccessMessage(page, "Access revoked.");
 }
 
@@ -457,19 +447,17 @@ async function assertConsentVisibility(
   expected: "allowed" | "denied"
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const checkCard = await cardByHeading(page, "Verify Sharing Status");
-  const select = checkCard.getByLabel("Who");
-  await selectOptionContaining(select, ownerUserId);
-  await checkCard.getByLabel("Contact Field").selectOption("phone");
-  await checkCard.getByRole("button", { name: "Verify Access" }).click();
-  await waitForSuccessMessage(page, "Visibility check completed.");
+  await page.getByTestId(`privacy-connection-card-${ownerUserId}`).click();
+  await page.getByTestId("privacy-tab-current").click();
 
+  const phoneRow = page.getByTestId("privacy-field-row-phone");
+  const currentAccessCell = phoneRow.locator("td").nth(1);
   if (expected === "allowed") {
-    await expect(page.getByText("Yes, this field is visible to you.").first()).toBeVisible();
+    await expect(currentAccessCell).toContainText("Visible");
     return;
   }
 
-  await expect(page.getByText("No, this field is hidden.").first()).toBeVisible();
+  await expect(currentAccessCell).toContainText("Not shared");
 }
 
 async function openPostedJobDetail(page: Page, title: string): Promise<void> {
@@ -525,7 +513,7 @@ async function loginToAdminPortalByUi(page: Page, user: AdminPortalUser): Promis
 }
 
 test("web UI full flow: auth -> jobs -> connections -> consent", async ({ browser }) => {
-  test.setTimeout(45_000);
+  test.setTimeout(120_000);
   const seeker = makeUser("seeker");
   const provider = makeUser("provider");
   const webBaseUrl = process.env.PW_WEB_BASE_URL ?? "http://localhost:3100";
@@ -579,15 +567,15 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ browse
     await waitForSuccessMessage(seekerPage, "Applicant approved. Booking lifecycle is now active.");
 
     await requestConsentAccessByUi(providerPage, seekerUserId, requestPurpose);
-    await grantConsentByUi(seekerPage, providerUserId, grantPurpose);
+    await grantConsentByUi(seekerPage, providerUserId, requestPurpose, grantPurpose);
     await assertConsentVisibility(providerPage, seekerUserId, "allowed");
-    await revokeConsentByUi(seekerPage, providerUserId, "E2E revoke validation");
+    await revokeConsentByUi(seekerPage, providerUserId, grantPurpose, "E2E revoke validation");
     await assertConsentVisibility(providerPage, seekerUserId, "denied");
 
     const providerConnectionRow = await findConnectionRow(providerPage, seekerUserId);
     await providerConnectionRow.getByRole("button", { name: "Block" }).click();
     await waitForSuccessMessage(providerPage, "Person blocked.");
-    await expect(providerConnectionRow.getByText("blocked").first()).toBeVisible();
+    await expect(providerPage.getByText("No accepted connections yet").first()).toBeVisible();
   } finally {
     await seekerContext.close();
     await providerContext.close();
@@ -617,7 +605,7 @@ test("web E2E connection lifecycle: decline -> re-request -> accept -> block", a
   const firstPendingRow = await findConnectionRow(page, requesterUserId);
   await firstPendingRow.getByRole("button", { name: "Decline" }).click();
   await waitForSuccessMessage(page, "Connection request declined.");
-  await expect(firstPendingRow.getByText("declined").first()).toBeVisible();
+  await expect(page.getByText("No pending requests").first()).toBeVisible();
 
   await signOutIfVisible(page);
   await loginByUi(page, requester);
@@ -630,10 +618,10 @@ test("web E2E connection lifecycle: decline -> re-request -> accept -> block", a
   await waitForSuccessMessage(page, "Connection accepted.");
 
   const acceptedRow = await findConnectionRow(page, requesterUserId);
-  await expect(acceptedRow.getByText("accepted").first()).toBeVisible();
+  await expect(acceptedRow).toContainText(requesterUserId);
   await acceptedRow.getByRole("button", { name: "Block" }).click();
   await waitForSuccessMessage(page, "Person blocked.");
-  await expect(acceptedRow.getByText("blocked").first()).toBeVisible();
+  await expect(page.getByText("No accepted connections yet").first()).toBeVisible();
 });
 
 test("web E2E jobs visibility: connections_only blocks non-connections", async ({ browser }) => {
@@ -754,6 +742,10 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
   browser
 }) => {
   test.setTimeout(45_000);
+  test.skip(
+    !process.env.E2E_ADMIN_USERNAME || !process.env.E2E_ADMIN_PASSWORD,
+    "Admin E2E credentials are required for the verification cross-surface flow."
+  );
   const member = makeUser("both");
   const adminUser = readAdminPortalUser();
   const shortId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

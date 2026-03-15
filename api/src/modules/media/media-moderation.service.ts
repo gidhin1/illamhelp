@@ -31,6 +31,7 @@ interface DbModerationQueueRow {
   media_state: MediaState;
   owner_user_id: string;
   kind: "image" | "video";
+  context: "profile_gallery" | "profile_avatar" | "job_attachment" | "verification_document";
   content_type: string;
   file_size_bytes: number | string;
 }
@@ -52,6 +53,7 @@ interface DbMediaRow {
   owner_user_id: string;
   job_id: string | null;
   kind: "image" | "video";
+  context: "profile_gallery" | "profile_avatar" | "job_attachment" | "verification_document";
   bucket_name: string;
   object_key: string;
   content_type: string;
@@ -74,6 +76,7 @@ export interface ModerationQueueItem {
   mediaState: MediaState;
   ownerUserId: string;
   kind: "image" | "video";
+  context: "profile_gallery" | "profile_avatar" | "job_attachment" | "verification_document";
   contentType: string;
   fileSizeBytes: number;
 }
@@ -192,6 +195,7 @@ export class MediaModerationService {
         ma.state AS media_state,
         ma.owner_user_id,
         ma.kind,
+        ma.context,
         ma.content_type,
         ma.file_size_bytes
       FROM moderation_jobs mj
@@ -213,6 +217,7 @@ export class MediaModerationService {
       mediaState: row.media_state,
       ownerUserId: row.owner_user_id,
       kind: row.kind,
+      context: row.context,
       contentType: row.content_type,
       fileSizeBytes: this.parsePositiveInt(row.file_size_bytes, 0)
     }));
@@ -228,6 +233,7 @@ export class MediaModerationService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -279,6 +285,7 @@ export class MediaModerationService {
         ownerUserId: media.owner_user_id,
         jobId: media.job_id,
         kind: media.kind,
+        context: media.context,
         bucketName: media.bucket_name,
         objectKey: media.object_key,
         contentType: media.content_type,
@@ -466,6 +473,7 @@ export class MediaModerationService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -485,6 +493,17 @@ export class MediaModerationService {
     }
 
     const media = mediaResult.rows[0];
+    if (input.decision === "approved" && media.context === "profile_avatar") {
+      await this.databaseService.query(
+        `
+        UPDATE profiles
+        SET active_avatar_media_id = $2::uuid,
+            updated_at = now()
+        WHERE user_id = $1::uuid
+        `,
+        [media.owner_user_id, media.id]
+      );
+    }
     await this.auditService.logEvent({
       actorUserId: input.moderatorUserId,
       targetUserId: media.owner_user_id,
@@ -493,6 +512,7 @@ export class MediaModerationService {
         mediaId: input.mediaId,
         moderationJobId,
         decision: input.decision,
+        context: media.context,
         reasonCode,
         notes: input.notes ?? null
       }
@@ -503,6 +523,7 @@ export class MediaModerationService {
       ownerUserId: media.owner_user_id,
       jobId: media.job_id,
       kind: media.kind,
+      context: media.context,
       bucketName: media.bucket_name,
       objectKey: media.object_key,
       contentType: media.content_type,
@@ -525,6 +546,7 @@ export class MediaModerationService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,
@@ -692,6 +714,7 @@ export class MediaModerationService {
         owner_user_id,
         job_id,
         kind,
+        context,
         bucket_name,
         object_key,
         content_type,

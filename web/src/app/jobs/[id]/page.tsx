@@ -478,6 +478,11 @@ export default function JobDetailPage(): JSX.Element {
                           <div className="data-meta">
                             Applied: {formatDate(application.createdAt)}
                           </div>
+                          {application.skillSnapshot ? (
+                            <div className="data-meta">
+                              Matching skill: {application.skillSnapshot.jobName} · {application.skillSnapshot.proficiency}
+                            </div>
+                          ) : null}
                           {application.message ? (
                             <div className="data-meta">Message: {application.message}</div>
                           ) : null}
@@ -541,6 +546,15 @@ export default function JobDetailPage(): JSX.Element {
                       ? selectedApplicantProfile.serviceCategories.join(", ")
                       : "Not provided"}
                   </div>
+                  {selectedApplicantProfile.serviceSkills.length > 0 ? (
+                    <div className="data-meta">
+                      Skill levels:{" "}
+                      {selectedApplicantProfile.serviceSkills
+                        .slice(0, 4)
+                        .map((skill) => `${skill.jobName} (${skill.proficiency})`)
+                        .join(", ")}
+                    </div>
+                  ) : null}
                   <div className="data-meta">
                     Phone:{" "}
                     {selectedApplicantProfile.visibility.phone

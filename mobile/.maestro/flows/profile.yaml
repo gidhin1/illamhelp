@@ -1,5 +1,5 @@
 appId: ${APP_ID}
-name: Profile save, media upload, public preview
+name: Profile hero, inline skill edit, media upload, public preview
 ---
 - runFlow:
     file: ../subflows/launch.yaml
@@ -14,7 +14,7 @@ name: Profile save, media upload, public preview
       PASSWORD: ${PROFILE_MEMBER_PASSWORD}
 - tapOn:
     id: tab-profile
-- assertVisible: Your account
+- assertVisible: Present yourself with confidence
 - tapOn:
     id: profile-city
 - inputText: Kochi
@@ -22,8 +22,15 @@ name: Profile save, media upload, public preview
     id: profile-area
 - inputText: Kakkanad
 - tapOn:
-    id: profile-service-categories
-- inputText: plumber,electrician
+    id: profile-skill-picker-trigger
+- tapOn:
+    id: profile-skill-option-plumbing
+- tapOn:
+    id: profile-skill-proficiency-advanced
+- tapOn:
+    id: profile-skill-add
+- tapOn:
+    id: profile-skill-level-plumbing-expert
 - tapOn:
     id: profile-phone
 - inputText: ${PROFILE_MEMBER_PHONE}
@@ -37,12 +44,6 @@ name: Profile save, media upload, public preview
     id: profile-save
 - extendedWaitUntil:
     visible: Profile updated.
-    timeout: 10000
-- tapOn:
-    id: profile-media-upload
-- extendedWaitUntil:
-    visible:
-      id: profile-media-success
     timeout: 10000
 - scrollUntilVisible:
     element:

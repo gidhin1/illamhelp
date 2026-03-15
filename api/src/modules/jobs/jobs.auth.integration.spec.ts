@@ -58,6 +58,7 @@ interface ApplicationRow {
   provider_user_id: string;
   status: ApplicationStatus;
   message: string | null;
+  skill_snapshot: { jobName: string; proficiency: string; source: string } | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -194,10 +195,19 @@ class InMemoryJobsDatabaseService {
       return this.result<T>([{ id: connection.id } as unknown as T]);
     }
 
+    if (
+      normalized.startsWith("select service_skills, service_categories from profiles") &&
+      normalized.includes("where user_id = $1::uuid") &&
+      normalized.includes("limit 1")
+    ) {
+      return this.result<T>([]);
+    }
+
     if (normalized.startsWith("insert into job_applications")) {
       const jobId = this.readString(params, 0);
       const providerUserId = this.readString(params, 1);
       const message = this.readNullableString(params, 2);
+      const skillSnapshot = this.readNullableJson(params, 3);
 
       const existing = [...this.applications.values()].find(
         (item) => item.job_id === jobId && item.provider_user_id === providerUserId
@@ -210,6 +220,7 @@ class InMemoryJobsDatabaseService {
           provider_user_id: providerUserId,
           status: "applied",
           message,
+          skill_snapshot: skillSnapshot,
           created_at: new Date(),
           updated_at: new Date()
         };
@@ -223,6 +234,7 @@ class InMemoryJobsDatabaseService {
       if (existing.status === "withdrawn") {
         existing.status = "applied";
         existing.message = message;
+        existing.skill_snapshot = skillSnapshot;
         existing.updated_at = new Date();
         this.applications.set(existing.id, existing);
         if (normalized.includes("coalesce(nullif(trim((select username from users where id = provider_user_id")) {
@@ -268,7 +280,7 @@ class InMemoryJobsDatabaseService {
     }
 
     if (
-      normalized.startsWith("select a.id, a.job_id, a.provider_user_id, a.status, a.message, a.created_at, a.updated_at") &&
+      normalized.startsWith("select a.id, a.job_id, a.provider_user_id, a.status, a.message, a.skill_snapshot, a.created_at, a.updated_at") &&
       normalized.includes("from job_applications a join jobs j on j.id = a.job_id")
     ) {
       const applicationId = this.readString(params, 0);
@@ -534,6 +546,17 @@ class InMemoryJobsDatabaseService {
       throw new Error(`Expected nullable number at params[${index}]`);
     }
     return value;
+  }
+
+  private readNullableJson(values: unknown[], index: number): Record<string, unknown> | null {
+    const value = values[index];
+    if (value === undefined || value === null) {
+      return null;
+    }
+    if (typeof value !== "string") {
+      throw new Error(`Expected nullable JSON string at params[${index}]`);
+    }
+    return JSON.parse(value) as Record<string, unknown>;
   }
 
   private getJob(jobId: string): JobRow {

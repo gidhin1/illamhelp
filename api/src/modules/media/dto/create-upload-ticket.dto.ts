@@ -11,6 +11,13 @@ import {
 
 export const MEDIA_KINDS = ["image", "video"] as const;
 export type MediaKind = (typeof MEDIA_KINDS)[number];
+export const MEDIA_CONTEXTS = [
+  "profile_gallery",
+  "profile_avatar",
+  "job_attachment",
+  "verification_document"
+] as const;
+export type MediaContext = (typeof MEDIA_CONTEXTS)[number];
 
 export class CreateUploadTicketDto {
   @IsString()
@@ -37,4 +44,9 @@ export class CreateUploadTicketDto {
   @IsOptional()
   @IsUUID()
   jobId?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(MEDIA_CONTEXTS)
+  context?: MediaContext;
 }

@@ -284,6 +284,43 @@ test("admin portal login, navigation, and sign out flow works", async ({ page })
   await expect(page.getByRole("heading", { name: "Sign in required" })).toBeVisible();
 });
 
+test("admin desktop sidebar toggles between expanded and collapsed states", async ({ page }) => {
+  const adminUser = readAdminPortalUser();
+  await loginAdminPortalByUi(page, adminUser);
+
+  const sidebar = page.getByTestId("admin-sidebar");
+  const toggle = page.getByTestId("admin-sidebar-toggle");
+  const dashboardLink = page.getByTestId("admin-sidebar-link-dashboard");
+  const dashboardLabel = sidebar.locator(".sidebar-link .sidebar-label").filter({ hasText: "Dashboard" }).first();
+  const moderationLink = page.getByTestId("admin-sidebar-link-moderation");
+  const moderationLabel = sidebar.locator(".sidebar-link .sidebar-label").filter({ hasText: "Moderation" }).first();
+
+  await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+  await expect(dashboardLabel).toBeVisible();
+  await expect(toggle).toHaveAttribute("title", "Collapse sidebar");
+  await expect(dashboardLink).toHaveClass(/is-active/);
+
+  await toggle.click();
+
+  await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+  await expect(dashboardLabel).not.toBeVisible();
+  await expect(dashboardLink).toHaveAttribute("title", "Dashboard");
+  await expect(moderationLink).toHaveAttribute("title", "Moderation");
+  await expect(dashboardLink).toHaveClass(/is-active/);
+
+  await moderationLink.click();
+  await expect(page.getByRole("heading", { name: /Moderation Queue/i })).toBeVisible();
+  await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+  await expect(moderationLabel).not.toBeVisible();
+  await expect(page.getByTestId("admin-sidebar-link-moderation")).toHaveClass(/is-active/);
+
+  await toggle.click();
+
+  await expect(sidebar).toHaveAttribute("data-collapsed", "false");
+  await expect(moderationLabel).toBeVisible();
+  await expect(toggle).toHaveAttribute("title", "Collapse sidebar");
+});
+
 test("admin moderation page renders queue controls and stable states", async ({ page }) => {
   const adminUser = readAdminPortalUser();
   await loginAdminPortalByUi(page, adminUser);
@@ -297,9 +334,9 @@ test("admin moderation page renders queue controls and stable states", async ({ 
   await page.getByTestId("moderation-status-filter").selectOption("pending");
   await waitForAnyVisible(
     [
-      page.locator("[data-testid^='moderation-item-']").first(),
+      page.getByRole("table").first(),
       page.getByText("No items found").first(),
-      page.getByText("Loading queue...").first()
+      page.getByText("Loading...").first()
     ],
     10_000
   );

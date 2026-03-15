@@ -11,6 +11,8 @@ import {
   login,
   register
 } from "./src/api";
+import type { PickedImageAsset } from "./src/media-upload";
+import { pickSingleImage, uploadPickedImage } from "./src/media-upload";
 import { AppThemeProvider, useThemePreference } from "./src/theme-context";
 import { asError } from "./src/utils";
 import { AuthMode } from "./src/components";
@@ -85,6 +87,7 @@ function AppContent(): JSX.Element {
   const [authError, setAuthError] = useState<string | null>(null);
   const [loginForm, setLoginForm] = useState<LoginFormState>(initialLoginForm);
   const [registerForm, setRegisterForm] = useState<RegisterFormState>(initialRegisterForm);
+  const [registerAvatar, setRegisterAvatar] = useState<PickedImageAsset | null>(null);
 
   const signOut = useCallback((): void => {
     setAccessToken(null);
@@ -163,14 +166,31 @@ function AppContent(): JSX.Element {
         lastName: registerForm.lastName.trim() || undefined,
         phone: registerForm.phone.trim() || undefined
       });
+      if (registerAvatar) {
+        await uploadPickedImage(registerAvatar, session.accessToken, "profile_avatar").catch((requestError) => {
+          console.warn("Avatar upload skipped after registration", requestError);
+        });
+      }
       await applySession(session);
       setRegisterForm(initialRegisterForm);
+      setRegisterAvatar(null);
     } catch (requestError) {
       setAuthError(asError(requestError, "Unable to register"));
     } finally {
       setAuthBusy(false);
     }
-  }, [applySession, registerForm]);
+  }, [applySession, registerAvatar, registerForm]);
+
+  const onPickRegisterAvatar = useCallback(async (): Promise<void> => {
+    try {
+      const asset = await pickSingleImage();
+      if (asset) {
+        setRegisterAvatar(asset);
+      }
+    } catch (requestError) {
+      setAuthError(asError(requestError, "Unable to choose profile photo"));
+    }
+  }, []);
 
   if (accessToken && user) {
     return (
@@ -196,6 +216,9 @@ function AppContent(): JSX.Element {
       setRegisterForm={setRegisterForm}
       busy={authBusy}
       error={authError}
+      registerAvatar={registerAvatar}
+      onPickRegisterAvatar={onPickRegisterAvatar}
+      onClearRegisterAvatar={() => setRegisterAvatar(null)}
       onLogin={onLogin}
       onRegister={onRegister}
     />

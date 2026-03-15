@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
-import { DashboardResponse, formatDate, getMyDashboard } from "../api";
-import { Banner, SectionCard } from "../components";
+import {
+  DashboardResponse,
+  discoverConnections,
+  formatDate,
+  getMyDashboard,
+  type ConnectionSearchCandidate
+} from "../api";
+import { AppButton, Banner, SectionCard } from "../components";
+import { MemberAvatar } from "../member-avatar";
 import { asError, shouldForceSignOut } from "../utils";
 import { useAppStyles, useAppTheme } from "../theme-context";
 
@@ -149,21 +156,54 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.muted,
       fontSize: 13,
       fontWeight: "600"
+    },
+    peopleGrid: {
+      gap: 12
+    },
+    personCard: {
+      borderRadius: 20,
+      padding: 14,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.line,
+      gap: 12
+    },
+    personHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12
+    },
+    personMeta: {
+      flex: 1,
+      gap: 3
+    },
+    personName: {
+      color: colors.ink,
+      fontSize: 16,
+      fontWeight: "800"
+    },
+    personBody: {
+      color: colors.muted,
+      fontSize: 13,
+      lineHeight: 18
     }
   });
 }
 
 export function HomeScreen({
   accessToken,
-  onSessionInvalid
+  onSessionInvalid,
+  onOpenPeople
 }: {
   accessToken: string;
   onSessionInvalid: () => void;
+  onOpenPeople?: () => void;
 }): JSX.Element {
   const styles = useAppStyles();
   const theme = useAppTheme();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [discoverPeople, setDiscoverPeople] = useState<ConnectionSearchCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FeedFilter>("all");
@@ -172,8 +212,12 @@ export function HomeScreen({
     setLoading(true);
     setError(null);
     try {
-      const payload = await getMyDashboard(accessToken);
-      setDashboard(payload);
+      const [dashboardPayload, discoverPayload] = await Promise.all([
+        getMyDashboard(accessToken),
+        discoverConnections(accessToken, { limit: 4 }).catch(() => [])
+      ]);
+      setDashboard(dashboardPayload);
+      setDiscoverPeople(discoverPayload);
     } catch (requestError) {
       const message = asError(requestError, "Failed to load home feed");
       setError(message);
@@ -217,7 +261,7 @@ export function HomeScreen({
         <Text style={localStyles.heroEyebrow}>For you</Text>
         <Text style={localStyles.heroTitle}>Trusted help, work, and people in one social-style flow.</Text>
         <Text style={localStyles.heroBody}>
-          Keep an eye on work opportunities, trust signals, and the network around your home services activity.
+          Keep an eye on work opportunities, trust signals, and the people around your home-services activity.
         </Text>
       </View>
 
@@ -255,6 +299,42 @@ export function HomeScreen({
           );
         })}
       </View>
+
+      <SectionCard
+        title="Discover people"
+        subtitle="A temporary random list for now, ready to evolve into smarter recommendations later."
+        testID="home-discover-people"
+      >
+        {discoverPeople.length === 0 ? (
+          <Text style={styles.cardBodyMuted}>We’ll show nearby members here as soon as there are eligible people to suggest.</Text>
+        ) : (
+          <View style={localStyles.peopleGrid}>
+            {discoverPeople.map((person) => (
+              <View key={person.userId} style={localStyles.personCard}>
+                <View style={localStyles.personHeader}>
+                  <MemberAvatar name={person.displayName} avatar={person.avatar} />
+                  <View style={localStyles.personMeta}>
+                    <Text style={localStyles.personName}>{person.displayName}</Text>
+                    <Text style={localStyles.personBody}>{person.locationLabel ?? "Location coming soon"}</Text>
+                    <Text style={localStyles.personBody}>ID: {person.userId}</Text>
+                  </View>
+                </View>
+                <Text style={localStyles.personBody}>
+                  {(person.topSkills.length > 0 ? person.topSkills : ["Profile still adding services"]).join(" • ")}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+        {onOpenPeople ? (
+          <AppButton
+            label="Open People"
+            onPress={onOpenPeople}
+            variant="secondary"
+            testID="home-open-people"
+          />
+        ) : null}
+      </SectionCard>
 
       <View style={localStyles.feedSection}>
         <View style={localStyles.feedHeader}>

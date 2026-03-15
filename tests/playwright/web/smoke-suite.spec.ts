@@ -6,10 +6,12 @@ import {
   makeUser,
   parseMemberId,
   readTextByTestId,
+  selectJobCategoryOption,
   waitForSuccessMessage
 } from "../utils/flow-helpers";
 
 let sharedUser: E2eUser | null = null;
+const signedInNavLabels = ["Home", "Discover", "People", "Privacy", "Alerts", "Verify", "Profile"] as const;
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -263,6 +265,30 @@ test("web guest home shows primary auth call-to-actions", async ({ page }) => {
   await expect(page.getByRole("link", { name: /join now|sign up/i }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" }).first()).not.toBeVisible();
+  for (const label of signedInNavLabels) {
+    await expect(page.getByRole("link", { name: new RegExp(`^${escapeRegex(label)}$`, "i") })).toHaveCount(0);
+  }
+});
+
+test("web mobile guest home hides authenticated navigation surfaces", async ({ page }) => {
+  await page.setViewportSize({ width: 400, height: 900 });
+  await page.goto("/");
+  await signOutIfVisible(page);
+  await page.evaluate(() => {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+    document.cookie = "illamhelp_access_token=; Path=/; Max-Age=0; SameSite=Lax";
+  });
+  await page.context().clearCookies();
+  await page.goto("/");
+
+  await expect(page.getByTestId("tab-home")).toHaveCount(0);
+  await page.getByTestId("mobile-drawer-toggle").click();
+  await expect(page.getByTestId("drawer-nav-jobs-toggle")).toHaveCount(0);
+  await expect(page.getByTestId("drawer-nav-alerts")).toHaveCount(0);
+  await expect(page.getByTestId("drawer-nav-privacy")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /^log in$/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /^sign up$/i }).first()).toBeVisible();
 });
 
 test("web register and sign out works", async ({ page }) => {
@@ -300,11 +326,14 @@ test("web authenticated home hides guest auth call-to-actions", async ({ page })
   await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /join now|sign up/i }).first()).not.toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).not.toBeVisible();
+  for (const label of signedInNavLabels) {
+    await expect(page.getByRole("link", { name: new RegExp(`^${escapeRegex(label)}$`, "i") }).first()).toBeVisible();
+  }
 });
 
 test("web protected pages show sign-in card when signed out", async ({ page }) => {
   await resetBrowserSession(page);
-  await clickMainNav(page, "Jobs");
+  await page.goto("/jobs");
 
   await expect(page.getByText("Please sign in").first()).toBeVisible();
   await expect(page.getByText("Sign in or create an account to continue.").first()).toBeVisible();
@@ -314,7 +343,7 @@ test("web jobs page shows validation feedback for short payload", async ({ page 
   await loginAsShared(page);
   await openJobsSection(page, "posted");
 
-  await page.getByLabel("Category").fill("p");
+  await selectJobCategoryOption(page.getByRole("combobox", { name: /Category/i }).first(), "plumbing");
   await page.getByLabel("Location").fill("k");
   await page.getByLabel("Title").fill("abc");
   await page.getByLabel("Description").fill("Description is long enough for browser validation.");
@@ -338,7 +367,7 @@ test("web jobs page posts a valid job", async ({ page }) => {
   await loginAsShared(page);
   await openJobsSection(page, "posted");
 
-  await page.getByLabel("Category").fill("plumber");
+  await selectJobCategoryOption(page.getByRole("combobox", { name: /Category/i }).first(), "plumber");
   await page.getByLabel("Location").fill("Kakkanad, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page.getByLabel("Description").fill("Need urgent kitchen sink leak repair service.");
@@ -356,7 +385,7 @@ test("web jobs page posts connections-only job and shows visibility in posted se
   await loginAsShared(page);
   await openJobsSection(page, "posted");
 
-  await page.getByLabel("Category").fill("electrician");
+  await selectJobCategoryOption(page.getByRole("combobox", { name: /Category/i }).first(), "electrician");
   await page.getByLabel("Location").fill("Aluva, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page
@@ -378,7 +407,7 @@ test("web jobs page shows posted job under 'Jobs posted by me' with applicant-ma
   await loginAsShared(page);
   await openJobsSection(page, "posted");
 
-  await page.getByLabel("Category").fill("plumber");
+  await selectJobCategoryOption(page.getByRole("combobox", { name: /Category/i }).first(), "plumber");
   await page.getByLabel("Location").fill("Kakkanad, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page
@@ -398,7 +427,7 @@ test("web jobs posted by me opens applicant manager with empty applicants state"
   await loginAsShared(page);
   await openJobsSection(page, "posted");
 
-  await page.getByLabel("Category").fill("plumber");
+  await selectJobCategoryOption(page.getByRole("combobox", { name: /Category/i }).first(), "plumber");
   await page.getByLabel("Location").fill("Kakkanad, Kochi");
   await page.getByLabel("Title").fill(jobTitle);
   await page
@@ -489,19 +518,30 @@ test("web consent page shows empty state when no consent activity exists", async
   await loginAsShared(page);
   await clickMainNav(page, "Privacy");
 
-  await expect(page.getByText("No access requests").first()).toBeVisible();
-  await expect(page.getByText("No sharing events").first()).toBeVisible();
+  await expect(page.getByText("No privacy relationships yet").first()).toBeVisible();
+  await expect(
+    page.getByText("Accepted connections will appear here with summaries of granted and requested access.").first()
+  ).toBeVisible();
 });
 
 test("web profile page updates details", async ({ page }) => {
+  test.setTimeout(20_000);
   await loginAsShared(page);
   await clickMainNav(page, "Profile");
 
+  await expect(page.getByTestId("profile-user-id")).toBeVisible();
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
-  await page.getByLabel("Services offered").fill("plumber, electrician");
+  await page.getByTestId("profile-skill-picker").click();
+  await page.getByTestId("profile-skill-search").fill("plumb");
+  await page.getByTestId("profile-skill-option-plumbing").click();
+  await expect(page.getByTestId("profile-skill-search")).toBeHidden();
+  await page.getByTestId("profile-skill-proficiency").selectOption("advanced");
+  await page.getByTestId("profile-skill-add").click();
+  await page.getByTestId("profile-skill-level-plumbing").selectOption("expert");
   await page.getByTestId("profile-phone-input").fill("+919812345678");
-  await page.getByRole("button", { name: "Save profile" }).click();
+  await page.getByRole("button", { name: "Save Profile" }).click();
 
   await waitForSuccessMessage(page, "Profile updated.");
+  await expect(page.getByText(/plumbing/i).first()).toBeVisible();
 });

@@ -1,14 +1,42 @@
 import { ApiPropertyOptional } from "@nestjs/swagger";
+import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
+  IsBoolean,
   IsArray,
   IsEmail,
+  IsIn,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
-  MinLength
+  MinLength,
+  ValidateNested
 } from "class-validator";
+
+export class UpdateServiceSkillDto {
+  @ApiPropertyOptional({ example: "plumbing", minLength: 2, maxLength: 64 })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(64)
+  jobName!: string;
+
+  @ApiPropertyOptional({
+    enum: ["beginner", "intermediate", "advanced", "expert"],
+    example: "advanced"
+  })
+  @IsString()
+  @IsIn(["beginner", "intermediate", "advanced", "expert"])
+  proficiency!: "beginner" | "intermediate" | "advanced" | "expert";
+
+  @ApiPropertyOptional({
+    enum: ["catalog", "custom"],
+    example: "catalog"
+  })
+  @IsString()
+  @IsIn(["catalog", "custom"])
+  source!: "catalog" | "custom";
+}
 
 export class UpdateProfileDto {
   @ApiPropertyOptional({ example: "Anita", minLength: 2, maxLength: 80 })
@@ -49,6 +77,17 @@ export class UpdateProfileDto {
   @MaxLength(40, { each: true })
   serviceCategories?: string[];
 
+  @ApiPropertyOptional({
+    type: [UpdateServiceSkillDto],
+    maxItems: 20
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => UpdateServiceSkillDto)
+  serviceSkills?: UpdateServiceSkillDto[];
+
   @ApiPropertyOptional({ example: "anita.worker@example.com", format: "email" })
   @IsOptional()
   @IsEmail()
@@ -87,4 +126,12 @@ export class UpdateProfileDto {
   @MinLength(5)
   @MaxLength(240)
   fullAddress?: string;
+
+  @ApiPropertyOptional({
+    example: true,
+    description: "Clear the currently active approved avatar without deleting the uploaded media."
+  })
+  @IsOptional()
+  @IsBoolean()
+  removeActiveAvatar?: boolean;
 }

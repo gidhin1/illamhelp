@@ -214,7 +214,8 @@ migrate:
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0009_add_verified_column.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0010_jobs_visibility_and_extended_lifecycle.sql; \
 	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0011_verification_requests.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0012_notifications.sql
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0012_notifications.sql; \
+	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0013_profile_avatar_skills_and_media_context.sql
 
 bruno-e2e: preflight up-core migrate
 	bash ./scripts/run-with-e2e-admin-env.sh bash ./scripts/run-bruno-e2e.sh

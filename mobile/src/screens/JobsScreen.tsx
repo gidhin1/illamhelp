@@ -2,10 +2,11 @@
 import {
   acceptJobApplication, applyToJob,
   AuthenticatedUser, cancelBooking, closeBooking, completeBooking,
-  createJob, formatDate, getProfileByUserId, JobApplicationRecord, JobRecord, listJobApplications, listJobs, listMyJobApplications,
+  createJob, formatDate, getProfileByUserId, getServiceCatalog, JobApplicationRecord, JobRecord, listJobApplications, listJobs, listMyJobApplications,
   markPaymentDone,
   markPaymentReceived, ProfileRecord, rejectJobApplication,
   revokeJobAssignment,
+  ServiceCatalogOption,
   startBooking, withdrawJobApplication
 } from "../api";
 
@@ -18,9 +19,9 @@ import {
 } from "../constants";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { FALLBACK_SERVICE_CATALOG } from "../service-catalog";
 
 function isPendingJobApplicationStatus(status: JobApplicationRecord["status"]): boolean {
   return status === "applied" || status === "shortlisted";
@@ -54,13 +55,15 @@ export function JobsScreen({
 }): JSX.Element {
   const currentUserId = user.publicUserId;
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [catalog, setCatalog] = useState<ServiceCatalogOption[]>(FALLBACK_SERVICE_CATALOG);
   const [myApplicationsByJob, setMyApplicationsByJob] = useState<
     Record<string, JobApplicationRecord>
   >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [category, setCategory] = useState("");
+  const [categoryValue, setCategoryValue] = useState(FALLBACK_SERVICE_CATALOG[0]?.value ?? "plumbing");
+  const [customCategory, setCustomCategory] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [locationText, setLocationText] = useState("");
@@ -167,6 +170,18 @@ export function JobsScreen({
     };
   }, [showAssignedSection, showDiscoverSection, showPostedSection]);
 
+  const selectedCatalogOption = useMemo(
+    () => catalog.find((item) => item.value === categoryValue) ?? null,
+    [catalog, categoryValue]
+  );
+
+  const resolvedCategory = useMemo(() => {
+    if (!selectedCatalogOption || selectedCatalogOption.value === "other") {
+      return customCategory.trim();
+    }
+    return selectedCatalogOption.label;
+  }, [customCategory, selectedCatalogOption]);
+
   const loadOwnJobApplicantCounts = useCallback(
     async (jobRows: JobRecord[]): Promise<void> => {
       const ownJobs = jobRows.filter((job) => job.seekerUserId === currentUserId);
@@ -247,6 +262,25 @@ export function JobsScreen({
   }, [load]);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadCatalog = async (): Promise<void> => {
+      try {
+        const response = await getServiceCatalog();
+        if (!cancelled && response.options.length > 0) {
+          setCatalog(response.options);
+          setCategoryValue(response.options[0]?.value ?? "other");
+        }
+      } catch {
+        // keep fallback catalog
+      }
+    };
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!selectedOwnJobId) {
       setSelectedOwnJobApplications([]);
       return;
@@ -273,7 +307,7 @@ export function JobsScreen({
     setSubmitSuccess(null);
 
     const payload: CreateJobPayload = {
-      category: latestDraftRef.current.category.trim(),
+      category: resolvedCategory,
       title: latestDraftRef.current.title.trim(),
       description: latestDraftRef.current.description.trim(),
       locationText: latestDraftRef.current.locationText.trim(),
@@ -298,7 +332,8 @@ export function JobsScreen({
         locationText: "",
         visibility: "public"
       };
-      setCategory("");
+      setCategoryValue(catalog[0]?.value ?? "other");
+      setCustomCategory("");
       setTitle("");
       setDescription("");
       setLocationText("");
@@ -447,6 +482,11 @@ export function JobsScreen({
               {application ? (
                 <Text style={styles.dataMeta}>Your application: {application.status}</Text>
               ) : null}
+              {application?.skillSnapshot ? (
+                <Text style={styles.dataMeta}>
+                  Skill snapshot: {application.skillSnapshot.jobName} · {application.skillSnapshot.proficiency}
+                </Text>
+              ) : null}
               {canApply ? (
                 <AppButton
                   label={jobActionLoadingId === `apply-${job.id}` ? "Applying..." : "Apply for job"}
@@ -542,16 +582,38 @@ export function JobsScreen({
           {showPostedSection ? (
             <>
               <SectionCard title="Create job">
-                <InputField
-                  label="Category"
-                  value={category}
-                  onChangeText={(value) => {
-                    latestDraftRef.current.category = value;
-                    setCategory(value);
-                  }}
-                  placeholder="plumber"
-                  testID="jobs-category"
-                />
+                <Text style={styles.fieldLabel}>Service catalog</Text>
+                <View style={styles.roleRow}>
+                  {catalog.map((option) => (
+                    <Pressable
+                      key={option.value}
+                      style={[
+                        styles.roleChip,
+                        categoryValue === option.value ? styles.roleChipSelected : null
+                      ]}
+                      onPress={() => setCategoryValue(option.value)}
+                      testID={`jobs-category-${option.value}`}
+                    >
+                      <Text
+                        style={[
+                          styles.roleChipLabel,
+                          categoryValue === option.value ? styles.roleChipLabelSelected : null
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                {selectedCatalogOption?.value === "other" ? (
+                  <InputField
+                    label="Custom job name"
+                    value={customCategory}
+                    onChangeText={setCustomCategory}
+                    placeholder="Tile polish, babysitting..."
+                    testID="jobs-category-custom"
+                  />
+                ) : null}
                 <InputField
                   label="Title"
                   value={title}
@@ -626,6 +688,7 @@ export function JobsScreen({
                 <AppButton
                   label={submitting ? "Posting..." : "Post job"}
                   onPress={() => {
+                    latestDraftRef.current.category = resolvedCategory;
                     void onCreate();
                   }}
                   disabled={submitting}
@@ -756,6 +819,11 @@ export function JobsScreen({
                 </Text>
                 {application.message ? (
                   <Text style={styles.dataMeta}>Message: {application.message}</Text>
+                ) : null}
+                {application.skillSnapshot ? (
+                  <Text style={styles.dataMeta}>
+                    Skill snapshot: {application.skillSnapshot.jobName} · {application.skillSnapshot.proficiency}
+                  </Text>
                 ) : null}
                 <AppButton
                   label={
@@ -944,9 +1012,13 @@ export function JobsScreen({
           </Text>
           <Text style={styles.dataMeta}>
             Services:{" "}
-            {selectedApplicantProfile.serviceCategories.length > 0
-              ? selectedApplicantProfile.serviceCategories.join(", ")
-              : "Not provided"}
+            {selectedApplicantProfile.serviceSkills.length > 0
+              ? selectedApplicantProfile.serviceSkills
+                  .map((skill) => `${skill.jobName} (${skill.proficiency})`)
+                  .join(", ")
+              : selectedApplicantProfile.serviceCategories.length > 0
+                ? selectedApplicantProfile.serviceCategories.join(", ")
+                : "Not provided"}
           </Text>
           <Text style={styles.dataMeta}>
             Phone:{" "}

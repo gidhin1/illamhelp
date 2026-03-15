@@ -2,12 +2,20 @@ export type UserType = "seeker" | "provider" | "both";
 export type AppRole = "both" | "seeker" | "provider" | "admin" | "support";
 
 export type ConsentField = "phone" | "alternate_phone" | "email" | "full_address";
+export type SkillProficiency = "beginner" | "intermediate" | "advanced" | "expert";
+export type ServiceSkillSource = "catalog" | "custom";
 export const CONSENT_FIELDS: ConsentField[] = [
   "phone",
   "alternate_phone",
   "email",
   "full_address"
 ];
+
+export interface ServiceSkill {
+  jobName: string;
+  proficiency: SkillProficiency;
+  source: ServiceSkillSource;
+}
 
 export interface ApiErrorPayload {
   statusCode?: number;
@@ -76,8 +84,25 @@ export interface JobApplicationRecord {
   providerUserId: string;
   status: "applied" | "shortlisted" | "accepted" | "rejected" | "withdrawn";
   message: string | null;
+  skillSnapshot: ServiceSkill | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ConnectionAvatarSummary {
+  mediaId: string;
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
+}
+
+export interface ConnectionPersonSummary {
+  userId: string;
+  displayName: string;
+  locationLabel: string | null;
+  serviceCategories: string[];
+  serviceSkills: ServiceSkill[];
+  topSkills: string[];
+  avatar: ConnectionAvatarSummary | null;
 }
 
 export interface ConnectionRecord {
@@ -88,6 +113,7 @@ export interface ConnectionRecord {
   status: "pending" | "accepted" | "declined" | "blocked";
   requestedAt: string;
   decidedAt: string | null;
+  otherUser?: ConnectionPersonSummary;
 }
 
 export interface ConnectionSearchCandidate {
@@ -95,8 +121,30 @@ export interface ConnectionSearchCandidate {
   displayName: string;
   locationLabel: string | null;
   serviceCategories: string[];
+  serviceSkills: ServiceSkill[];
+  topSkills: string[];
   recentJobCategories: string[];
   recentLocations: string[];
+  avatar: ConnectionAvatarSummary | null;
+}
+
+export interface ProfileAvatarRecord {
+  mediaId: string;
+  state:
+    | "uploaded"
+    | "scanning"
+    | "ai_reviewed"
+    | "human_review_pending"
+    | "approved"
+    | "rejected"
+    | "appeal_pending"
+    | "appeal_resolved";
+  contentType: string;
+  moderationReasonCodes: string[];
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ProfileRecord {
@@ -107,8 +155,12 @@ export interface ProfileRecord {
   city: string | null;
   area: string | null;
   serviceCategories: string[];
+  serviceSkills: ServiceSkill[];
   ratingAverage: number | null;
   ratingCount: number;
+  verified: boolean;
+  activeAvatar: ProfileAvatarRecord | null;
+  pendingAvatar: ProfileAvatarRecord | null;
   contact: {
     email: string | null;
     phone: string | null;
@@ -152,12 +204,18 @@ export interface ConsentGrantRecord {
 }
 
 export type MediaKind = "image" | "video";
+export type MediaContext =
+  | "profile_gallery"
+  | "profile_avatar"
+  | "job_attachment"
+  | "verification_document";
 
 export interface MediaAssetRecord {
   id: string;
   ownerUserId: string;
   jobId: string | null;
   kind: MediaKind;
+  context: MediaContext;
   bucketName: string;
   objectKey: string;
   contentType: string;
@@ -190,6 +248,7 @@ export interface PublicMediaAssetRecord {
   ownerUserId: string;
   jobId: string | null;
   kind: MediaKind;
+  context: MediaContext;
   contentType: string;
   fileSizeBytes: number;
   state: "approved";
@@ -305,6 +364,17 @@ export interface PaginatedResponse<T> {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface ServiceCatalogOption {
+  value: string;
+  label: string;
+  group: string;
+}
+
+export interface ServiceCatalogResponse {
+  options: ServiceCatalogOption[];
+  proficiencies: SkillProficiency[];
 }
 
 export function listJobs(
@@ -536,6 +606,19 @@ export function searchConnections(
   return apiRequest<ConnectionSearchCandidate[]>(path, {}, accessToken);
 }
 
+export function discoverConnections(
+  accessToken: string,
+  payload?: { limit?: number }
+): Promise<ConnectionSearchCandidate[]> {
+  const params = new URLSearchParams();
+  if (typeof payload?.limit === "number") {
+    params.set("limit", String(payload.limit));
+  }
+  const queryString = params.toString();
+  const path = queryString ? `/connections/discover?${queryString}` : "/connections/discover";
+  return apiRequest<ConnectionSearchCandidate[]>(path, {}, accessToken);
+}
+
 export function acceptConnection(
   connectionId: string,
   accessToken: string
@@ -621,10 +704,12 @@ export function updateMyProfile(
     city?: string;
     area?: string;
     serviceCategories?: string[];
+    serviceSkills?: ServiceSkill[];
     email?: string;
     phone?: string;
     alternatePhone?: string;
     fullAddress?: string;
+    removeActiveAvatar?: boolean;
   },
   accessToken: string
 ): Promise<ProfileRecord> {
@@ -636,6 +721,10 @@ export function updateMyProfile(
     },
     accessToken
   );
+}
+
+export function getServiceCatalog(): Promise<ServiceCatalogResponse> {
+  return apiRequest<ServiceCatalogResponse>("/profiles/service-catalog");
 }
 
 export function listConsentRequests(accessToken: string): Promise<AccessRequestRecord[]> {
@@ -729,6 +818,7 @@ export function listPublicApprovedMedia(ownerUserId: string): Promise<PublicMedi
 export function createMediaUploadTicket(
   payload: {
     kind: MediaKind;
+    context?: MediaContext;
     contentType: string;
     fileSizeBytes: number;
     checksumSha256: string;
@@ -757,6 +847,29 @@ export function completeMediaUpload(
     {
       method: "POST",
       body: JSON.stringify(payload)
+    },
+    accessToken
+  );
+}
+
+export function deleteOwnedMedia(
+  mediaId: string,
+  accessToken: string
+): Promise<{ success: true }> {
+  return apiRequest<{ success: true }>(
+    `/media/${mediaId}`,
+    {
+      method: "DELETE"
+    },
+    accessToken
+  );
+}
+
+export function removeMyAvatar(accessToken: string): Promise<ProfileRecord> {
+  return apiRequest<ProfileRecord>(
+    "/profiles/me/avatar",
+    {
+      method: "DELETE"
     },
     accessToken
   );

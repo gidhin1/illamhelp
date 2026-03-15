@@ -102,6 +102,7 @@ async function registerByUi(page: Page): Promise<void> {
 }
 
 test("web profile page updates profile and uploads media", async ({ page }) => {
+  test.setTimeout(45_000);
   await registerByUi(page);
 
   await clickMainNav(page, "Profile");
@@ -111,21 +112,68 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
 
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
-  await page.getByLabel("Services offered").fill("plumber, electrician");
+  await page.getByTestId("profile-skill-picker").click();
+  await page.getByTestId("profile-skill-search").fill("other");
+  await page.getByTestId("profile-skill-option-other").click();
+  await expect(page.getByTestId("profile-skill-search")).toBeHidden();
+  await expect(page.getByTestId("profile-skill-custom")).toBeVisible();
+  await page.getByTestId("profile-skill-custom").fill("Mural art");
+  await page.getByTestId("profile-skill-proficiency").selectOption("advanced");
+  await page.getByTestId("profile-skill-add").click();
+  await page.getByTestId("profile-skill-level-mural-art").selectOption("expert");
+  await expect(page.getByText(/mural art/i).first()).toBeVisible();
   await page.getByTestId("profile-phone-input").fill("+919812345678");
   await page.getByRole("button", { name: "Save profile" }).click();
   await waitForSuccessMessage(page, "Profile updated.");
+  await expect(page.getByTestId("member-avatar-placeholder")).toBeVisible();
 
   const payload = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=",
     "base64"
   );
+  await page.getByTestId("profile-avatar-trigger").click();
+  await expect(page.getByTestId("profile-avatar-upload")).toBeVisible();
+  await expect(page.getByTestId("profile-avatar-cancel")).toBeVisible();
+  await expect(page.getByTestId("profile-avatar-view")).toHaveCount(0);
+  await expect(page.getByTestId("profile-avatar-edit")).toHaveCount(0);
+  await expect(page.getByTestId("profile-avatar-remove")).toHaveCount(0);
+  const firstChooser = page.waitForEvent("filechooser");
+  await page.getByTestId("profile-avatar-upload").click();
+  await (await firstChooser).setFiles({
+    name: "avatar-proof.png",
+    mimeType: "image/png",
+    buffer: payload
+  });
+  await waitForSuccessMessage(page, "Avatar uploaded. It is now in the moderation queue.");
+  await expect(page.getByText(/Pending avatar review/i).first()).toBeVisible();
+  await page.getByTestId("profile-avatar-trigger").click();
+  await expect(page.getByTestId("profile-avatar-view")).toBeVisible();
+  await expect(page.getByTestId("profile-avatar-edit")).toBeVisible();
+  await expect(page.getByTestId("profile-avatar-remove")).toBeVisible();
+  await page.getByTestId("profile-avatar-view").click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Close" }).click();
+  const secondChooser = page.waitForEvent("filechooser");
+  await page.getByTestId("profile-avatar-trigger").click();
+  await page.getByTestId("profile-avatar-edit").click();
+  await (await secondChooser).setFiles({
+    name: "avatar-proof-2.png",
+    mimeType: "image/png",
+    buffer: payload
+  });
+  await waitForSuccessMessage(page, "Avatar uploaded. It is now in the moderation queue.");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByTestId("profile-avatar-trigger").click();
+  await page.getByTestId("profile-avatar-remove").click();
+  await waitForSuccessMessage(page, "Pending avatar removed.");
+
   await page
     .locator("input[type='file']")
+    .last()
     .setInputFiles({ name: "work-proof.png", mimeType: "image/png", buffer: payload });
-  await page.getByRole("button", { name: "Upload" }).click();
+  await page.getByRole("button", { name: /^Upload$/i }).click();
   await waitForSuccessMessage(page, "Uploaded successfully. Review started.");
-  await expect(page.getByText("scanning").first()).toBeVisible();
+  await expect(page.getByText(/work-proof\.png/i).first()).toBeVisible();
 
   await page.getByTestId("profile-public-owner-input").fill(memberId);
   await page.getByTestId("profile-public-load-button").click();

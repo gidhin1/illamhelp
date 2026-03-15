@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
 
+import { AdminUiProvider } from "@/components/AdminUiProvider";
 import { SessionProvider } from "@/components/session/SessionProvider";
 
 import "./globals.css";
@@ -25,7 +26,9 @@ export default function RootLayout({ children }: { children: ReactNode }): React
   return (
     <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <AdminUiProvider>{children}</AdminUiProvider>
+        </SessionProvider>
       </body>
     </html>
   );

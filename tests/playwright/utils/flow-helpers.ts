@@ -115,3 +115,73 @@ export async function waitForSuccessMessage(page: Page, message: string): Promis
 export async function waitForSignInRequired(page: Page): Promise<void> {
   await expect(page.getByText("Sign in required")).toBeVisible({ timeout: 10_000 });
 }
+
+function normalizeCategoryToken(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+const JOB_CATEGORY_ALIASES: Record<string, string[]> = {
+  plumber: ["plumbing"],
+  plumbing: ["plumbing"],
+  electrician: ["electrical"],
+  electrical: ["electrical"],
+  cleaner: ["cleaning"],
+  cleaning: ["cleaning"],
+  "elder care": ["elder care"],
+  eldercare: ["elder care"],
+  "home security": ["security"],
+  security: ["security"]
+};
+
+export async function selectJobCategoryOption(
+  select: Locator,
+  requestedCategory: string
+): Promise<"catalog" | "custom"> {
+  const normalizedRequested = normalizeCategoryToken(requestedCategory);
+  const aliases = [
+    normalizedRequested,
+    ...(JOB_CATEGORY_ALIASES[normalizedRequested] ?? [])
+  ];
+
+  const options = await select.locator("option").evaluateAll((rows) =>
+    rows.map((option) => {
+      const cast = option as HTMLOptionElement;
+      return {
+        value: cast.value,
+        label: cast.textContent?.trim() ?? ""
+      };
+    })
+  );
+
+  const directMatch = options.find((option) => {
+    const normalizedValue = normalizeCategoryToken(option.value);
+    const normalizedLabel = normalizeCategoryToken(option.label);
+    return aliases.some(
+      (alias) =>
+        alias === normalizedValue ||
+        alias === normalizedLabel ||
+        normalizedValue.includes(alias) ||
+        normalizedLabel.includes(alias)
+    );
+  });
+
+  if (directMatch) {
+    await select.selectOption(directMatch.value);
+    const normalizedSelected =
+      normalizeCategoryToken(directMatch.value) || normalizeCategoryToken(directMatch.label);
+    return normalizedSelected === "other" ? "custom" : "catalog";
+  }
+
+  const otherOption = options.find((option) => {
+    const normalizedValue = normalizeCategoryToken(option.value);
+    const normalizedLabel = normalizeCategoryToken(option.label);
+    return normalizedValue === "other" || normalizedLabel === "other";
+  });
+
+  if (!otherOption) {
+    throw new Error(`No category option matched '${requestedCategory}' and no custom 'Other' option is available.`);
+  }
+
+  await select.selectOption(otherOption.value);
+  return "custom";
+}

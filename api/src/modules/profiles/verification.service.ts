@@ -2,12 +2,14 @@ import {
     BadRequestException,
     Injectable,
     Logger,
-    NotFoundException
+    NotFoundException,
+    Optional
 } from "@nestjs/common";
 
 import { DatabaseService } from "../../common/database/database.service";
 import { assertUuid } from "../../common/utils/uuid";
 import { AuditService } from "../audit/audit.service";
+import { MediaService } from "../media/media.service";
 import { NotificationService } from "../notifications/notification.service";
 import { ProfilesService } from "./profiles.service";
 
@@ -68,7 +70,8 @@ export class VerificationService {
         private readonly databaseService: DatabaseService,
         private readonly auditService: AuditService,
         private readonly profilesService: ProfilesService,
-        private readonly notificationService: NotificationService
+        private readonly notificationService: NotificationService,
+        @Optional() private readonly mediaService?: MediaService
     ) { }
 
     async submit(input: SubmitVerificationInput): Promise<VerificationRecord> {
@@ -124,6 +127,10 @@ export class VerificationService {
         );
 
         const record = this.mapRow(result.rows[0]);
+
+        await this.mediaService
+            ?.markVerificationDocuments(input.actorUserId, input.documentMediaIds)
+            .catch(() => undefined);
 
         await this.auditService.logEvent({
             actorUserId: input.actorUserId,

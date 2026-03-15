@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -15,6 +15,7 @@ import {
   TextInput
 } from "@/components/ui/primitives";
 import { register } from "@/lib/api";
+import { uploadMemberMedia } from "@/lib/media-upload";
 
 export default function RegisterPage(): JSX.Element {
   const router = useRouter();
@@ -26,14 +27,21 @@ export default function RegisterPage(): JSX.Element {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  const onAvatarChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setAvatarFile(event.target.files?.[0] ?? null);
+  };
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    setWarning(null);
 
     try {
       const normalizedUserId = username.trim();
@@ -48,6 +56,17 @@ export default function RegisterPage(): JSX.Element {
         lastName: lastName || undefined,
         phone: phone || undefined
       });
+      if (avatarFile) {
+        try {
+          await uploadMemberMedia(avatarFile, session.accessToken, "profile_avatar");
+        } catch (avatarError) {
+          setWarning(
+            avatarError instanceof Error
+              ? `Account created. Avatar upload could not be finished: ${avatarError.message}`
+              : "Account created. Avatar upload could not be finished."
+          );
+        }
+      }
       await applyAuthSession(session);
       router.push("/jobs");
     } catch (requestError) {
@@ -68,6 +87,7 @@ export default function RegisterPage(): JSX.Element {
           />
           <Card className="stack">
             {error ? <Banner tone="error">{error}</Banner> : null}
+            {warning ? <Banner tone="info">{warning}</Banner> : null}
             <form className="grid two" onSubmit={onSubmit}>
               <Field label="First name">
                 <TextInput
@@ -122,6 +142,17 @@ export default function RegisterPage(): JSX.Element {
                   required
                   minLength={8}
                   autoComplete="new-password"
+                />
+              </Field>
+              <Field
+                label="Profile picture (optional)"
+                hint="This goes through the same admin approval queue as other media."
+              >
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={onAvatarChange}
+                  data-testid="register-avatar-input"
                 />
               </Field>
               <div className="stack" style={{ alignContent: "end" }}>

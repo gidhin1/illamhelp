@@ -107,6 +107,7 @@ export function NavBar(): JSX.Element {
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [jobsExpanded, setJobsExpanded] = useState(false);
+  const isAuthenticated = Boolean(user);
 
   useEffect(() => {
     setMobileDrawerOpen(false);
@@ -141,9 +142,13 @@ export function NavBar(): JSX.Element {
   }, [accessToken, pathname, user]);
 
   const currentTitle = useMemo(() => {
+    if (!isAuthenticated) {
+      return "IllamHelp";
+    }
+
     const match = [...MOBILE_NAVIGATION, ...DRAWER_NAV.flatMap((item) => item.children ?? [])].find((item) => isActivePath(pathname, item.webHref));
     return match?.mobileTitle ?? "IllamHelp";
-  }, [pathname]);
+  }, [isAuthenticated, pathname]);
 
   return (
     <>
@@ -152,7 +157,7 @@ export function NavBar(): JSX.Element {
           type="button"
           className="mobile-shell-icon-button"
           onClick={() => setMobileDrawerOpen(true)}
-          aria-label="Open navigation"
+          aria-label={isAuthenticated ? "Open navigation" : "Open guest menu"}
           data-testid="mobile-drawer-toggle"
         >
           <NavIcon name="menu" />
@@ -179,24 +184,26 @@ export function NavBar(): JSX.Element {
             IllamHelp
           </span>
         </Link>
-        <nav className="sidebar-menu">
-          {desktopLinks.map((link) => {
-            const active = isActivePath(pathname, link.webHref);
-            return (
-              <Link key={link.key} href={link.webHref ?? "/"} className={`sidebar-link ${active ? "active" : ""}`}>
-                <span style={{ position: "relative", display: "inline-flex" }}>
-                  <NavIcon name={link.icon} />
-                  {link.key === "alerts" && user && unreadAlerts > 0 ? (
-                    <span className="badge" data-testid="nav-notifications-unread-badge" style={{ position: "absolute", top: -8, right: -12 }}>
-                      {Math.min(unreadAlerts, 99)}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="nav-label" style={{ fontSize: "1.2rem", display: "none" }}>{link.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+        {isAuthenticated ? (
+          <nav className="sidebar-menu">
+            {desktopLinks.map((link) => {
+              const active = isActivePath(pathname, link.webHref);
+              return (
+                <Link key={link.key} href={link.webHref ?? "/"} className={`sidebar-link ${active ? "active" : ""}`}>
+                  <span style={{ position: "relative", display: "inline-flex" }}>
+                    <NavIcon name={link.icon} />
+                    {link.key === "alerts" && unreadAlerts > 0 ? (
+                      <span className="badge" data-testid="nav-notifications-unread-badge" style={{ position: "absolute", top: -8, right: -12 }}>
+                        {Math.min(unreadAlerts, 99)}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="nav-label" style={{ fontSize: "1.2rem", display: "none" }}>{link.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+        ) : null}
         <div className="sidebar-footer">
           {user ? (
             <>
@@ -218,22 +225,24 @@ export function NavBar(): JSX.Element {
         </div>
       </aside>
 
-      <nav className="bottom-nav mobile-bottom-nav">
-        {BOTTOM_BAR_NAV.map((link) => {
-          const active = isActivePath(pathname, link.webHref);
-          return (
-            <Link
-              key={link.key}
-              href={link.webHref ?? "/"}
-              className={`mobile-bottom-link ${active ? "active" : ""}`}
-              aria-label={link.label}
-              data-testid={`tab-${link.key}`}
-            >
-              <NavIcon name={link.icon} />
-            </Link>
-          );
-        })}
-      </nav>
+      {isAuthenticated ? (
+        <nav className="bottom-nav mobile-bottom-nav">
+          {BOTTOM_BAR_NAV.map((link) => {
+            const active = isActivePath(pathname, link.webHref);
+            return (
+              <Link
+                key={link.key}
+                href={link.webHref ?? "/"}
+                className={`mobile-bottom-link ${active ? "active" : ""}`}
+                aria-label={link.label}
+                data-testid={`tab-${link.key}`}
+              >
+                <NavIcon name={link.icon} />
+              </Link>
+            );
+          })}
+        </nav>
+      ) : null}
 
       {mobileDrawerOpen ? (
         <div className="mobile-drawer-layer" data-testid="mobile-drawer-layer">
@@ -257,67 +266,69 @@ export function NavBar(): JSX.Element {
               <ThemeButtons />
             </div>
 
-            <div className="mobile-drawer-section">
-              <div className="mobile-drawer-section-title">Explore</div>
-              {DRAWER_NAV.map((item) => {
-                if (item.key === "jobs") {
-                  const active = pathname.startsWith("/jobs");
-                  return (
-                    <div key={item.key} className="mobile-drawer-group">
-                      <button
-                        type="button"
-                        className={`mobile-drawer-link ${active ? "active" : ""}`}
-                        onClick={() => setJobsExpanded((open) => !open)}
-                        data-testid="drawer-nav-jobs-toggle"
-                      >
-                        <span className="mobile-drawer-link-icon"><NavIcon name={item.icon} /></span>
-                        <span>{item.label}</span>
-                        <span className="mobile-drawer-link-chevron">
-                          <NavIcon name={jobsExpanded ? "chevronDown" : "chevronRight"} />
-                        </span>
-                      </button>
-                      {jobsExpanded ? (
-                        <div className="mobile-drawer-children">
-                          {item.children?.map((child) => {
-                            const childActive = isActivePath(pathname, child.webHref);
-                            return (
-                              <Link
-                                key={child.key}
-                                href={child.webHref ?? "/jobs/discover"}
-                                className={`mobile-drawer-child ${childActive ? "active" : ""}`}
-                                data-testid={`drawer-nav-${child.key}`}
-                              >
-                                {child.label}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                }
+            {isAuthenticated ? (
+              <div className="mobile-drawer-section">
+                <div className="mobile-drawer-section-title">Explore</div>
+                {DRAWER_NAV.map((item) => {
+                  if (item.key === "jobs") {
+                    const active = pathname.startsWith("/jobs");
+                    return (
+                      <div key={item.key} className="mobile-drawer-group">
+                        <button
+                          type="button"
+                          className={`mobile-drawer-link ${active ? "active" : ""}`}
+                          onClick={() => setJobsExpanded((open) => !open)}
+                          data-testid="drawer-nav-jobs-toggle"
+                        >
+                          <span className="mobile-drawer-link-icon"><NavIcon name={item.icon} /></span>
+                          <span>{item.label}</span>
+                          <span className="mobile-drawer-link-chevron">
+                            <NavIcon name={jobsExpanded ? "chevronDown" : "chevronRight"} />
+                          </span>
+                        </button>
+                        {jobsExpanded ? (
+                          <div className="mobile-drawer-children">
+                            {item.children?.map((child) => {
+                              const childActive = isActivePath(pathname, child.webHref);
+                              return (
+                                <Link
+                                  key={child.key}
+                                  href={child.webHref ?? "/jobs/discover"}
+                                  className={`mobile-drawer-child ${childActive ? "active" : ""}`}
+                                  data-testid={`drawer-nav-${child.key}`}
+                                >
+                                  {child.label}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  }
 
-                const active = isActivePath(pathname, item.webHref);
-                return (
-                  <Link
-                    key={item.key}
-                    href={item.webHref ?? "/"}
-                    className={`mobile-drawer-link ${active ? "active" : ""}`}
-                    data-testid={`drawer-nav-${item.key}`}
-                  >
-                    <span className="mobile-drawer-link-icon" style={{ position: "relative" }}>
-                      <NavIcon name={item.icon} />
-                      {item.key === "alerts" && user && unreadAlerts > 0 ? (
-                        <span className="badge" style={{ position: "absolute", top: -6, right: -10 }}>
-                          {Math.min(unreadAlerts, 99)}
-                        </span>
-                      ) : null}
-                    </span>
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
+                  const active = isActivePath(pathname, item.webHref);
+                  return (
+                    <Link
+                      key={item.key}
+                      href={item.webHref ?? "/"}
+                      className={`mobile-drawer-link ${active ? "active" : ""}`}
+                      data-testid={`drawer-nav-${item.key}`}
+                    >
+                      <span className="mobile-drawer-link-icon" style={{ position: "relative" }}>
+                        <NavIcon name={item.icon} />
+                        {item.key === "alerts" && unreadAlerts > 0 ? (
+                          <span className="badge" style={{ position: "absolute", top: -6, right: -10 }}>
+                            {Math.min(unreadAlerts, 99)}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
 
             {user ? (
               <button type="button" className="mobile-drawer-signout" onClick={signOut} data-testid="drawer-signout">

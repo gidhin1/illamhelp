@@ -3,15 +3,23 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+import { MemberAvatar } from "@/components/MemberAvatar";
 import { PageShell } from "@/components/PageShell";
 import { useSession } from "@/components/session/SessionProvider";
 import { Button } from "@/components/ui/primitives";
-import { getMyDashboard, DashboardResponse, formatDate } from "@/lib/api";
+import {
+  discoverConnections,
+  getMyDashboard,
+  DashboardResponse,
+  formatDate,
+  type ConnectionSearchCandidate
+} from "@/lib/api";
 
 export default function HomePage(): JSX.Element {
   const { user, loading, accessToken } = useSession();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [dashLoading, setDashLoading] = useState(false);
+  const [discoverPeople, setDiscoverPeople] = useState<ConnectionSearchCandidate[]>([]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -19,8 +27,14 @@ export default function HomePage(): JSX.Element {
     const loadDash = async () => {
       setDashLoading(true);
       try {
-        const res = await getMyDashboard(accessToken);
-        if (!cancelled) setDashboard(res);
+        const [res, discover] = await Promise.all([
+          getMyDashboard(accessToken),
+          discoverConnections(accessToken, { limit: 4 }).catch(() => [])
+        ]);
+        if (!cancelled) {
+          setDashboard(res);
+          setDiscoverPeople(discover);
+        }
       } catch {
         // ignore
       } finally {
@@ -67,7 +81,7 @@ export default function HomePage(): JSX.Element {
             </div>
 
             {dashboard?.recentJobs && dashboard.recentJobs.length > 0 ? (
-              dashboard.recentJobs.map(job => (
+              dashboard.recentJobs.map((job) => (
                 <div key={job.id} className="feed-card">
                   <div style={{ display: "flex", gap: "var(--spacing-lg)" }}>
                     <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(145deg, var(--brand), var(--brand-2))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem", flexShrink: 0, color: "white" }}>
@@ -103,6 +117,42 @@ export default function HomePage(): JSX.Element {
                 </div>
               </div>
             )}
+
+            <div className="feed-card">
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", flexWrap: "wrap", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--ink)" }}>Discover people</div>
+                  <div className="muted-text">A temporary random list for now, ready to evolve into smarter recommendations later.</div>
+                </div>
+                <Link href="/connections" className="button-link">
+                  <Button variant="secondary">Open People</Button>
+                </Link>
+              </div>
+              {discoverPeople.length === 0 ? (
+                <div className="muted-text" style={{ marginTop: "var(--spacing-md)" }}>
+                  We’ll show nearby members here as soon as there are eligible people to suggest.
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px", marginTop: "var(--spacing-md)" }}>
+                  {discoverPeople.map((person) => (
+                    <div key={person.userId} className="card soft">
+                      <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+                        <MemberAvatar name={person.displayName} avatar={person.avatar} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 700 }}>{person.displayName}</div>
+                          <div className="muted-text" style={{ fontSize: "var(--font-sm)" }}>{person.locationLabel ?? "Location coming soon"}</div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "var(--spacing-md)" }}>
+                        {(person.topSkills.length > 0 ? person.topSkills : ["Profile still adding services"]).map((skill) => (
+                          <span key={skill} className="pill">{skill}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </PageShell>

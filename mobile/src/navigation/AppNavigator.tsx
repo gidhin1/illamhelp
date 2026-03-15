@@ -83,7 +83,13 @@ export function AppNavigator({
   const renderRoute = (): React.ReactNode => {
     switch (currentRoute) {
       case "home":
-        return <HomeScreen accessToken={accessToken} onSessionInvalid={signOut} />;
+        return (
+          <HomeScreen
+            accessToken={accessToken}
+            onSessionInvalid={signOut}
+            onOpenPeople={() => navigateTo("people")}
+          />
+        );
       case "people":
         return (
           <ConnectionsScreen accessToken={accessToken} user={user} onSessionInvalid={signOut} />
@@ -151,7 +157,13 @@ export function AppNavigator({
           />
         );
       default:
-        return <HomeScreen accessToken={accessToken} onSessionInvalid={signOut} />;
+        return (
+          <HomeScreen
+            accessToken={accessToken}
+            onSessionInvalid={signOut}
+            onOpenPeople={() => navigateTo("people")}
+          />
+        );
     }
   };
 

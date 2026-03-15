@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
 
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
 import { Public } from "../auth/decorators/public.decorator";
@@ -37,6 +37,8 @@ export class MediaController {
     return this.mediaService.createUploadTicket({
       ownerUserId: user.userId,
       kind: body.kind,
+      context:
+        body.context ?? (body.jobId ? "job_attachment" : "profile_gallery"),
       contentType: body.contentType,
       fileSizeBytes: body.fileSizeBytes,
       checksumSha256: body.checksumSha256,
@@ -56,5 +58,14 @@ export class MediaController {
       ownerUserId: user.userId,
       etag: body.etag
     });
+  }
+
+  @Delete(":mediaId")
+  async deleteMedia(
+    @Param("mediaId") mediaId: string,
+    @CurrentUser() user: AuthenticatedUser
+  ): Promise<{ success: true }> {
+    await this.mediaService.deleteOwnedMedia(mediaId, user.userId);
+    return { success: true };
   }
 }

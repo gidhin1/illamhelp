@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
@@ -7,7 +7,17 @@ import { assertUuid } from "../../common/utils/uuid";
 import { UserType } from "../auth/interfaces/user-type.enum";
 import { ConsentService } from "../consent/consent.service";
 import { ConsentField } from "../consent/dto/consent-field.enum";
+import { MediaService } from "../media/media.service";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
+import {
+  categoriesFromSkills,
+  HOME_SERVICE_CATALOG,
+  normalizeCatalogLabel,
+  normalizeServiceSkills,
+  type ServiceCatalogOption,
+  type ServiceSkill,
+  SERVICE_PROFICIENCIES
+} from "./service-catalog";
 
 interface UpsertProfileInput {
   userId: string;
@@ -26,15 +36,37 @@ interface DbProfileRow {
   city: string | null;
   area: string | null;
   service_categories: string[] | null;
+  service_skills: ServiceSkill[] | null;
   rating_average: number | null;
   rating_count: number | null;
   verified: boolean;
+  active_avatar_media_id: string | null;
   email_masked: string | null;
   phone_masked: string | null;
   pii_email_encrypted: Buffer | null;
   pii_phone_encrypted: Buffer | null;
   pii_alternate_phone_encrypted: Buffer | null;
   pii_full_address_encrypted: Buffer | null;
+}
+
+interface DbAvatarRow {
+  id: string;
+  owner_user_id: string;
+  bucket_name: string;
+  object_key: string;
+  content_type: string;
+  state:
+    | "uploaded"
+    | "scanning"
+    | "ai_reviewed"
+    | "human_review_pending"
+    | "approved"
+    | "rejected"
+    | "appeal_pending"
+    | "appeal_resolved";
+  moderation_reason_codes: string[] | null;
+  created_at: Date;
+  updated_at: Date;
 }
 
 interface ContactVisibility {
@@ -61,11 +93,30 @@ export interface ProfileRecord {
   city: string | null;
   area: string | null;
   serviceCategories: string[];
+  serviceSkills: ServiceSkill[];
   ratingAverage: number | null;
   ratingCount: number;
   verified: boolean;
+  activeAvatar: ProfileAvatarRecord | null;
+  pendingAvatar: ProfileAvatarRecord | null;
   contact: ContactPayload;
   visibility: ContactVisibility;
+}
+
+export interface ProfileAvatarRecord {
+  mediaId: string;
+  state: DbAvatarRow["state"];
+  contentType: string;
+  moderationReasonCodes: string[];
+  downloadUrl: string;
+  downloadUrlExpiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServiceCatalogResponse {
+  options: ServiceCatalogOption[];
+  proficiencies: string[];
 }
 
 @Injectable()
@@ -78,7 +129,8 @@ export class ProfilesService {
   constructor(
     private readonly databaseService: DatabaseService,
     private readonly consentService: ConsentService,
-    configService: ConfigService
+    configService: ConfigService,
+    @Optional() private readonly mediaService?: MediaService
   ) {
     const keyMaterial = configService.get<string>("PROFILE_PII_ENCRYPTION_KEY");
     if (!keyMaterial || keyMaterial.trim().length < 16) {
@@ -95,6 +147,11 @@ export class ProfilesService {
     const normalizedEmail = input.email?.trim().toLowerCase() || null;
     const normalizedPhone = input.phone?.trim() || null;
     const serviceCategories = this.defaultServiceCategories(input.userType);
+    const serviceSkills = serviceCategories.map((category) => ({
+      jobName: category,
+      proficiency: "intermediate" as const,
+      source: "catalog" as const
+    }));
     const encryptedEmail = this.encryptOptionalPii(normalizedEmail);
     const encryptedPhone = this.encryptOptionalPii(normalizedPhone);
 
@@ -121,6 +178,7 @@ export class ProfilesService {
         first_name,
         last_name,
         service_categories,
+        service_skills,
         pii_email_encrypted,
         pii_phone_encrypted
       )
@@ -129,14 +187,16 @@ export class ProfilesService {
         $2::text,
         $3::text,
         $4::text[],
-        $5::bytea,
-        $6::bytea
+        $5::jsonb,
+        $6::bytea,
+        $7::bytea
       )
       ON CONFLICT (user_id)
       DO UPDATE SET
         first_name = EXCLUDED.first_name,
         last_name = EXCLUDED.last_name,
         service_categories = EXCLUDED.service_categories,
+        service_skills = EXCLUDED.service_skills,
         pii_email_encrypted = COALESCE(EXCLUDED.pii_email_encrypted, profiles.pii_email_encrypted),
         pii_phone_encrypted = COALESCE(EXCLUDED.pii_phone_encrypted, profiles.pii_phone_encrypted),
         updated_at = now()
@@ -146,6 +206,7 @@ export class ProfilesService {
         input.firstName.trim(),
         input.lastName?.trim() || null,
         serviceCategories,
+        JSON.stringify(serviceSkills),
         encryptedEmail,
         encryptedPhone
       ]
@@ -238,11 +299,32 @@ export class ProfilesService {
     };
   }
 
+  getServiceCatalog(): ServiceCatalogResponse {
+    return {
+      options: HOME_SERVICE_CATALOG,
+      proficiencies: [...SERVICE_PROFICIENCIES]
+    };
+  }
+
   async setVerified(userId: string, verified: boolean): Promise<ProfileRecord> {
     assertUuid(userId, "userId");
     await this.databaseService.query(
       `UPDATE users SET verified = $2, updated_at = now() WHERE id = $1::uuid`,
       [userId, verified]
+    );
+    return this.getOwnProfile(userId);
+  }
+
+  async removeActiveAvatar(userId: string): Promise<ProfileRecord> {
+    assertUuid(userId, "userId");
+    await this.databaseService.query(
+      `
+      UPDATE profiles
+      SET active_avatar_media_id = NULL,
+          updated_at = now()
+      WHERE user_id = $1::uuid
+      `,
+      [userId]
     );
     return this.getOwnProfile(userId);
   }
@@ -260,10 +342,17 @@ export class ProfilesService {
     const mergedLastName = payload.lastName?.trim() ?? existing.last_name;
     const mergedCity = payload.city?.trim() ?? existing.city;
     const mergedArea = payload.area?.trim() ?? existing.area;
-    const mergedServiceCategories =
-      payload.serviceCategories !== undefined
-        ? this.normalizeServiceCategories(payload.serviceCategories)
-        : existing.service_categories ?? [];
+    const existingServiceSkills = this.normalizeStoredServiceSkills(
+      existing.service_skills,
+      existing.service_categories ?? []
+    );
+    const mergedServiceSkills =
+      payload.serviceSkills !== undefined
+        ? normalizeServiceSkills(payload.serviceSkills)
+        : payload.serviceCategories !== undefined
+          ? this.skillsFromCategories(payload.serviceCategories)
+          : existingServiceSkills;
+    const mergedServiceCategories = categoriesFromSkills(mergedServiceSkills);
     const existingEmail = this.decryptOptionalPii(existing.pii_email_encrypted);
     const existingPhone = this.decryptOptionalPii(existing.pii_phone_encrypted);
     const existingAlternatePhone = this.decryptOptionalPii(
@@ -291,10 +380,15 @@ export class ProfilesService {
         city = $4::text,
         area = $5::text,
         service_categories = $6::text[],
-        pii_email_encrypted = $7::bytea,
-        pii_phone_encrypted = $8::bytea,
-        pii_alternate_phone_encrypted = $9::bytea,
-        pii_full_address_encrypted = $10::bytea,
+        service_skills = $7::jsonb,
+        pii_email_encrypted = $8::bytea,
+        pii_phone_encrypted = $9::bytea,
+        pii_alternate_phone_encrypted = $10::bytea,
+        pii_full_address_encrypted = $11::bytea,
+        active_avatar_media_id = CASE
+          WHEN $12::boolean = true THEN NULL
+          ELSE active_avatar_media_id
+        END,
         updated_at = now()
       WHERE user_id = $1::uuid
       `,
@@ -305,10 +399,12 @@ export class ProfilesService {
         mergedCity,
         mergedArea,
         mergedServiceCategories,
+        JSON.stringify(mergedServiceSkills),
         encryptedEmail,
         encryptedPhone,
         encryptedAlternatePhone,
-        encryptedFullAddress
+        encryptedFullAddress,
+        payload.removeActiveAvatar === true
       ]
     );
 
@@ -351,7 +447,14 @@ export class ProfilesService {
         }
         : await this.resolveContactVisibility(ownerInternalUserId, viewerUserId);
 
-    return this.mapProfileRow(row, visibility);
+    const profile = await this.mapProfileRow(row, visibility);
+    if (ownerInternalUserId !== viewerUserId) {
+      return {
+        ...profile,
+        pendingAvatar: null
+      };
+    }
+    return profile;
   }
 
   private async resolveContactVisibility(
@@ -389,11 +492,19 @@ export class ProfilesService {
     };
   }
 
-  private mapProfileRow(row: DbProfileRow, visibility: ContactVisibility): ProfileRecord {
+  private async mapProfileRow(
+    row: DbProfileRow,
+    visibility: ContactVisibility
+  ): Promise<ProfileRecord> {
     const displayName = [row.first_name, row.last_name]
       .map((value) => value?.trim())
       .filter((value): value is string => !!value)
       .join(" ");
+    const serviceSkills = this.normalizeStoredServiceSkills(
+      row.service_skills,
+      row.service_categories ?? []
+    );
+    const avatarState = await this.getAvatarState(row.user_id, row.active_avatar_media_id);
 
     return {
       userId: this.toPublicUserId(row.user_id, row.username),
@@ -402,10 +513,13 @@ export class ProfilesService {
       displayName: displayName || "Member",
       city: row.city,
       area: row.area,
-      serviceCategories: row.service_categories ?? [],
+      serviceCategories: categoriesFromSkills(serviceSkills),
+      serviceSkills,
       ratingAverage: row.rating_average !== null ? Number(row.rating_average) : null,
       ratingCount: row.rating_count ?? 0,
       verified: row.verified ?? false,
+      activeAvatar: avatarState.activeAvatar,
+      pendingAvatar: avatarState.pendingAvatar,
       contact: {
         email: visibility.email ? this.decryptOptionalPii(row.pii_email_encrypted) : null,
         phone: visibility.phone ? this.decryptOptionalPii(row.pii_phone_encrypted) : null,
@@ -444,8 +558,10 @@ export class ProfilesService {
         p.city,
         p.area,
         p.service_categories,
+        p.service_skills,
         p.rating_average,
         p.rating_count,
+        p.active_avatar_media_id,
         u.email_masked,
         u.phone_masked,
         p.pii_email_encrypted,
@@ -582,11 +698,108 @@ export class ProfilesService {
     }
   }
 
-  private normalizeServiceCategories(values: string[]): string[] {
-    const normalized = values
-      .map((value) => value.trim().toLowerCase())
-      .filter((value) => value.length > 0);
-    return [...new Set(normalized)].slice(0, 20);
+  private normalizeStoredServiceSkills(
+    value: ServiceSkill[] | null | undefined,
+    fallbackCategories: string[]
+  ): ServiceSkill[] {
+    if (Array.isArray(value) && value.length > 0) {
+      return normalizeServiceSkills(value);
+    }
+    return this.skillsFromCategories(fallbackCategories);
+  }
+
+  private skillsFromCategories(values: string[]): ServiceSkill[] {
+    return normalizeServiceSkills(
+      values.map((value) => {
+        const jobName = normalizeCatalogLabel(value);
+        return {
+          jobName,
+          proficiency: "intermediate" as const,
+          source: HOME_SERVICE_CATALOG.some((option) => option.value === jobName)
+            ? ("catalog" as const)
+            : ("custom" as const)
+        };
+      })
+    );
+  }
+
+  private async getAvatarState(
+    ownerUserId: string,
+    activeAvatarMediaId: string | null
+  ): Promise<{
+    activeAvatar: ProfileAvatarRecord | null;
+    pendingAvatar: ProfileAvatarRecord | null;
+  }> {
+    if (!this.mediaService) {
+      return {
+        activeAvatar: null,
+        pendingAvatar: null
+      };
+    }
+
+    const result = await this.databaseService.query<DbAvatarRow>(
+      `
+      SELECT
+        id,
+        owner_user_id,
+        bucket_name,
+        object_key,
+        content_type,
+        state,
+        moderation_reason_codes,
+        created_at,
+        updated_at
+      FROM media_assets
+      WHERE owner_user_id = $1::uuid
+        AND context = 'profile_avatar'::media_context
+      ORDER BY created_at DESC
+      `,
+      [ownerUserId]
+    );
+
+    const activeRow =
+      result.rows.find((row) => row.id === activeAvatarMediaId && row.state === "approved") ?? null;
+    const pendingRow =
+      result.rows.find(
+        (row) =>
+          row.id !== activeAvatarMediaId &&
+          row.state !== "approved"
+      ) ?? null;
+
+    return {
+      activeAvatar: activeRow ? this.mapAvatarRow(activeRow) : null,
+      pendingAvatar: pendingRow ? this.mapAvatarRow(pendingRow) : null
+    };
+  }
+
+  private mapAvatarRow(row: DbAvatarRow): ProfileAvatarRecord {
+    if (!this.mediaService) {
+      return {
+        mediaId: row.id,
+        state: row.state,
+        contentType: row.content_type,
+        moderationReasonCodes: row.moderation_reason_codes ?? [],
+        downloadUrl: "",
+        downloadUrlExpiresAt: row.updated_at.toISOString(),
+        createdAt: row.created_at.toISOString(),
+        updatedAt: row.updated_at.toISOString()
+      };
+    }
+
+    const signed = this.mediaService.createDownloadUrl({
+      bucketName: row.bucket_name,
+      objectKey: row.object_key
+    });
+    return {
+      mediaId: row.id,
+      state: row.state,
+      contentType: row.content_type,
+      moderationReasonCodes: row.moderation_reason_codes ?? [],
+      downloadUrl: signed.downloadUrl,
+      downloadUrlExpiresAt: signed.downloadUrlExpiresAt,
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString()
+    };
   }
 
   private defaultServiceCategories(userType: UserType): string[] {

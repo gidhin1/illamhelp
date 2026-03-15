@@ -14,6 +14,7 @@ import {
   JobsSearchService,
   type SearchIndexedJobInput
 } from "./jobs-search.service";
+import { buildSkillSnapshotForCategory, type ServiceSkill } from "../profiles/service-catalog";
 
 export type JobStatus =
   | "posted"
@@ -72,6 +73,7 @@ export interface JobApplicationRecord {
   providerUserId: string;
   status: ApplicationStatus;
   message: string | null;
+  skillSnapshot: ServiceSkill | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -120,6 +122,7 @@ interface DbJobApplicationRow {
   provider_user_id: string;
   status: ApplicationStatus;
   message: string | null;
+  skill_snapshot: ServiceSkill | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -349,24 +352,50 @@ export class JobsService {
       }
     }
 
+    const providerProfile = await this.databaseService.query<{
+      service_skills: ServiceSkill[] | null;
+      service_categories: string[] | null;
+    }>(
+      `
+      SELECT service_skills, service_categories
+      FROM profiles
+      WHERE user_id = $1::uuid
+      LIMIT 1
+      `,
+      [input.providerUserId]
+    );
+
+    const profileSkills =
+      providerProfile.rows[0]?.service_skills && providerProfile.rows[0].service_skills.length > 0
+        ? providerProfile.rows[0].service_skills
+        : (providerProfile.rows[0]?.service_categories ?? []).map((category) => ({
+          jobName: category,
+          proficiency: "intermediate" as const,
+          source: "custom" as const
+        }));
+    const skillSnapshot = buildSkillSnapshotForCategory(profileSkills, job.category);
+
     const upsert = await this.databaseService.query<DbJobApplicationRow>(
       `
       INSERT INTO job_applications (
         job_id,
         provider_user_id,
         status,
-        message
+        message,
+        skill_snapshot
       )
       VALUES (
         $1::uuid,
         $2::uuid,
         'applied'::application_status,
-        $3::text
+        $3::text,
+        $4::jsonb
       )
       ON CONFLICT (job_id, provider_user_id)
       DO UPDATE SET
         status = 'applied'::application_status,
         message = EXCLUDED.message,
+        skill_snapshot = EXCLUDED.skill_snapshot,
         updated_at = now()
       WHERE job_applications.status = 'withdrawn'::application_status
       RETURNING
@@ -375,10 +404,16 @@ export class JobsService {
         COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
         status,
         message,
+        skill_snapshot,
         created_at,
         updated_at
       `,
-      [input.jobId, input.providerUserId, input.message?.trim() || null]
+      [
+        input.jobId,
+        input.providerUserId,
+        input.message?.trim() || null,
+        skillSnapshot ? JSON.stringify(skillSnapshot) : null
+      ]
     );
 
     if (!upsert.rowCount) {
@@ -423,6 +458,7 @@ export class JobsService {
         COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
         status,
         message,
+        skill_snapshot,
         created_at,
         updated_at
       FROM job_applications
@@ -450,6 +486,7 @@ export class JobsService {
         COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
         status,
         message,
+        skill_snapshot,
         created_at,
         updated_at
       FROM job_applications
@@ -491,6 +528,7 @@ export class JobsService {
           COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
           status,
           message,
+          skill_snapshot,
           created_at,
           updated_at
         `,
@@ -599,6 +637,7 @@ export class JobsService {
         COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
         status,
         message,
+        skill_snapshot,
         created_at,
         updated_at
       `,
@@ -661,6 +700,7 @@ export class JobsService {
         COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
         status,
         message,
+        skill_snapshot,
         created_at,
         updated_at
       `,
@@ -1456,6 +1496,7 @@ export class JobsService {
         a.provider_user_id,
         a.status,
         a.message,
+        a.skill_snapshot,
         a.created_at,
         a.updated_at,
         j.seeker_user_id,
@@ -1485,6 +1526,7 @@ export class JobsService {
         COALESCE(NULLIF(TRIM((SELECT username FROM users WHERE id = provider_user_id)), ''), 'member_' || SUBSTRING(md5(provider_user_id::text) FROM 1 FOR 10)) AS provider_user_id,
         status,
         message,
+        skill_snapshot,
         created_at,
         updated_at
       FROM job_applications
@@ -1526,6 +1568,7 @@ export class JobsService {
       providerUserId: row.provider_user_id,
       status: row.status,
       message: row.message,
+      skillSnapshot: row.skill_snapshot ?? null,
       createdAt: row.created_at.toISOString(),
       updatedAt: row.updated_at.toISOString()
     };

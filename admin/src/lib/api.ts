@@ -51,6 +51,7 @@ export interface ModerationQueueItem {
   | "appeal_resolved";
   ownerUserId: string;
   kind: "image" | "video";
+  context: "profile_gallery" | "profile_avatar" | "job_attachment" | "verification_document";
   contentType: string;
   fileSizeBytes: number;
 }
@@ -72,6 +73,7 @@ export interface ModerationDetails {
     id: string;
     ownerUserId: string;
     kind: "image" | "video";
+    context: "profile_gallery" | "profile_avatar" | "job_attachment" | "verification_document";
     bucketName: string;
     objectKey: string;
     contentType: string;
@@ -350,4 +352,3 @@ export function reviewVerification(
     accessToken
   );
 }
-

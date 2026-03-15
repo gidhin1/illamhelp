@@ -12,10 +12,12 @@ import {
   applyToJob,
   createJob,
   formatDate,
+  getServiceCatalog,
   JobApplicationRecord,
   JobRecord,
   listJobs,
   listMyJobApplications,
+  type ServiceCatalogOption,
   withdrawJobApplication
 } from "@/lib/api";
 import {
@@ -29,9 +31,11 @@ import {
   TextArea,
   TextInput
 } from "@/components/ui/primitives";
+import { FALLBACK_SERVICE_CATALOG } from "@/lib/service-catalog";
 
 interface CreateJobFormState {
-  category: string;
+  categoryId: string;
+  customCategory: string;
   title: string;
   description: string;
   locationText: string;
@@ -39,7 +43,8 @@ interface CreateJobFormState {
 }
 
 const initialCreateJobForm: CreateJobFormState = {
-  category: "",
+  categoryId: "plumbing",
+  customCategory: "",
   title: "",
   description: "",
   locationText: "",
@@ -76,6 +81,7 @@ export function JobsWorkspace({
 }): JSX.Element {
   const { accessToken, user } = useSession();
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [catalog, setCatalog] = useState<ServiceCatalogOption[]>(FALLBACK_SERVICE_CATALOG);
   const [myApplicationsByJob, setMyApplicationsByJob] = useState<
     Record<string, JobApplicationRecord>
   >({});
@@ -98,7 +104,7 @@ export function JobsWorkspace({
     try {
       const [jobsResult, myApplications] = await Promise.all([
         listJobs(accessToken, { limit: 200 }),
-        listMyJobApplications(accessToken)
+        listMyJobApplications(accessToken),
       ]);
       setJobs(jobsResult.items);
       setMyApplicationsByJob(buildLatestApplicationByJob(myApplications));
@@ -112,6 +118,25 @@ export function JobsWorkspace({
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadCatalog = async (): Promise<void> => {
+      try {
+        const response = await getServiceCatalog();
+        if (!cancelled && response.options.length > 0) {
+          setCatalog(response.options);
+          setForm((previous) => ({ ...previous, categoryId: response.options[0]?.value ?? "other" }));
+        }
+      } catch {
+        // fall back to bundled catalog
+      }
+    };
+    void loadCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const totalByStatus = useMemo(() => {
     return jobs.reduce<Record<string, number>>((acc, job) => {
@@ -194,6 +219,18 @@ export function JobsWorkspace({
     []
   );
 
+  const selectedCategory = useMemo(
+    () => catalog.find((option) => option.value === form.categoryId) ?? null,
+    [catalog, form.categoryId]
+  );
+
+  const resolvedJobCategory = useMemo(() => {
+    if (selectedCategory?.value === "other") {
+      return form.customCategory.trim();
+    }
+    return selectedCategory?.label ?? form.customCategory.trim();
+  }, [form.customCategory, selectedCategory]);
+
   const onCreate = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (!accessToken) return;
@@ -201,7 +238,16 @@ export function JobsWorkspace({
     setCreateError(null);
     setCreateSuccess(null);
     try {
-      const created = await createJob(form, accessToken);
+      const created = await createJob(
+        {
+          category: resolvedJobCategory,
+          title: form.title,
+          description: form.description,
+          locationText: form.locationText,
+          visibility: form.visibility
+        },
+        accessToken
+      );
       setJobs((previous) => [created, ...previous]);
       setCreateSuccess("Job posted successfully.");
       setForm(initialCreateJobForm);
@@ -397,12 +443,18 @@ export function JobsWorkspace({
                   {createError ? <Banner tone="error">{createError}</Banner> : null}
                   {createSuccess ? <Banner tone="success">{createSuccess}</Banner> : null}
                   <form className="grid two" onSubmit={onCreate}>
-                    <Field label="Category" hint="e.g. plumber, electrician">
-                      <TextInput
-                        value={form.category}
-                        onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
+                    <Field label="Category" hint="Choose a home service type or use Other to enter your own.">
+                      <SelectInput
+                        value={form.categoryId}
+                        onChange={(e) => setForm((prev) => ({ ...prev, categoryId: e.target.value }))}
                         required
-                      />
+                      >
+                        {catalog.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </SelectInput>
                     </Field>
                     <Field label="Location" hint="e.g. Kakkanad, Kochi">
                       <TextInput
@@ -418,6 +470,15 @@ export function JobsWorkspace({
                         required
                       />
                     </Field>
+                    {selectedCategory?.value === "other" ? (
+                      <Field label="Custom category" hint="Add a service not listed above.">
+                        <TextInput
+                          value={form.customCategory}
+                          onChange={(e) => setForm((prev) => ({ ...prev, customCategory: e.target.value }))}
+                          required
+                        />
+                      </Field>
+                    ) : null}
                     <Field label="Description" hint="Detailed requirements">
                       <TextArea
                         value={form.description}

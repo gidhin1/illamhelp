@@ -3,10 +3,12 @@ import {} from "../api";
 
 import {} from "../utils";
 
+import type { PickedImageAsset } from "../media-upload";
 import {} from "../constants";
 import { useMemo } from "react";
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { MemberAvatar } from "../member-avatar";
 export interface LoginFormState {
   username: string;
   password: string;
@@ -73,6 +75,9 @@ export function AuthScreen({
   setRegisterForm,
   busy,
   error,
+  registerAvatar,
+  onPickRegisterAvatar,
+  onClearRegisterAvatar,
   onLogin,
   onRegister
 }: {
@@ -84,6 +89,9 @@ export function AuthScreen({
   setRegisterForm: (next: RegisterFormState) => void;
   busy: boolean;
   error: string | null;
+  registerAvatar: PickedImageAsset | null;
+  onPickRegisterAvatar: () => Promise<void>;
+  onClearRegisterAvatar: () => void;
   onLogin: () => Promise<void>;
   onRegister: () => Promise<void>;
 }): JSX.Element {
@@ -229,6 +237,47 @@ export function AuthScreen({
               textContentType="oneTimeCode"
               testID="auth-register-password"
             />
+            <SectionCard
+              title="Profile picture"
+              subtitle="Optional now, moderated before it appears on your profile."
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+                <MemberAvatar
+                  name={registerForm.firstName || registerForm.username || "New member"}
+                  avatar={null}
+                />
+                <View style={{ flex: 1, gap: 4 }}>
+                  <Text style={styles.cardTitle}>
+                    {registerAvatar?.fileName ?? "No photo selected"}
+                  </Text>
+                  <Text style={styles.cardBodyMuted}>
+                    Choose a clear face photo. Admin review still applies after upload.
+                  </Text>
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <AppButton
+                    label={registerAvatar ? "Change photo" : "Choose photo"}
+                    onPress={() => {
+                      void onPickRegisterAvatar();
+                    }}
+                    variant="secondary"
+                    testID="auth-register-avatar-pick"
+                  />
+                </View>
+                {registerAvatar ? (
+                  <View style={{ flex: 1 }}>
+                    <AppButton
+                      label="Remove"
+                      onPress={onClearRegisterAvatar}
+                      variant="ghost"
+                      testID="auth-register-avatar-clear"
+                    />
+                  </View>
+                ) : null}
+              </View>
+            </SectionCard>
             <AppButton
               label={busy ? "Creating..." : "Create account"}
               onPress={() => {

@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 
 import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { Public } from "../auth/decorators/public.decorator";
 import { AuthenticatedUser } from "../auth/interfaces/authenticated-user.interface";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { SubmitVerificationDto } from "./dto/submit-verification.dto";
-import { ProfileRecord, ProfilesService } from "./profiles.service";
+import { ProfileRecord, ProfilesService, ServiceCatalogResponse } from "./profiles.service";
 import { VerificationRecord, VerificationService } from "./verification.service";
 
 @Controller("profiles")
@@ -24,12 +25,23 @@ export class ProfilesController {
     return this.profilesService.getDashboard(user.userId);
   }
 
+  @Public()
+  @Get("service-catalog")
+  serviceCatalog(): ServiceCatalogResponse {
+    return this.profilesService.getServiceCatalog();
+  }
+
   @Patch("me")
   updateMe(
     @Body() body: UpdateProfileDto,
     @CurrentUser() user: AuthenticatedUser
   ): Promise<ProfileRecord> {
     return this.profilesService.updateOwnProfile(user.userId, body);
+  }
+
+  @Delete("me/avatar")
+  removeMyAvatar(@CurrentUser() user: AuthenticatedUser): Promise<ProfileRecord> {
+    return this.profilesService.removeActiveAvatar(user.userId);
   }
 
   @Post("me/verification")

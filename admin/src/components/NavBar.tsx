@@ -3,14 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  ChevronsLeft,
+  ChevronsRight,
   Home,
   ShieldAlert,
   BadgeCheck,
   FileSearch,
+  LogIn,
   LogOut,
   User
 } from "lucide-react";
 
+import { useAdminUi } from "@/components/AdminUiProvider";
 import { useSession } from "@/components/session/SessionProvider";
 import { Button } from "@/components/ui/primitives";
 
@@ -23,6 +27,7 @@ const navLinks = [
 
 export function NavBar(): React.JSX.Element {
   const pathname = usePathname();
+  const { isDesktopSidebarCollapsed, toggleDesktopSidebar } = useAdminUi();
   const { user, hasAdminAccess, signOut } = useSession();
 
   const mobileBottomNav = (
@@ -79,81 +84,65 @@ export function NavBar(): React.JSX.Element {
   );
 
   const desktopSidebar = (
-    <nav className="sidebar-nav">
-      <Link
-        href="/"
-        aria-label="Dashboard"
-        title="Dashboard"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "12px",
-          padding: "12px",
-          marginBottom: "var(--spacing-xl)",
-          color: "var(--brand)",
-          alignSelf: "start"
-        }}
-      >
-        <div
-          style={{
-            width: "32px",
-            height: "32px",
-            borderRadius: "50%",
-            background: "linear-gradient(145deg, var(--brand), var(--brand-2))",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "white",
-            fontWeight: "bold",
-            fontSize: "18px"
-            }}
+    <nav
+      aria-label="Admin sidebar"
+      className={`sidebar-nav ${isDesktopSidebarCollapsed ? "is-collapsed" : "is-expanded"}`}
+      data-collapsed={isDesktopSidebarCollapsed ? "true" : "false"}
+      data-testid="admin-sidebar"
+    >
+      <div className="sidebar-header">
+        <Link
+          href="/"
+          aria-label="Dashboard"
+          title="Dashboard"
+          className="sidebar-brand"
         >
-            A
-        </div>
-        <span
-          className="display-title"
-          style={{ fontSize: "1.25rem", color: "var(--ink)", display: "var(--is-mobile, block)" }}
+          <div className="sidebar-brand-mark">A</div>
+          <span className="display-title sidebar-label sidebar-brand-title">Ops Center</span>
+        </Link>
+        <button
+          type="button"
+          aria-label={isDesktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!isDesktopSidebarCollapsed}
+          aria-pressed={isDesktopSidebarCollapsed}
+          title={isDesktopSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className="sidebar-toggle"
+          data-testid="admin-sidebar-toggle"
+          onClick={toggleDesktopSidebar}
         >
-          Ops Center
-        </span>
-      </Link>
+          {isDesktopSidebarCollapsed ? <ChevronsRight size={18} /> : <ChevronsLeft size={18} />}
+        </button>
+      </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "8px", width: "100%", flex: 1 }}>
+      <div className="sidebar-nav-group">
         {navLinks.map((link) => {
           const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
           const Icon = link.Icon;
+          const dataTestId =
+            link.href === "/"
+              ? "admin-sidebar-link-dashboard"
+              : `admin-sidebar-link-${link.href.slice(1)}`;
           return (
             <Link
               key={link.href}
               href={link.href}
               aria-label={link.label}
               title={link.label}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "16px",
-                padding: "12px",
-                borderRadius: "var(--radius-md)",
-                color: active ? "var(--ink)" : "var(--muted)",
-                background: active ? "var(--surface-hover)" : "transparent",
-                fontWeight: active ? 700 : 500,
-                fontSize: "1.1rem",
-                transition: "background 0.2s"
-              }}
-              className="nav-item-hover"
+              className={`sidebar-link ${active ? "is-active" : ""}`}
+              data-testid={dataTestId}
             >
               <Icon size={26} {...(active ? { fill: "currentColor", strokeWidth: 1.5 } : { strokeWidth: 2 })} />
-              <span className="sidebar-label" style={{ display: "var(--is-mobile, block)" }}>{link.label}</span>
+              <span className="sidebar-label">{link.label}</span>
             </Link>
           );
         })}
       </div>
 
       {user ? (
-        <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px" }}>
+        <div className="sidebar-user">
+          <div className="sidebar-user-summary" title={user.publicUserId}>
              <User size={36} color="var(--brand)" />
-             <div className="sidebar-label" style={{ display: "var(--is-mobile, block)" }}>
+             <div className="sidebar-label sidebar-user-copy">
                 <div style={{ fontWeight: 600 }}>{user.publicUserId}</div>
                 <div className="pill" style={{ padding: "2px 6px", fontSize: "0.7rem", marginTop: 4 }}>
                   {hasAdminAccess ? "Admin" : "Member"}
@@ -165,27 +154,21 @@ export function NavBar(): React.JSX.Element {
             onClick={signOut}
             aria-label="Sign out"
             title="Sign out"
-            style={{ width: "100%", justifyContent: "flex-start" }}
+            className="sidebar-signout"
           >
-             <LogOut size={18} /> <span className="sidebar-label" style={{ display: "var(--is-mobile, block)" }}>Sign Out</span>
+             <LogOut size={18} /> <span className="sidebar-label">Sign Out</span>
           </Button>
         </div>
       ) : (
-        <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>
-          <Link href="/auth/login" style={{ width: "100%" }}>
-            <Button style={{ width: "100%" }}>Sign in</Button>
+        <div className="sidebar-user">
+          <Link href="/auth/login" className="sidebar-auth-link" aria-label="Sign in" title="Sign in">
+            <Button className="sidebar-auth-button" variant="secondary">
+              <LogIn size={18} />
+              <span className="sidebar-label">Sign in</span>
+            </Button>
           </Link>
         </div>
       )}
-
-      {/* Adding a style block to hide labels on smaller desktop screens */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media (max-width: 1023px) {
-          .sidebar-label { display: none !important; }
-          .nav-item-hover { justify-content: center; }
-        }
-        .nav-item-hover:hover { background: var(--surface-2) !important; }
-      `}} />
     </nav>
   );
 
