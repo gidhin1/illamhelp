@@ -5,6 +5,7 @@ ROOT_DIR="$(
   cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1
   pwd
 )"
+export COREPACK_HOME="${COREPACK_HOME:-${ROOT_DIR}/.tools/corepack}"
 LOCK_FILE="${ROOT_DIR}/web/.next/dev/lock"
 WEB_URL="${PW_WEB_BASE_URL:-http://localhost:3000}"
 
@@ -44,4 +45,4 @@ WEB_PORT="$(
   ' "${WEB_URL}"
 )"
 
-PORT="${WEB_PORT}" pnpm --filter @illamhelp/web dev
+PORT="${WEB_PORT}" corepack pnpm --filter @illamhelp/web dev

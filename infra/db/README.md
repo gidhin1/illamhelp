@@ -1,19 +1,15 @@
-# Database Bootstrap
+# Database Migrations
 
-Initial schema is in:
+The Spring Boot API owns database initialization through Flyway. The only current
+schema script is `migrations/V0001__baseline.sql`, embedded in the API jar at build
+time.
 
-- `migrations/0001_init.sql`
-- `migrations/0002_add_access_request_id_to_consent_grants.sql`
-- `migrations/0003_scale_indexes_and_constraints.sql`
-- `migrations/0004_internal_event_outbox.sql`
+- On an empty database, API startup creates the schema by applying the baseline.
+- On an existing Flyway-managed database, API startup applies only new migrations.
+- Applied migration files must not be edited; add a new versioned migration instead.
+- Hibernate runs with `ddl-auto=validate` and checks mappings after Flyway finishes.
 
-Apply from project root with running Docker stack:
-
-```bash
-make migrate
-```
-
-`make migrate` is safe to rerun:
-
-- Applies `0001` only when base tables are missing.
-- Always applies `0002`, `0003`, and `0004` (idempotent `IF NOT EXISTS`/constraint guards).
+This repository moved from manual pre-Flyway SQL application during development.
+Existing local Docker database volumes should be reset once before starting the
+Flyway-enabled API. No automatic baselining is enabled because that would be unsafe
+for production databases.

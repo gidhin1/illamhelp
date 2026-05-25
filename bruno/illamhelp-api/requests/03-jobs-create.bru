@@ -24,7 +24,9 @@ body:json {
     "title": "Kitchen sink leak",
     "description": "Need urgent repair",
     "locationText": "Chennai, Velachery",
-    "visibility": "public"
+    "visibility": "public",
+    "locationLatitude": 12.9753,
+    "locationLongitude": 80.2212
   }
 }
 
@@ -46,5 +48,5 @@ script:post-response {
     bru.setVar("jobId", res.body.id);
     bru.setEnvVar("jobId", res.body.id);
   }
-  bru.runner.setNextRequest("Jobs List");
+  bru.runner.setNextRequest("Jobs Search Filters");
 }

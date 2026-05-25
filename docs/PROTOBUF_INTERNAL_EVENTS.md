@@ -10,13 +10,12 @@
 - Protobuf schema files added under:
   - `proto/internal/events/v1/media_events.proto`
   - `proto/internal/events/v1/consent_events.proto`
-- Protobuf binary codecs implemented in API:
-  - `api/src/common/events/protobuf/internal-events.codec.ts`
-  - `api/src/common/events/protobuf/wire.ts`
+- Protobuf payload encoding implemented in API:
+  - `api-java/src/main/java/com/illamhelp/api/events/InternalEventPayloadEncoder.java`
 - Internal outbox table added for binary event storage:
-  - `infra/db/migrations/0004_internal_event_outbox.sql`
+  - `infra/db/migrations/V0001__baseline.sql`
 - API internal event writer service:
-  - `api/src/common/events/internal-events.service.ts`
+  - `api-java/src/main/java/com/illamhelp/api/events/InternalEventsService.java`
 - Media module now emits protobuf-backed internal events to outbox:
   - `internal.media.upload_ticket_issued` (`v1`)
   - `internal.media.upload_completed` (`v1`)

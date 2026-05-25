@@ -1,5 +1,4 @@
 packages:
-  - "api"
   - "mobile"
   - "admin"
   - "web"

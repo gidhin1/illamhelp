@@ -37,3 +37,5 @@ make ui-test-admin
 - `PW_REUSE_EXISTING_SERVERS` (`false` by default; set `true` to reuse already-running web/api servers)
 - `PW_AUTH_RATE_LIMIT_MAX` (default: `2000` for Playwright-started API server)
 - `PW_HEADLESS` (`false` by default so tests are visible; set `true` for headless)
+- `PW_BROWSER_CHANNEL` (optional installed browser channel, such as `chrome`)
+- `PW_VIDEO` (set to `off` when running with an installed browser without Playwright video helpers)

@@ -5,6 +5,7 @@ ROOT_DIR="$(
   cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1
   pwd
 )"
+export COREPACK_HOME="${COREPACK_HOME:-${ROOT_DIR}/.tools/corepack}"
 LOCK_FILE="${ROOT_DIR}/admin/.next/dev/lock"
 ADMIN_URL="${PW_ADMIN_BASE_URL:-http://localhost:3003}"
 
@@ -44,4 +45,4 @@ ADMIN_PORT="$(
   ' "${ADMIN_URL}"
 )"
 
-PORT="${ADMIN_PORT}" pnpm --filter @illamhelp/admin dev
+PORT="${ADMIN_PORT}" corepack pnpm --filter @illamhelp/admin dev

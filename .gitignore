@@ -26,6 +26,7 @@ blob-report/
 reports/
 .act-artifacts/
 .cache/
+.tools/
 
 # env
 .env

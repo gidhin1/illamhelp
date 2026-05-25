@@ -27,6 +27,6 @@ docker compose \
   up -d postgres redis minio minio-init nats opa keycloak
 
 bash ./scripts/keycloak-dev-bootstrap.sh
-make migrate
 
-exec pnpm exec playwright test -c "${CONFIG_PATH}" "$@"
+export COREPACK_HOME="${COREPACK_HOME:-$(pwd)/.tools/corepack}"
+exec corepack pnpm exec playwright test -c "${CONFIG_PATH}" "$@"

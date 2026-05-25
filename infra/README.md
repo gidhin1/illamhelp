@@ -47,11 +47,11 @@ make keycloak-bootstrap
 
 ## DB Migrations
 
-```bash
-make migrate
-```
-
-Runs all SQL migration files in `infra/db/migrations/` against the Postgres container.
+Schema creation and upgrades run inside the Spring Boot API through Flyway at
+startup. The current pre-production schema is a single baseline in
+`infra/db/migrations/V0001__baseline.sql`, embedded into the Maven-built API jar.
+After a data-bearing environment is deployed, preserve the baseline and add new
+versioned migration files for later changes.
 
 ## Stop / Reset
 
@@ -64,7 +64,7 @@ After a reset, restart with:
 
 ```bash
 make up-core
-make migrate
+make api-dev
 ```
 
 ## macOS Notes

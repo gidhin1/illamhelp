@@ -1,0 +1,39 @@
+meta {
+  name: Jobs Search Filters
+  type: http
+  seq: 5
+  tags: [
+    e2e
+  ]
+}
+
+get {
+  url: {{baseUrl}}/jobs/search?q=Kitchen&category=plumber&locationText=Velachery&statuses=posted&visibility=public&latitude=12.9753&longitude=80.2212&radiusKm=5&minSeekerRating=0&limit=20
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{providerAccessToken}}
+}
+
+tests {
+  test("jobs search filters returns 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("jobs search filters locates the geo-tagged public job", function () {
+    expect(res.body).to.be.an("array");
+    const jobId = bru.getEnvVar("jobId");
+    const matching = res.body.find((job) => job.id === jobId);
+    expect(matching).to.be.an("object");
+    expect(matching.status).to.equal("posted");
+    expect(matching.visibility).to.equal("public");
+    expect(matching.locationLatitude).to.equal(12.9753);
+    expect(matching.locationLongitude).to.equal(80.2212);
+  });
+}
+
+script:post-response {
+  bru.runner.setNextRequest("Jobs List");
+}

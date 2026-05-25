@@ -14,8 +14,8 @@ Validated on: `2026-02-21`
 |---|---|---|---|
 | Mobile App | Expo (React Native) + TypeScript | Expo SDK `52` (React Native `0.76.x`) | Stable cross-platform stack with fast iteration and free tooling |
 | Admin Web | Next.js | `16.x` stable | Fast dashboard development with SSR/ISR and strong tooling |
-| API | NestJS + Fastify | NestJS `11.x` | Modular enterprise backend architecture with performance-oriented adapter |
-| Runtime | Node.js | `24.x LTS` | Long support window and current performance/security baseline |
+| API | Spring Boot + Spring Data JPA + Maven | Spring Boot `4.0.x`, Java `21` LTS | Typed modular backend, repository-based persistence, and mature security integration |
+| Frontend Runtime | Node.js | `24.x LTS` | Web, admin, mobile, and test tooling runtime |
 | Primary DB | PostgreSQL | `18.x` | Reliable ACID transactions, mature indexing, extension ecosystem |
 | Cache/Queue | Redis Open Source | `8.x` | Fast caching, rate limits, queue primitives |
 | Search | OpenSearch | `3.x` | Open-source text + geo search for matching use cases |
@@ -70,5 +70,5 @@ These integrations should remain adapter-based so providers can be swapped witho
 - Redis Open Source 8.0 announcement: https://redis.io/docs/latest/operate/oss_and_stack/stack-with-enterprise/release-notes/redisce/redisce-8.0-release-notes/
 - OpenSearch version history (3.x): https://docs.opensearch.org/latest/version-history/
 - Keycloak latest releases: https://github.com/keycloak/keycloak/releases
-- NestJS releases: https://github.com/nestjs/nest/releases
+- Spring Boot releases: https://github.com/spring-projects/spring-boot/releases
 - OpenTofu releases: https://github.com/opentofu/opentofu/releases
