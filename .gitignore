@@ -7,6 +7,8 @@ dist/
 coverage/
 .turbo/
 .next/
+target/
+*.class
 android/
 ios/
 mobile/.expo/
