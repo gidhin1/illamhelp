@@ -146,6 +146,9 @@
       <configuration>
         <source>21</source>
         <target>21</target>
+        <compilerId>javac</compilerId>
+        <fork>true</fork>
+        <verbose>false</verbose>
       </configuration>
     </plugin>
     </plugins>
