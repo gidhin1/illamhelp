@@ -23,6 +23,7 @@ BRUNO_PRINT_EXPORTS="${BRUNO_PRINT_EXPORTS:-false}"
 BRUNO_LOGIN_ONLY="${BRUNO_LOGIN_ONLY:-false}"
 BRUNO_PREFER_GENERATED_USERS="${BRUNO_PREFER_GENERATED_USERS:-true}"
 BRUNO_USER_CACHE_FILE="${BRUNO_USER_CACHE_FILE:-${ROOT_DIR}/.cache/bruno-e2e-users.env}"
+BRU_BIN="${BRU_BIN:-${ROOT_DIR}/.tools/bruno/node_modules/.bin/bru}"
 AUTH_MAX_ATTEMPTS="${AUTH_MAX_ATTEMPTS:-8}"
 AUTH_RETRY_BASE_SECONDS="${AUTH_RETRY_BASE_SECONDS:-2}"
 
@@ -229,9 +230,13 @@ register_for_token() {
   return 0
 }
 
-if ! command -v bru >/dev/null 2>&1; then
+if [[ ! -x "${BRU_BIN}" ]] && command -v bru >/dev/null 2>&1; then
+  BRU_BIN="$(command -v bru)"
+fi
+
+if [[ ! -x "${BRU_BIN}" ]]; then
   echo "ERROR: Bruno CLI is not installed."
-  echo "Install with: npm install -g @usebruno/cli"
+  echo "Install locally with: npm install --prefix .tools/bruno @usebruno/cli"
   exit 1
 fi
 
@@ -244,7 +249,7 @@ fi
 if command -v curl >/dev/null 2>&1; then
   if ! curl -fsS --max-time 5 "${BASE_URL}/health" >/dev/null; then
     echo "ERROR: API health check failed at ${BASE_URL}/health"
-    echo "Start API first, then retry: pnpm --filter @illamhelp/api dev"
+    echo "Start API first, then retry: make api-dev"
     exit 1
   fi
 fi
@@ -469,7 +474,7 @@ fi
 
 (
   cd "${COLLECTION_DIR}"
-  bru run "${RUN_TARGET}" -r \
+  "${BRU_BIN}" run "${RUN_TARGET}" -r \
     --tags "${RUN_TAGS}" \
     --env "${ENV_NAME}" \
     --env-var "baseUrl=${BASE_URL}" \

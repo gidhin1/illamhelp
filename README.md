@@ -6,7 +6,7 @@ Enterprise-grade mobile marketplace connecting households with verified domestic
 
 | Package | Tech | Port |
 |---------|------|------|
-| `api/` | NestJS + Fastify | 4000 |
+| `api-java/` | Spring Boot + Maven + Spring Data JPA | 4000 |
 | `web/` | Next.js | 3001 |
 | `admin/` | Next.js | 3003 |
 | `mobile/` | React Native + Expo | — |
@@ -26,15 +26,15 @@ make dev               # Run full local stack (tests → infra → API → web)
 
 | Command | What it does |
 |---------|-------------|
-| `make dev` | Full startup: unit tests → infra → migrations → API + Web |
-| `make backend-start` | Infra + migrations + API (watch mode) |
+| `make dev` | Full startup: unit tests → infra → Spring Boot API + Web |
+| `make backend-start` | Infra + Spring Boot API (Flyway runs at startup) |
 | `make dev-web` | Web app dev server (auto-detects free port) |
 | `make dev-admin` | Admin portal dev server |
 | `make dev-mobile` | Expo mobile dev server |
 | `make up` | Start all Docker services |
 | `make up-core` | Start core services only (lower memory) |
 | `make down` | Stop all Docker services |
-| `make migrate` | Apply DB migrations |
+| `make api-build` | Run Maven tests and package the API jar |
 | `make health` | API health check |
 | `make ui-test-web` | Playwright web E2E tests |
 | `make ui-test-admin` | Playwright admin E2E tests |
@@ -62,3 +62,4 @@ Each subfolder contains its own `README.md` with deeper setup, environment overr
 - All other routes require Keycloak bearer token
 - Actor identity from JWT `sub` — request bodies never carry actor IDs
 - Swagger UI at `http://localhost:4000/api/docs` (enabled in dev)
+- Spring Data JPA owns application persistence; Flyway applies the single initial baseline and future versioned schema upgrades at API startup.

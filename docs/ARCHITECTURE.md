@@ -16,7 +16,7 @@ Why:
 flowchart LR
     A["Mobile App (iOS/Android)"] --> B["API Gateway (Kong OSS)"]
     W["Admin Web App"] --> B
-    B --> C["Core API (NestJS + Fastify)"]
+    B --> C["Core API (Spring Boot + Spring Data JPA)"]
     C --> D["PostgreSQL"]
     C --> E["Redis"]
     C --> F["OpenSearch"]

@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null 2>&1 && pwd)"
 ENV_FILE="${ROOT_DIR}/.env"
+PREFLIGHT_SCOPE="${PREFLIGHT_SCOPE:-full}"
 
 trim_quotes() {
   local value="$1"
@@ -42,8 +43,13 @@ require_command() {
 }
 
 require_command docker "Docker"
-require_command node "Node.js"
-require_command pnpm "pnpm"
+if [[ "$PREFLIGHT_SCOPE" == "backend" ]]; then
+  require_command java "Java"
+  require_command mvn "Maven"
+else
+  require_command node "Node.js"
+  require_command corepack "Corepack (pnpm launcher)"
+fi
 
 if [[ -f "$ENV_FILE" ]]; then
   raw_database_url="$(read_env_value "DATABASE_URL" "$ENV_FILE")"
@@ -101,7 +107,7 @@ if command -v docker >/dev/null 2>&1; then
   fi
 fi
 
-if command -v node >/dev/null 2>&1; then
+if [[ "$PREFLIGHT_SCOPE" != "backend" ]] && command -v node >/dev/null 2>&1; then
   node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
   if [[ -n "$node_major" && "$node_major" =~ ^[0-9]+$ && "$node_major" -lt 24 ]]; then
     warnings+=("Node.js ${node_major}.x detected; 24.x is recommended")

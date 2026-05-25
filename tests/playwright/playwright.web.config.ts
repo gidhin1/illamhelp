@@ -24,6 +24,8 @@ const reuseExistingServer = process.env.PW_REUSE_EXISTING_SERVERS
   ? process.env.PW_REUSE_EXISTING_SERVERS === "true"
   : !process.env.CI;
 const headless = process.env.PW_HEADLESS === "true";
+const browserChannel = process.env.PW_BROWSER_CHANNEL;
+const video = process.env.PW_VIDEO === "off" ? "off" as const : "retain-on-failure" as const;
 
 process.env.PW_WEB_BASE_URL = webBaseUrl;
 process.env.PW_ADMIN_BASE_URL = adminBaseUrl;
@@ -64,11 +66,11 @@ export default defineConfig({
     headless,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "retain-on-failure"
+    video
   },
   webServer: [
     {
-      command: `PORT="${apiPort}" NODE_ENV=test AUTH_RATE_LIMIT_MAX="${playwrightAuthRateLimitMax}" CORS_ORIGINS="${corsOrigins}" STRICT_ORIGIN_CHECK=true pnpm --filter @illamhelp/api dev`,
+      command: `PORT="${apiPort}" NODE_ENV=test AUTH_RATE_LIMIT_MAX="${playwrightAuthRateLimitMax}" CORS_ORIGINS="${corsOrigins}" STRICT_ORIGIN_CHECK=true mvn -f api-java/pom.xml spring-boot:run`,
       url: `${apiBaseOrigin}/api/v1/health`,
       timeout: 240_000,
       cwd: repoRoot,
@@ -93,7 +95,8 @@ export default defineConfig({
     {
       name: "web-chromium",
       use: {
-        ...devices["Desktop Chrome"]
+        ...devices["Desktop Chrome"],
+        channel: browserChannel
       }
     }
   ]

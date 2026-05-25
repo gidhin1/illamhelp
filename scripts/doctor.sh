@@ -27,7 +27,7 @@ check_cmd() {
 }
 
 check_cmd docker "Docker CLI"
-check_cmd pnpm "pnpm"
+check_cmd corepack "Corepack (pnpm launcher)"
 check_cmd node "Node.js"
 check_cmd psql "PostgreSQL client (optional)"
 

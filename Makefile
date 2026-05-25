@@ -9,6 +9,8 @@ ACT_EVENT_FILE ?= $(ACT_ARTIFACTS_DIR)/event.json
 ACT_CONTAINER_ARCHITECTURE ?=
 EXPO_HOST_MODE ?= localhost
 COMPOSE := docker compose --project-name $(COMPOSE_PROJECT) --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
+MAVEN := mvn -f api-java/pom.xml
+PNPM := COREPACK_HOME=$(CURDIR)/.tools/corepack corepack pnpm
 
 VOLUME_BASENAMES := postgres_data redis_data minio_data nats_data opensearch_data clamav_data
 KNOWN_VOLUME_PREFIXES := $(COMPOSE_PROJECT) infra illamhelp claude_proj
@@ -23,8 +25,8 @@ KNOWN_CONTAINERS := \
 	illamhelp-opa \
 	illamhelp-clamav
 
-.PHONY: init-env doctor preflight deps unit-test up up-core up-auth up-full keycloak-bootstrap down reset-backend logs
-.PHONY: api-dev api-build api-start migrate bruno-cli-install bruno-e2e
+.PHONY: init-env doctor preflight backend-preflight deps unit-test up up-core up-auth up-full keycloak-bootstrap down reset-backend logs
+.PHONY: api-dev api-build api-start bruno-cli-install bruno-e2e
 .PHONY: dev dev-web dev-admin dev-mobile dev-mobile-clear dev-mobile-reset dev-mobile-android dev-mobile-ios dev-mobile-web health
 .PHONY: backend backend-start
 .PHONY: mobile-native-init ui-install ui-test-web ui-test-admin ui-test-mobile ui-test-mobile-ios ui-test-mobile-android ui-test
@@ -47,8 +49,11 @@ doctor:
 preflight:
 	./scripts/preflight.sh
 
+backend-preflight:
+	PREFLIGHT_SCOPE=backend ./scripts/preflight.sh
+
 deps:
-	pnpm install
+	$(PNPM) install
 
 up: up-full
 
@@ -85,17 +90,17 @@ logs:
 	$(COMPOSE) logs -f --tail=200
 
 api-dev:
-	CORS_ORIGINS="$${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003}" pnpm --filter @illamhelp/api dev
+	CORS_ORIGINS="$${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003}" $(MAVEN) spring-boot:run
 
 api-build:
-	pnpm --filter @illamhelp/api build
+	$(MAVEN) test package
 
 api-start:
-	pnpm --filter @illamhelp/api start
+	java -jar api-java/target/api-0.1.0.jar
 
 backend: backend-start
 
-backend-start: preflight up-core migrate api-dev
+backend-start: backend-preflight up-core api-dev
 
 dev: preflight unit-test
 	bash ./scripts/dev.sh
@@ -105,7 +110,8 @@ unit-test:
 		echo "Skipping unit tests (SKIP_UNIT_TESTS=1)."; \
 	else \
 		echo "Running unit tests before startup..."; \
-		pnpm test; \
+		$(MAVEN) test; \
+		$(PNPM) -r test; \
 	fi
 
 dev-web:
@@ -133,7 +139,7 @@ dev-web:
 	if [[ "$$PORT" != "$(WEB_PORT)" ]]; then \
 		echo "Port $(WEB_PORT) is busy; using $$PORT for web dev server."; \
 	fi; \
-	PORT="$$PORT" pnpm --filter @illamhelp/web dev
+	PORT="$$PORT" $(PNPM) --filter @illamhelp/web dev
 
 dev-admin:
 	@LOCK_FILE="$(CURDIR)/admin/.next/dev/lock"; \
@@ -160,29 +166,29 @@ dev-admin:
 	if [[ "$$PORT" != "$${ADMIN_PORT:-3003}" ]]; then \
 		echo "Port $${ADMIN_PORT:-3003} is busy; using $$PORT for admin dev server."; \
 	fi; \
-	PORT="$$PORT" pnpm --filter @illamhelp/admin dev
+	PORT="$$PORT" $(PNPM) --filter @illamhelp/admin dev
 
 dev-mobile:
-	pnpm --filter @illamhelp/mobile start -- --$(EXPO_HOST_MODE)
+	$(PNPM) --filter @illamhelp/mobile start -- --$(EXPO_HOST_MODE)
 
 dev-mobile-clear:
-	pnpm --filter @illamhelp/mobile start -- --clear --$(EXPO_HOST_MODE)
+	$(PNPM) --filter @illamhelp/mobile start -- --clear --$(EXPO_HOST_MODE)
 
 dev-mobile-reset:
 	rm -rf mobile/.expo
-	pnpm --filter @illamhelp/mobile start -- --clear --$(EXPO_HOST_MODE)
+	$(PNPM) --filter @illamhelp/mobile start -- --clear --$(EXPO_HOST_MODE)
 
 dev-mobile-android:
-	pnpm --filter @illamhelp/mobile android
+	$(PNPM) --filter @illamhelp/mobile android
 
 dev-mobile-ios:
-	pnpm --filter @illamhelp/mobile ios
+	$(PNPM) --filter @illamhelp/mobile ios
 
 dev-mobile-web:
-	pnpm --filter @illamhelp/mobile web
+	$(PNPM) --filter @illamhelp/mobile web
 
 mobile-native-init:
-	pnpm --filter @illamhelp/mobile e2e:maestro:init
+	$(PNPM) --filter @illamhelp/mobile e2e:maestro:init
 
 health:
 	curl -fsS http://localhost:4000/api/v1/health
@@ -190,33 +196,7 @@ health:
 bruno-cli-install:
 	npm install -g @usebruno/cli
 
-migrate:
-	@if [[ "$$(docker inspect -f '{{.State.Running}}' illamhelp-postgres 2>/dev/null)" != "true" ]]; then \
-		echo "illamhelp-postgres is not running. Start infra first: make up-core"; \
-		exit 1; \
-	fi; \
-	POSTGRES_USER="$$(docker exec illamhelp-postgres printenv POSTGRES_USER 2>/dev/null)"; \
-	POSTGRES_DB="$$(docker exec illamhelp-postgres printenv POSTGRES_DB 2>/dev/null)"; \
-	if [[ -z "$$POSTGRES_USER" ]]; then POSTGRES_USER="postgres"; fi; \
-	if [[ -z "$$POSTGRES_DB" ]]; then POSTGRES_DB="$$POSTGRES_USER"; fi; \
-	if [[ -z "$$POSTGRES_USER" || -z "$$POSTGRES_DB" ]]; then \
-		echo "Could not determine PostgreSQL user/database (set POSTGRES_USER and POSTGRES_DB in .env, then restart with make down && make up-core)"; \
-		exit 1; \
-	fi; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -tAc "SELECT to_regclass('public.users') IS NOT NULL" | grep -q t || docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0001_init.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0002_add_access_request_id_to_consent_grants.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0003_scale_indexes_and_constraints.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0004_internal_event_outbox.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0005_user_role_default_both.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0006_job_applications_and_booking_lifecycle.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0007_jobs_geo_search_fields.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0008_users_public_user_id.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0009_add_verified_column.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0010_jobs_visibility_and_extended_lifecycle.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0011_verification_requests.sql; \
-	docker exec -i illamhelp-postgres psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" < infra/db/migrations/0012_notifications.sql
-
-bruno-e2e: preflight up-core migrate
+bruno-e2e: backend-preflight up-core
 	bash ./scripts/run-with-e2e-admin-env.sh bash ./scripts/run-bruno-e2e.sh
 
 e2e-admin-setup:
@@ -226,31 +206,31 @@ e2e-admin-cleanup:
 	bash ./scripts/e2e-admin-cleanup.sh
 
 ui-install:
-	pnpm run test:ui:install
+	$(PNPM) run test:ui:install
 
 ui-test-web:
-	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:web
+	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" $(PNPM) run test:ui:web
 
 ui-test-admin:
-	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" pnpm run test:ui:admin
+	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" $(PNPM) run test:ui:admin
 
-ui-test-mobile: preflight up-core migrate
-	pnpm run test:ui:mobile
+ui-test-mobile: preflight up-core
+	$(PNPM) run test:ui:mobile
 
-ui-test-mobile-ios: preflight up-core migrate
-	pnpm run test:ui:mobile:ios
+ui-test-mobile-ios: preflight up-core
+	$(PNPM) run test:ui:mobile:ios
 
-ui-test-mobile-android: preflight up-core migrate
-	pnpm run test:ui:mobile:android
+ui-test-mobile-android: preflight up-core
+	$(PNPM) run test:ui:mobile:android
 
-ui-test-mobile-ios-debug: preflight up-core migrate
-	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-ios.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-ios}" pnpm --filter @illamhelp/mobile e2e:maestro:test:ios:debug
+ui-test-mobile-ios-debug: preflight up-core
+	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-ios.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-ios}" $(PNPM) --filter @illamhelp/mobile e2e:maestro:test:ios:debug
 
-ui-test-mobile-android-debug: preflight up-core migrate
-	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-android.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-android}" pnpm --filter @illamhelp/mobile e2e:maestro:test:android:debug
+ui-test-mobile-android-debug: preflight up-core
+	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-android.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-android}" $(PNPM) --filter @illamhelp/mobile e2e:maestro:test:android:debug
 
-ui-test: preflight up-core migrate
-	pnpm run test:ui
+ui-test: preflight up-core
+	$(PNPM) run test:ui
 
 ci-local:
 	@command -v act >/dev/null 2>&1 || { \
@@ -293,7 +273,7 @@ clean: clean-build
 clean-build:
 	@echo "Removing generated build/test artifacts..."
 	@rm -rf \
-		api/dist \
+		api-java/target \
 		dist \
 		test-results \
 		tests/playwright/reports \
@@ -304,7 +284,6 @@ clean-build:
 		mobile/artifacts \
 		mobile/android/build \
 		mobile/ios/build \
-		api/tsconfig.tsbuildinfo \
 		admin/tsconfig.tsbuildinfo \
 		web/tsconfig.tsbuildinfo \
 		mobile/tsconfig.tsbuildinfo

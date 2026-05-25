@@ -5,7 +5,7 @@
 Use Homebrew where possible:
 
 ```bash
-brew install node@24 pnpm
+brew install openjdk@21 maven node@24
 ```
 
 Install Docker Desktop (or Colima if you prefer).
@@ -53,7 +53,6 @@ make up
 
 ```bash
 make deps
-make migrate
 make api-dev
 ```
 
@@ -62,7 +61,7 @@ If data persists after `make down`, run a hard reset:
 ```bash
 make reset-backend
 make up-core
-make migrate
+make api-dev
 ```
 
 Health check:

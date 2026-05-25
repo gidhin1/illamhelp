@@ -23,8 +23,8 @@ tests {
   });
 
   test("verification me before submit returns null or record", function () {
-    if (res.body === null) {
-      expect(res.body).to.equal(null);
+    if (res.body == null) {
+      expect(res.body).to.be.oneOf([null, undefined]);
       return;
     }
 
@@ -49,4 +49,3 @@ script:post-response {
 
   bru.runner.setNextRequest("Verification Submit");
 }
-
