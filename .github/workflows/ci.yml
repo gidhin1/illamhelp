@@ -81,9 +81,14 @@ jobs:
           - clamav/clamav@sha256:f7954ca7ca13f0ebc301bb8a8b492a88db793192c48763a0b9a2ffb64dcf4bee
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/setup-trivy@v0.2.4
       - name: Scan pinned image
-        run: trivy image --ignorefile infra/trivy-image-exceptions.txt --ignore-unfixed --severity CRITICAL --exit-code 1 "${{ matrix.image }}"
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image }}
+          scan-type: image
+          ignore-unfixed: true
+          severity: CRITICAL
+          exit-code: "1"
 
   semgrep:
     name: SAST (Semgrep)
