@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 public class MediaController {
@@ -28,13 +29,15 @@ public class MediaController {
   }
 
   @GetMapping("/media")
-  public List<Map<String, Object>> mine(@AuthenticationPrincipal Jwt jwt) {
-    return service.listMine(CurrentUser.fromJwt(jwt).userId());
+  public Map<String, Object> mine(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String cursor) {
+    return service.listMine(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/media/public/{ownerUserId}")
-  public List<Map<String, Object>> publicMedia(@PathVariable String ownerUserId) {
-    return service.listApprovedForOwner(ownerUserId);
+  public Map<String, Object> publicMedia(@PathVariable String ownerUserId, @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String cursor) {
+    return service.listApprovedForOwner(ownerUserId, limit, cursor);
   }
 
   @PostMapping("/media/upload-ticket")

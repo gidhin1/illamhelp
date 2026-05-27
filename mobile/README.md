@@ -75,47 +75,21 @@ pnpm --filter @illamhelp/mobile typecheck
 pnpm --filter @illamhelp/mobile lint
 ```
 
-## E2E Tests (Maestro)
+## Tests
 
-From repo root:
-
-```bash
-make mobile-native-init            # Initialize native projects (first time)
-make ui-test-mobile-ios            # iOS simulator
-make ui-test-mobile-android        # Android emulator
-make ui-test-mobile                # Both platforms
-```
-
-### Debug Mode
+Fast unit tests run with Vitest:
 
 ```bash
-make ui-test-mobile-ios-debug
-make ui-test-mobile-android-debug
-
-# Single flow
-MAESTRO_FLOW=.maestro/flows/auth.yaml make ui-test-mobile-ios-debug
+pnpm --filter @illamhelp/mobile test
 ```
 
-### Defaults
+Fast UI E2E automation uses **Playwright against Expo Web** with a phone viewport:
 
-- iOS device: `iPhone 16e` (override: `MAESTRO_IOS_DEVICE`)
-- Android AVD: `Pixel_9` (override: `MAESTRO_ANDROID_AVD`)
+```bash
+make ui-test-mobile
+```
 
-### Artifacts
-
-- iOS: `mobile/artifacts/maestro/ios`
-- Android: `mobile/artifacts/maestro/android`
-- Debug logs: `mobile/artifacts/maestro/debug-*`
-
-### Notes
-
-- Maestro runs against native simulator/emulator builds, not Expo Go
-- First run is slower because it builds the native app; later runs reuse the built app by default
-- Force a rebuild only when needed:
-  `MAESTRO_FORCE_BUILD=true MAESTRO_CLEAN_BUILD=true make ui-test-mobile-ios`
-- Install the mobile testing Maestro CLI locally before running the suite:
-  `curl -Ls "https://get.maestro.mobile.dev" | bash`
-- If needed, add it to your shell path:
-  `export PATH="$HOME/.maestro/bin:$PATH"`
-- `brew install maestro` installs the unrelated desktop app cask, not the mobile test CLI
-- Ensure Xcode, CocoaPods, and Android Studio emulators are installed before running Maestro
+This runs the actual mobile React Native screens through `react-native-web`, using the same
+UI-only rules as the web/admin Playwright suites. It avoids native build and emulator startup
+cost for day-to-day regression coverage. Use short manual simulator/device smoke checks before
+release for platform-only behavior such as permissions and native keyboard/layout details.

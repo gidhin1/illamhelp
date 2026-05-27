@@ -29,6 +29,8 @@ reports/
 .act-artifacts/
 .cache/
 .tools/
+.codex/
+claude-skills/
 
 # env
 .env

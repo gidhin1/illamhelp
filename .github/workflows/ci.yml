@@ -63,6 +63,28 @@ jobs:
           severity: CRITICAL,HIGH
           exit-code: "1"
 
+  trivy-images:
+    name: Container Image Scan (Critical)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - postgres@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+          - redis@sha256:d146f83b1e0f02fc27c26a50cee39338c736674c5959db84363e6ae3cd9e02d2
+          - minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          - minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          - nats@sha256:e4bf19f15fd3218814a4e3c9e0064e1334bd8aa20d5984b9f1a0afd084f8cc00
+          - opensearchproject/opensearch@sha256:00565f63fa1aa1643d5a2cf61cb5f09b4aeddee2f12703f01c534f051bff1a99
+          - quay.io/keycloak/keycloak@sha256:be6a86215213145bfb4fb3e2b3ab982a806d00262655abdcf3ffa6a38d241c7c
+          - openpolicyagent/opa@sha256:bf5d926c9c5163cd43e56de43f47165d12c1e6a91911d0a20648f8e3ab085a61
+          - clamav/clamav@sha256:f7954ca7ca13f0ebc301bb8a8b492a88db793192c48763a0b9a2ffb64dcf4bee
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/setup-trivy@v0.2.4
+      - name: Scan pinned image
+        run: trivy image --ignorefile infra/trivy-image-exceptions.txt --ignore-unfixed --severity CRITICAL --exit-code 1 "${{ matrix.image }}"
+
   semgrep:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest

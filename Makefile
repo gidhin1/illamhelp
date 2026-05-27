@@ -29,8 +29,7 @@ KNOWN_CONTAINERS := \
 .PHONY: api-dev api-build api-start bruno-cli-install bruno-e2e
 .PHONY: dev dev-web dev-admin dev-mobile dev-mobile-clear dev-mobile-reset dev-mobile-android dev-mobile-ios dev-mobile-web health
 .PHONY: backend backend-start
-.PHONY: mobile-native-init ui-install ui-test-web ui-test-admin ui-test-mobile ui-test-mobile-ios ui-test-mobile-android ui-test
-.PHONY: ui-test-mobile-ios-debug ui-test-mobile-android-debug
+.PHONY: ui-install ui-test-web ui-test-admin ui-test-mobile ui-test
 .PHONY: ci-local
 .PHONY: e2e-admin-setup e2e-admin-cleanup
 .PHONY: clean clean-build
@@ -187,9 +186,6 @@ dev-mobile-ios:
 dev-mobile-web:
 	$(PNPM) --filter @illamhelp/mobile web
 
-mobile-native-init:
-	$(PNPM) --filter @illamhelp/mobile e2e:maestro:init
-
 health:
 	curl -fsS http://localhost:4000/api/v1/health
 
@@ -208,26 +204,14 @@ e2e-admin-cleanup:
 ui-install:
 	$(PNPM) run test:ui:install
 
-ui-test-web:
+ui-test-web: preflight up-core
 	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" $(PNPM) run test:ui:web
 
-ui-test-admin:
+ui-test-admin: preflight up-core
 	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" $(PNPM) run test:ui:admin
 
 ui-test-mobile: preflight up-core
-	$(PNPM) run test:ui:mobile
-
-ui-test-mobile-ios: preflight up-core
-	$(PNPM) run test:ui:mobile:ios
-
-ui-test-mobile-android: preflight up-core
-	$(PNPM) run test:ui:mobile:android
-
-ui-test-mobile-ios-debug: preflight up-core
-	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-ios.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-ios}" $(PNPM) --filter @illamhelp/mobile e2e:maestro:test:ios:debug
-
-ui-test-mobile-android-debug: preflight up-core
-	MAESTRO_FLOW="$${MAESTRO_FLOW:-.maestro/flows/suite-android.yaml}" MAESTRO_ARTIFACTS_DIR="$${MAESTRO_ARTIFACTS_DIR:-artifacts/maestro/debug-android}" $(PNPM) --filter @illamhelp/mobile e2e:maestro:test:android:debug
+	PW_REUSE_EXISTING_SERVERS="$${PW_REUSE_EXISTING_SERVERS:-true}" PW_AUTH_RATE_LIMIT_MAX="$${PW_AUTH_RATE_LIMIT_MAX:-2000}" $(PNPM) run test:ui:mobile
 
 ui-test: preflight up-core
 	$(PNPM) run test:ui

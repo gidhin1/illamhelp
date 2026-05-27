@@ -130,7 +130,7 @@ function AuditContent(): React.JSX.Element {
       <div className="top-header">
         <div>
            <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Privacy Oversight</div>
-           <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Consent & Audit Timeline</h2>
+           <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Consent & Audit Timeline</h1>
         </div>
       </div>
 
@@ -184,7 +184,7 @@ function AuditContent(): React.JSX.Element {
                 {timeline.accessRequests.length === 0 ? (
                   <EmptyState title="No consent requests" body="No request history found." />
                 ) : (
-                  <DataTable columns={accessColumns} data={timeline.accessRequests} />
+                  <DataTable ariaLabel="Consent network requests" columns={accessColumns} data={timeline.accessRequests} />
                 )}
               </Card>
 
@@ -194,7 +194,7 @@ function AuditContent(): React.JSX.Element {
                 {timeline.consentGrants.length === 0 ? (
                   <EmptyState title="No consent grants" body="No grant history found." />
                 ) : (
-                  <DataTable columns={grantColumns} data={timeline.consentGrants} />
+                  <DataTable ariaLabel="Consent grants" columns={grantColumns} data={timeline.consentGrants} />
                 )}
               </Card>
             </div>
@@ -205,7 +205,7 @@ function AuditContent(): React.JSX.Element {
               {timeline.auditEvents.length === 0 ? (
                 <EmptyState title="No audit events" body="No audit records were found." />
               ) : (
-                <DataTable columns={auditColumns} data={timeline.auditEvents} />
+                <DataTable ariaLabel="Core audit events" columns={auditColumns} data={timeline.auditEvents} />
               )}
             </Card>
           </div>

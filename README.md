@@ -38,8 +38,8 @@ make dev               # Run full local stack (tests → infra → API → web)
 | `make health` | API health check |
 | `make ui-test-web` | Playwright web E2E tests |
 | `make ui-test-admin` | Playwright admin E2E tests |
-| `make ui-test-mobile` | Maestro mobile E2E tests (iOS + Android) |
-| `make ui-test` | Run all UI E2E suites |
+| `make ui-test-mobile` | Fast Playwright E2E tests against Expo Web mobile UI |
+| `make ui-test` | Run all Playwright UI E2E suites |
 | `make clean` | Remove all build/test artifacts |
 | `make reset-backend` | Full backend wipe (volumes + containers) |
 | `make doctor` | Environment diagnostics |

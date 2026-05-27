@@ -27,7 +27,7 @@ export function NotificationsScreen({
 }): JSX.Element {
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [total, setTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +46,11 @@ export function NotificationsScreen({
     setError(null);
     try {
       const response = await listNotifications(
-        { unreadOnly: showUnreadOnly, limit: 50, offset: 0 },
+        { unreadOnly: showUnreadOnly, limit: 50 },
         accessToken
       );
       setNotifications(response.items);
-      setTotal(response.total);
+      setNextCursor(response.nextCursor);
       updateUnreadCount(response.unreadCount);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load alerts");
@@ -62,6 +62,29 @@ export function NotificationsScreen({
       setLoading(false);
     }
   }, [accessToken, onSessionInvalid, showUnreadOnly, updateUnreadCount]);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!nextCursor) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await listNotifications(
+        { unreadOnly: showUnreadOnly, limit: 50, cursor: nextCursor },
+        accessToken
+      );
+      setNotifications((previous) => [...previous, ...response.items]);
+      setNextCursor(response.nextCursor);
+      updateUnreadCount(response.unreadCount);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to load more alerts");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, nextCursor, onSessionInvalid, showUnreadOnly, updateUnreadCount]);
 
   useEffect(() => {
     void load();
@@ -220,10 +243,16 @@ export function NotificationsScreen({
                 </View>
               );
             })}
-            {total > notifications.length ? (
-              <Text style={styles.cardBodyMuted}>
-                Showing {notifications.length} of {total} alerts.
-              </Text>
+            {nextCursor ? (
+              <AppButton
+                label={loading ? "Loading..." : "Load more alerts"}
+                onPress={() => {
+                  void loadMore();
+                }}
+                variant="secondary"
+                disabled={loading}
+                testID="notifications-load-more"
+              />
             ) : null}
           </View>
         ) : null}

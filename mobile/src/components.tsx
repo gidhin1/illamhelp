@@ -33,7 +33,15 @@ export function AppButton({
   const textStyles = [styles.buttonLabel, variant === "ghost" ? styles.buttonLabelGhost : null];
 
   return (
-    <Pressable style={buttonStyles} disabled={disabled} onPress={onPress} testID={testID}>
+    <Pressable
+      style={buttonStyles}
+      disabled={disabled}
+      onPress={onPress}
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !!disabled }}
+    >
       <Text style={textStyles}>{label}</Text>
     </Pressable>
   );
@@ -45,8 +53,8 @@ export function InputField({
   onChangeText,
   placeholder,
   secureTextEntry,
-  autoComplete = "off",
-  textContentType = "none",
+  autoComplete,
+  textContentType,
   autoCapitalize = "none",
   multiline = false,
   testID
@@ -78,7 +86,7 @@ export function InputField({
         autoCorrect={false}
         autoComplete={autoComplete}
         textContentType={textContentType}
-        importantForAutofill="no"
+        accessibilityLabel={label}
         autoCapitalize={autoCapitalize}
         multiline={multiline}
         testID={testID}
@@ -128,6 +136,9 @@ export function Banner({
         tone === "info" ? styles.bannerInfo : null
       ]}
       testID={testID}
+      accessible
+      accessibilityRole={tone === "error" ? "alert" : undefined}
+      accessibilityLiveRegion={tone === "error" ? "assertive" : "polite"}
     >
       <Text
         style={[

@@ -117,7 +117,11 @@ export function Banner({
   tone: "info" | "success" | "error";
   children: ReactNode;
 }): React.JSX.Element {
-  return <div className={`banner ${tone}`}>{children}</div>;
+  return (
+    <div className={`banner ${tone}`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"}>
+      {children}
+    </div>
+  );
 }
 
 export function EmptyState({

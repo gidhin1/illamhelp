@@ -2,7 +2,7 @@
 import {
   acceptJobApplication, applyToJob,
   AuthenticatedUser, cancelBooking, closeBooking, completeBooking,
-  createJob, formatDate, getProfileByUserId, JobApplicationRecord, JobRecord, listJobApplications, listJobs, listMyJobApplications,
+  createJob, formatDate, getProfileByUserId, JobApplicationRecord, JobRecord, listJobApplications, listJobsPage, listMyJobApplications,
   markPaymentDone,
   markPaymentReceived, ProfileRecord, rejectJobApplication,
   revokeJobAssignment,
@@ -13,9 +13,6 @@ import {
   validateJobPayload, shouldForceSignOut, asError, CreateJobPayload
 } from "../utils";
 
-import {
-  MAX_RENDER_ROWS
-} from "../constants";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import {} from "../theme";
@@ -54,6 +51,7 @@ export function JobsScreen({
 }): JSX.Element {
   const currentUserId = user.publicUserId;
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [myApplicationsByJob, setMyApplicationsByJob] = useState<
     Record<string, JobApplicationRecord>
   >({});
@@ -100,7 +98,7 @@ export function JobsScreen({
   });
 
   const jobsPostedByMe = useMemo(
-    () => jobs.filter((job) => job.seekerUserId === currentUserId).slice(0, MAX_RENDER_ROWS),
+    () => jobs.filter((job) => job.seekerUserId === currentUserId),
     [jobs, currentUserId]
   );
   const jobsAssignedToMe = useMemo(
@@ -109,8 +107,7 @@ export function JobsScreen({
         .filter(
           (job) =>
             job.assignedProviderUserId === currentUserId && job.seekerUserId !== currentUserId
-        )
-        .slice(0, MAX_RENDER_ROWS),
+        ),
     [jobs, currentUserId]
   );
   const jobsFromConnectedPeople = useMemo(
@@ -121,8 +118,7 @@ export function JobsScreen({
             job.seekerUserId !== currentUserId &&
             job.assignedProviderUserId !== currentUserId &&
             (job.visibility === "connections_only" || job.status !== "posted")
-        )
-        .slice(0, MAX_RENDER_ROWS),
+        ),
     [jobs, currentUserId]
   );
   const publicJobs = useMemo(
@@ -134,8 +130,7 @@ export function JobsScreen({
             job.assignedProviderUserId !== currentUserId &&
             job.visibility === "public" &&
             job.status === "posted"
-        )
-        .slice(0, MAX_RENDER_ROWS),
+        ),
     [jobs, currentUserId]
   );
   const selectedOwnJob = useMemo(
@@ -202,12 +197,13 @@ export function JobsScreen({
     setError(null);
     try {
       const [jobRows, myApplicationRows] = await Promise.all([
-        listJobs(accessToken),
+        listJobsPage(accessToken),
         listMyJobApplications(accessToken)
       ]);
-      setJobs(jobRows);
+      setJobs(jobRows.items);
+      setNextCursor(jobRows.nextCursor);
       setMyApplicationsByJob(latestApplicationByJob(myApplicationRows));
-      await loadOwnJobApplicantCounts(jobRows);
+      await loadOwnJobApplicantCounts(jobRows.items);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load jobs");
       setError(message);
@@ -218,6 +214,25 @@ export function JobsScreen({
       setLoading(false);
     }
   }, [accessToken, loadOwnJobApplicantCounts, onSessionInvalid]);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!nextCursor) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await listJobsPage(accessToken, nextCursor);
+      setJobs((previous) => [...previous, ...page.items]);
+      setNextCursor(page.nextCursor);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to load more jobs");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, nextCursor, onSessionInvalid]);
 
   const loadSelectedOwnJobApplications = useCallback(
     async (jobId: string): Promise<void> => {
@@ -955,6 +970,18 @@ export function JobsScreen({
               : selectedApplicantProfile.contact.phoneMasked ?? "Hidden"}
           </Text>
         </SectionCard>
+      ) : null}
+
+      {nextCursor ? (
+        <AppButton
+          label={loading ? "Loading..." : "Load more jobs"}
+          onPress={() => {
+            void loadMore();
+          }}
+          variant="secondary"
+          disabled={loading}
+          testID="jobs-load-more"
+        />
       ) : null}
 
       <AppButton

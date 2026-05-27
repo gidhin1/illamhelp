@@ -69,7 +69,8 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       minHeight: 52,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: 18
+      borderRadius: 18,
+      gap: 3
     },
     bottomItemActive: {
       backgroundColor: colors.surface,
@@ -78,6 +79,14 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       shadowRadius: 12,
       shadowOffset: { width: 0, height: 8 },
       elevation: 3
+    },
+    bottomItemLabel: {
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: "600"
+    },
+    bottomItemLabelActive: {
+      color: colors.brand
     },
     badge: {
       position: "absolute",
@@ -278,6 +287,8 @@ export function MobileShell({
           onPress={onToggleDrawer}
           style={styles.headerSide}
           accessibilityRole="button"
+          accessibilityLabel="Open navigation menu"
+          accessibilityState={{ expanded: drawerOpen }}
           testID="app-drawer-toggle"
         >
           <NavIcon name="menu" size={26} color={theme.colors.ink} />
@@ -290,6 +301,7 @@ export function MobileShell({
           onPress={() => onNavigate("profile")}
           style={styles.headerSide}
           accessibilityRole="button"
+          accessibilityLabel="Open profile"
           testID="app-header-profile"
         >
           <View style={[styles.avatar, { width: 36, height: 36, borderRadius: 18 }]}>
@@ -309,6 +321,8 @@ export function MobileShell({
               onPress={() => onNavigate(item.key as MobileRouteKey)}
               style={[styles.bottomItem, active ? styles.bottomItemActive : null]}
               accessibilityRole="button"
+              accessibilityLabel={item.label}
+              accessibilityState={{ selected: active }}
               testID={`tab-${item.key}`}
             >
               <View>
@@ -317,11 +331,8 @@ export function MobileShell({
                   size={24}
                   color={active ? theme.colors.brand : theme.colors.muted}
                 />
-                {item.key === "people" && unreadAlertsCount > 0 ? null : null}
-                {item.key === "profile" ? null : null}
-                {item.key === "verify" ? null : null}
-                {item.key === "home" ? null : null}
               </View>
+              <Text style={[styles.bottomItemLabel, active ? styles.bottomItemLabelActive : null]}>{item.label}</Text>
             </Pressable>
           );
         })}
@@ -329,8 +340,8 @@ export function MobileShell({
 
       {drawerOpen ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Pressable style={styles.drawerScrim} onPress={onToggleDrawer} testID="app-drawer-scrim" />
-          <View style={[styles.drawer, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close navigation menu" style={styles.drawerScrim} onPress={onToggleDrawer} testID="app-drawer-scrim" />
+          <View accessibilityViewIsModal accessible={false} style={[styles.drawer, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
             <ScrollView contentContainerStyle={styles.drawerScroll} showsVerticalScrollIndicator={false}>
               <View style={styles.profileCard}>
                 <View style={styles.avatar}>
@@ -353,6 +364,9 @@ export function MobileShell({
                         onPress={() => setThemePreference(preference)}
                         style={[styles.themeChip, active ? styles.themeChipActive : null]}
                         testID={`theme-${preference}`}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${preference} theme`}
+                        accessibilityState={{ selected: active }}
                       >
                         <Text style={styles.themeChipLabel}>{preference}</Text>
                       </Pressable>
@@ -372,6 +386,9 @@ export function MobileShell({
                           onPress={onToggleJobsExpanded}
                           style={[styles.drawerItem, active ? styles.drawerItemActive : null]}
                           testID="drawer-nav-jobs-toggle"
+                          accessibilityRole="button"
+                          accessibilityLabel="Jobs"
+                          accessibilityState={{ expanded: jobsExpanded, selected: active }}
                         >
                           <NavIcon name={item.icon} size={22} color={active ? theme.colors.brand : theme.colors.ink} />
                           <Text style={styles.drawerItemLabel}>{item.label}</Text>
@@ -394,6 +411,9 @@ export function MobileShell({
                                   }}
                                   style={[styles.jobsChildItem, childActive ? styles.jobsChildActive : null]}
                                   testID={`drawer-nav-${child.key}`}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={child.label}
+                                  accessibilityState={{ selected: childActive }}
                                 >
                                   <Text style={styles.jobsChildLabel}>{child.label}</Text>
                                 </Pressable>
@@ -415,6 +435,9 @@ export function MobileShell({
                       }}
                       style={[styles.drawerItem, active ? styles.drawerItemActive : null]}
                       testID={`drawer-nav-${item.key}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={item.label}
+                      accessibilityState={{ selected: active }}
                     >
                       <View>
                         <NavIcon
@@ -434,7 +457,7 @@ export function MobileShell({
                 })}
               </View>
 
-              <Pressable onPress={onSignOut} style={styles.signOut} testID="drawer-signout">
+              <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={onSignOut} style={styles.signOut} testID="drawer-signout">
                 <Text style={styles.signOutLabel}>Sign out</Text>
               </Pressable>
             </ScrollView>

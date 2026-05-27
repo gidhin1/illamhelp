@@ -2,6 +2,7 @@
 
 import type {
   ButtonHTMLAttributes,
+  HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
   SelectHTMLAttributes,
@@ -35,14 +36,13 @@ export function Card({
   children,
   soft,
   className,
-  style
+  ...props
 }: {
   children: ReactNode;
   soft?: boolean;
   className?: string;
-  style?: React.CSSProperties;
-}): JSX.Element {
-  return <div className={`card ${soft ? "soft" : ""} ${className ?? ""}`} style={style}>{children}</div>;
+} & HTMLAttributes<HTMLDivElement>): JSX.Element {
+  return <div {...props} className={`card ${soft ? "soft" : ""} ${className ?? ""}`}>{children}</div>;
 }
 
 export function Button({
@@ -114,7 +114,7 @@ export function Banner({
   children: ReactNode;
 }): JSX.Element {
   const ariaRole = tone === "error" ? "alert" : "status";
-  return <div className={`banner ${tone}`} role={ariaRole}>{children}</div>;
+  return <div className={`banner ${tone}`} role={ariaRole} aria-live={tone === "error" ? "assertive" : "polite"}>{children}</div>;
 }
 
 export function EmptyState({

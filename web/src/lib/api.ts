@@ -15,6 +15,16 @@ export interface ApiErrorPayload {
   error?: string;
 }
 
+interface PaginatedListResponse<T> {
+  items?: T[];
+  limit?: number;
+  nextCursor?: string | null;
+}
+
+function normalizeListPayload<T>(payload: T[] | PaginatedListResponse<T> | undefined): T[] {
+  return Array.isArray(payload) ? payload : payload?.items ?? [];
+}
+
 export class ApiRequestError extends Error {
   readonly statusCode: number;
 
@@ -300,27 +310,26 @@ export function logoutSession(refreshToken: string): Promise<{ success: boolean 
   });
 }
 
-export interface PaginatedResponse<T> {
+export interface CursorPageResponse<T> {
   items: T[];
-  total: number;
   limit: number;
-  offset: number;
+  nextCursor: string | null;
 }
 
 export function listJobs(
   accessToken: string,
-  pagination?: { limit?: number; offset?: number }
-): Promise<PaginatedResponse<JobRecord>> {
+  pagination?: { limit?: number; cursor?: string }
+): Promise<CursorPageResponse<JobRecord>> {
   const params = new URLSearchParams();
   if (pagination?.limit != null) {
     params.set("limit", String(pagination.limit));
   }
-  if (pagination?.offset != null) {
-    params.set("offset", String(pagination.offset));
+  if (pagination?.cursor) {
+    params.set("cursor", pagination.cursor);
   }
   const query = params.toString();
   const path = query ? `/jobs?${query}` : "/jobs";
-  return apiRequest<PaginatedResponse<JobRecord>>(path, {}, accessToken);
+  return apiRequest<CursorPageResponse<JobRecord>>(path, {}, accessToken);
 }
 
 export function createJob(
@@ -492,18 +501,18 @@ export function cancelBooking(
 
 export function listConnections(
   accessToken: string,
-  pagination?: { limit?: number; offset?: number }
-): Promise<PaginatedResponse<ConnectionRecord>> {
+  pagination?: { limit?: number; cursor?: string }
+): Promise<CursorPageResponse<ConnectionRecord>> {
   const params = new URLSearchParams();
   if (pagination?.limit != null) {
     params.set("limit", String(pagination.limit));
   }
-  if (pagination?.offset != null) {
-    params.set("offset", String(pagination.offset));
+  if (pagination?.cursor) {
+    params.set("cursor", pagination.cursor);
   }
   const query = params.toString();
   const path = query ? `/connections?${query}` : "/connections";
-  return apiRequest<PaginatedResponse<ConnectionRecord>>(path, {}, accessToken);
+  return apiRequest<CursorPageResponse<ConnectionRecord>>(path, {}, accessToken);
 }
 
 export function requestConnection(
@@ -639,11 +648,25 @@ export function updateMyProfile(
 }
 
 export function listConsentRequests(accessToken: string): Promise<AccessRequestRecord[]> {
-  return apiRequest<AccessRequestRecord[]>("/consent/requests", {}, accessToken);
+  return apiRequest<AccessRequestRecord[] | PaginatedListResponse<AccessRequestRecord>>(
+    "/consent/requests", {}, accessToken
+  ).then((payload) => normalizeListPayload(payload));
+}
+
+export function listConsentRequestsPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<AccessRequestRecord>> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiRequest<CursorPageResponse<AccessRequestRecord>>(`/consent/requests${query}`, {}, accessToken);
 }
 
 export function listConsentGrants(accessToken: string): Promise<ConsentGrantRecord[]> {
-  return apiRequest<ConsentGrantRecord[]>("/consent/grants", {}, accessToken);
+  return apiRequest<ConsentGrantRecord[] | PaginatedListResponse<ConsentGrantRecord>>(
+    "/consent/grants", {}, accessToken
+  ).then((payload) => normalizeListPayload(payload));
+}
+
+export function listConsentGrantsPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<ConsentGrantRecord>> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiRequest<CursorPageResponse<ConsentGrantRecord>>(`/consent/grants${query}`, {}, accessToken);
 }
 
 export function requestConsentAccess(
@@ -717,12 +740,26 @@ export function canViewConsent(
 }
 
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
-  return apiRequest<MediaAssetRecord[]>("/media", {}, accessToken);
+  return apiRequest<MediaAssetRecord[] | PaginatedListResponse<MediaAssetRecord>>(
+    "/media", {}, accessToken
+  ).then((payload) => normalizeListPayload(payload));
+}
+
+export function listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiRequest<CursorPageResponse<MediaAssetRecord>>(`/media${query}`, {}, accessToken);
 }
 
 export function listPublicApprovedMedia(ownerUserId: string): Promise<PublicMediaAssetRecord[]> {
-  return apiRequest<PublicMediaAssetRecord[]>(
+  return apiRequest<PublicMediaAssetRecord[] | PaginatedListResponse<PublicMediaAssetRecord>>(
     `/media/public/${encodeURIComponent(ownerUserId)}`
+  ).then((payload) => normalizeListPayload(payload));
+}
+
+export function listPublicApprovedMediaPage(ownerUserId: string, cursor?: string): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+  return apiRequest<CursorPageResponse<PublicMediaAssetRecord>>(
+    `/media/public/${encodeURIComponent(ownerUserId)}${query}`
   );
 }
 
@@ -814,15 +851,15 @@ export function getMyVerification(accessToken: string): Promise<VerificationReco
 }
 
 export function listVerifications(
-  params: { status?: string; limit?: number; offset?: number },
+  params: { status?: string; limit?: number; cursor?: string },
   accessToken: string
-): Promise<PaginatedResponse<VerificationRecord>> {
+): Promise<CursorPageResponse<VerificationRecord>> {
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
   if (params.limit != null) qs.set("limit", String(params.limit));
-  if (params.offset != null) qs.set("offset", String(params.offset));
+  if (params.cursor) qs.set("cursor", params.cursor);
   const q = qs.toString();
-  return apiRequest<PaginatedResponse<VerificationRecord>>(
+  return apiRequest<CursorPageResponse<VerificationRecord>>(
     q ? `/admin/oversight/verifications?${q}` : "/admin/oversight/verifications",
     {},
     accessToken
@@ -860,20 +897,19 @@ export interface NotificationRecord {
 
 export interface NotificationListResponse {
   items: NotificationRecord[];
-  total: number;
   limit: number;
-  offset: number;
+  nextCursor: string | null;
   unreadCount: number;
 }
 
 export function listNotifications(
-  params: { unreadOnly?: boolean; limit?: number; offset?: number },
+  params: { unreadOnly?: boolean; limit?: number; cursor?: string },
   accessToken: string
 ): Promise<NotificationListResponse> {
   const qs = new URLSearchParams();
   if (params.unreadOnly) qs.set("unreadOnly", "true");
   if (params.limit != null) qs.set("limit", String(params.limit));
-  if (params.offset != null) qs.set("offset", String(params.offset));
+  if (params.cursor) qs.set("cursor", params.cursor);
   const q = qs.toString();
   return apiRequest<NotificationListResponse>(
     q ? `/notifications?${q}` : "/notifications",

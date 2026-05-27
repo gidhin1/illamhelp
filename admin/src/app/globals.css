@@ -33,6 +33,11 @@ a:hover {
   color: var(--brand-2);
 }
 
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 72%, white);
+  outline-offset: 2px;
+}
+
 button {
   font-family: inherit;
   cursor: pointer;
@@ -246,7 +251,7 @@ input, textarea, select {
 
 .field-error {
   font-size: var(--font-xs);
-  color: var(--error);
+  color: var(--error-text);
 }
 
 .input {
@@ -260,7 +265,6 @@ input, textarea, select {
 }
 
 .input:focus {
-  outline: none;
   border-color: var(--brand);
 }
 
@@ -280,11 +284,13 @@ input, textarea, select {
 .banner.error {
   background: color-mix(in srgb, var(--error) 15%, transparent);
   border-left-color: var(--error);
+  color: var(--error-text);
 }
 
 .banner.success {
   background: color-mix(in srgb, var(--success) 15%, transparent);
   border-left-color: var(--success);
+  color: var(--success-text);
 }
 
 .banner.info {
@@ -393,6 +399,56 @@ input, textarea, select {
 /* Utility */
 .container {
   max-width: 100%;
+}
+
+.sidebar-label,
+.sidebar-brand-label {
+  display: inline;
+}
+
+.nav-item-hover:hover {
+  background: var(--surface-2) !important;
+}
+
+.moderation-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(320px, 400px);
+  gap: var(--spacing-md);
+  align-items: start;
+}
+
+.moderation-panel {
+  min-height: min(660px, calc(100vh - 180px));
+  max-height: calc(100vh - 160px);
+  overflow: hidden;
+}
+
+.moderation-details-panel {
+  overflow-y: auto;
+}
+
+@media (max-width: 1023px) {
+  .sidebar-label,
+  .sidebar-brand-label {
+    display: none;
+  }
+
+  .nav-item-hover {
+    justify-content: center;
+  }
+
+  .admin-sidebar-action {
+    padding-inline: var(--spacing-md);
+  }
+
+  .moderation-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .moderation-panel {
+    min-height: 0;
+    max-height: none;
+  }
 }
 
 /* Consistent inner card gap for stacked content */

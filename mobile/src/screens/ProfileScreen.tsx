@@ -1,7 +1,7 @@
 
 import {
   AuthenticatedUser, completeMediaUpload, createMediaUploadTicket,
-  formatDate, getMyProfile, listMyMedia, listPublicApprovedMedia, MediaAssetRecord, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
+  formatDate, getMyProfile, listMyMediaPage, listPublicApprovedMediaPage, MediaAssetRecord, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
 } from "../api";
 
 import {
@@ -98,11 +98,13 @@ export function ProfileScreen({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [mediaAssets, setMediaAssets] = useState<MediaAssetRecord[]>([]);
+  const [mediaCursor, setMediaCursor] = useState<string | null>(null);
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaSuccess, setMediaSuccess] = useState<string | null>(null);
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
+  const [publicMediaCursor, setPublicMediaCursor] = useState<string | null>(null);
   const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
 
@@ -117,11 +119,13 @@ export function ProfileScreen({
     setPublicGalleryLoading(true);
     setPublicGalleryError(null);
     try {
-      const assets = await listPublicApprovedMedia(normalizedOwnerId);
-      setPublicMediaAssets(assets);
+      const page = await listPublicApprovedMediaPage(normalizedOwnerId);
+      setPublicMediaAssets(page.items);
+      setPublicMediaCursor(page.nextCursor);
     } catch (requestError) {
       setPublicGalleryError(asError(requestError, "Unable to load public media"));
       setPublicMediaAssets([]);
+      setPublicMediaCursor(null);
     } finally {
       setPublicGalleryLoading(false);
     }
@@ -131,13 +135,14 @@ export function ProfileScreen({
     setLoading(true);
     setError(null);
     try {
-      const [record, media] = await Promise.all([
+      const [record, mediaPage] = await Promise.all([
         getMyProfile(accessToken),
-        listMyMedia(accessToken)
+        listMyMediaPage(accessToken)
       ]);
       setProfile(record);
       setForm(buildProfileForm(record));
-      setMediaAssets(media);
+      setMediaAssets(mediaPage.items);
+      setMediaCursor(mediaPage.nextCursor);
       setPublicGalleryOwner(record.userId);
       await loadPublicGallery(record.userId);
     } catch (requestError) {
@@ -150,6 +155,20 @@ export function ProfileScreen({
       setLoading(false);
     }
   }, [accessToken, loadPublicGallery, onSessionInvalid]);
+
+  const loadMoreMedia = async (): Promise<void> => {
+    if (!mediaCursor) return;
+    const page = await listMyMediaPage(accessToken, mediaCursor);
+    setMediaAssets((previous) => [...previous, ...page.items]);
+    setMediaCursor(page.nextCursor);
+  };
+
+  const loadMorePublicMedia = async (): Promise<void> => {
+    if (!publicMediaCursor) return;
+    const page = await listPublicApprovedMediaPage(publicGalleryOwner.trim().toLowerCase(), publicMediaCursor);
+    setPublicMediaAssets((previous) => [...previous, ...page.items]);
+    setPublicMediaCursor(page.nextCursor);
+  };
 
   useEffect(() => {
     void loadProfile();
@@ -402,7 +421,7 @@ export function ProfileScreen({
         {mediaAssets.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No media uploaded yet.</Text>
         ) : null}
-        {mediaAssets.slice(0, 6).map((asset) => (
+        {mediaAssets.map((asset) => (
           <View key={asset.id} style={styles.dataRow}>
             <Text style={styles.dataTitle}>{asset.objectKey.split("/").slice(-1)[0]}</Text>
             <Text style={styles.dataMeta}>
@@ -412,6 +431,16 @@ export function ProfileScreen({
             <Text style={styles.dataMeta}>{formatDate(asset.createdAt)}</Text>
           </View>
         ))}
+        {mediaCursor ? (
+          <AppButton
+            label="Load more media"
+            onPress={() => {
+              void loadMoreMedia();
+            }}
+            variant="secondary"
+            testID="profile-media-load-more"
+          />
+        ) : null}
       </SectionCard>
       <SectionCard title="Public gallery preview">
         <Text style={styles.cardBody}>
@@ -456,6 +485,16 @@ export function ProfileScreen({
             />
           </View>
         ))}
+        {publicMediaCursor ? (
+          <AppButton
+            label="Load more approved media"
+            onPress={() => {
+              void loadMorePublicMedia();
+            }}
+            variant="secondary"
+            testID="profile-public-load-more"
+          />
+        ) : null}
       </SectionCard>
       {loading ? <Text style={styles.cardBodyMuted}>Loading profile...</Text> : null}
       <AppButton label="Sign out" onPress={onSignOut} variant="ghost" testID="profile-signout" />

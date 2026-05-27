@@ -9,49 +9,34 @@ import org.springframework.data.repository.query.Param;
 
 public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UUID> {
   @Query(value = """
-      SELECT id, user_a_id AS "userAId", user_b_id AS "userBId", requested_by_user_id AS "requestedByUserId",
-             status::text, requested_at AS "requestedAt", decided_at AS "decidedAt"
-      FROM connections
-      WHERE user_a_id = cast(:userId as uuid) OR user_b_id = cast(:userId as uuid)
-      ORDER BY requested_at DESC
-      LIMIT :limit OFFSET :offset
+      SELECT c.id, c.user_a_id AS "userAId", c.user_b_id AS "userBId", c.requested_by_user_id AS "requestedByUserId",
+             c.status::text, c.requested_at AS "requestedAt", c.decided_at AS "decidedAt",
+             coalesce(nullif(trim(a.username), ''), 'member_' || substring(md5(a.id::text) FROM 1 FOR 10)) AS "userAPublicId",
+             coalesce(nullif(trim(b.username), ''), 'member_' || substring(md5(b.id::text) FROM 1 FOR 10)) AS "userBPublicId",
+             coalesce(nullif(trim(requester.username), ''), 'member_' || substring(md5(requester.id::text) FROM 1 FOR 10)) AS "requestedByPublicId"
+      FROM connections c JOIN users a ON a.id = c.user_a_id JOIN users b ON b.id = c.user_b_id
+      JOIN users requester ON requester.id = c.requested_by_user_id
+      WHERE (c.user_a_id = cast(:userId as uuid) OR c.user_b_id = cast(:userId as uuid))
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (c.requested_at, c.id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY c.requested_at DESC, c.id DESC
+      LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listForUser(@Param("userId") String userId, @Param("limit") int limit, @Param("offset") int offset);
-
-  @Query(value = "SELECT count(*) FROM connections WHERE user_a_id = cast(:userId as uuid) OR user_b_id = cast(:userId as uuid)", nativeQuery = true)
-  int countForUser(@Param("userId") String userId);
+  List<Map<String, Object>> listForUser(@Param("userId") String userId,
+      @Param("cursorCreatedAt") String cursorCreatedAt, @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = """
-      WITH job_agg AS (
-        SELECT seeker_user_id AS user_id,
-               array_remove(array_agg(DISTINCT category), NULL) AS job_categories,
-               array_remove(array_agg(DISTINCT location_text), NULL) AS job_locations,
-               count(*) AS job_count
-        FROM jobs GROUP BY seeker_user_id
-      ), candidates AS (
-        SELECT coalesce(nullif(trim(u.username), ''), 'member_' || substring(md5(u.id::text) FROM 1 FOR 10)) AS "userId",
-               coalesce(nullif(trim(concat(p.first_name, ' ', coalesce(p.last_name, ''))), ''), u.username) AS "displayName",
-               nullif(trim(concat(coalesce(p.area, ''), ' ', coalesce(p.city, ''))), '') AS "locationLabel",
-               coalesce(p.service_categories, '{}'::text[]) AS "serviceCategories",
-               coalesce(j.job_categories, '{}'::text[]) AS "recentJobCategories",
-               coalesce(j.job_locations, '{}'::text[]) AS "recentLocations",
-               coalesce(j.job_count, 0) AS job_count, u.created_at,
-               lower(concat_ws(' ', u.username, p.first_name, p.last_name, p.city, p.area,
-                 array_to_string(coalesce(p.service_categories, '{}'::text[]), ' '),
-                 array_to_string(coalesce(j.job_categories, '{}'::text[]), ' '),
-                 array_to_string(coalesce(j.job_locations, '{}'::text[]), ' '))) AS searchable_text
-        FROM users u LEFT JOIN profiles p ON p.user_id = u.id LEFT JOIN job_agg j ON j.user_id = u.id
-        WHERE u.id <> cast(:userId as uuid)
-      )
-      SELECT "userId", "displayName", "locationLabel", "serviceCategories", "recentJobCategories", "recentLocations"
-      FROM candidates
-      WHERE :query = '' OR searchable_text LIKE :needle OR (
-        EXISTS (SELECT 1 FROM regexp_split_to_table(:query, '[\\s,;|/]+') AS token WHERE length(token) >= 2)
-        AND NOT EXISTS (SELECT 1 FROM regexp_split_to_table(:query, '[\\s,;|/]+') AS token
-          WHERE length(token) >= 2 AND searchable_text NOT LIKE ('%' || token || '%'))
-      )
-      ORDER BY CASE WHEN "userId" = :query THEN 0 WHEN searchable_text LIKE :needle THEN 1 ELSE 2 END,
-               job_count DESC, created_at DESC
+      SELECT coalesce(nullif(trim(u.username), ''), 'member_' || substring(md5(u.id::text) FROM 1 FOR 10)) AS "userId",
+             d.display_name AS "displayName", d.location_label AS "locationLabel",
+             d.service_categories AS "serviceCategories", d.recent_job_categories AS "recentJobCategories",
+             d.recent_locations AS "recentLocations"
+      FROM connection_search_documents d JOIN users u ON u.id = d.user_id
+      WHERE d.user_id <> cast(:userId as uuid)
+        AND (:query = '' OR d.searchable_text LIKE :needle
+          OR d.search_vector @@ plainto_tsquery('simple', :query))
+      ORDER BY CASE WHEN lower(u.username) = :query THEN 0 WHEN d.searchable_text LIKE :needle THEN 1 ELSE 2 END,
+               CASE WHEN :query = '' THEN 0 ELSE ts_rank(d.search_vector, plainto_tsquery('simple', :query)) END DESC,
+               d.job_count DESC, d.updated_at DESC
       LIMIT :limit
       """, nativeQuery = true)
   List<Map<String, Object>> searchCandidates(@Param("userId") String userId, @Param("query") String query,
@@ -93,12 +78,16 @@ public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UU
       WITH changed AS (
         UPDATE connections SET status = cast(:status as connection_status), decided_at = now()
         WHERE id = cast(:id as uuid)
+          AND (user_a_id = cast(:actorUserId as uuid) OR user_b_id = cast(:actorUserId as uuid))
+          AND (cast(:status as text) = 'blocked' OR status = 'pending'::connection_status)
+          AND (cast(:status as text) <> 'accepted' OR requested_by_user_id <> cast(:actorUserId as uuid))
         RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
       )
       SELECT id, user_a_id AS "userAId", user_b_id AS "userBId", requested_by_user_id AS "requestedByUserId",
              status::text, requested_at AS "requestedAt", decided_at AS "decidedAt" FROM changed
       """, nativeQuery = true)
-  Map<String, Object> decideConnection(@Param("id") String id, @Param("status") String status);
+  Map<String, Object> decideConnection(@Param("id") String id, @Param("actorUserId") String actorUserId,
+      @Param("status") String status);
 
   @Query(value = "SELECT id::text FROM users WHERE lower(username) = lower(:identifier) LIMIT 1", nativeQuery = true)
   String findInternalUserIdByUsername(@Param("identifier") String identifier);

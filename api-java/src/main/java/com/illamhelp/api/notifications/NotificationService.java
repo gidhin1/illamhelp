@@ -2,6 +2,7 @@ package com.illamhelp.api.notifications;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.illamhelp.api.common.CursorPages;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,14 +24,17 @@ public class NotificationService {
     return normalizeData(notificationRepository.insert(userId, type, title, body, json(data == null ? Map.of() : data)));
   }
 
-  public Map<String, Object> list(String userId, boolean unreadOnly, Integer limit, Integer offset) {
+  public Map<String, Object> list(String userId, boolean unreadOnly, Integer limit, String cursorValue) {
     int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
-    int safeOffset = offset == null ? 0 : Math.max(0, offset);
-    List<Map<String, Object>> items = notificationRepository.listForUser(userId, unreadOnly, safeLimit, safeOffset)
-        .stream().map(this::normalizeData).toList();
-    int total = notificationRepository.countForUser(userId, unreadOnly);
-    int unreadCount = notificationRepository.countUnread(userId);
-    return Map.of("items", items, "total", total, "limit", safeLimit, "offset", safeOffset, "unreadCount", unreadCount);
+    CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
+    List<Map<String, Object>> rows = notificationRepository.listForUser(userId, unreadOnly,
+        cursor.createdAt(), cursor.id(), safeLimit + 1);
+    Map<String, Object> page = CursorPages.response(rows, safeLimit, "createdAt");
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> items = (List<Map<String, Object>>) page.get("items");
+    page.put("items", items.stream().map(this::normalizeData).toList());
+    page.put("unreadCount", notificationRepository.countUnread(userId));
+    return page;
   }
 
   public Map<String, Integer> unreadCount(String userId) {

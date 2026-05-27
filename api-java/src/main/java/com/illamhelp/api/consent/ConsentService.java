@@ -2,6 +2,7 @@ package com.illamhelp.api.consent;
 
 import com.illamhelp.api.audit.AuditService;
 import com.illamhelp.api.common.ApiException;
+import com.illamhelp.api.common.CursorPages;
 import com.illamhelp.api.notifications.NotificationService;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ConsentService {
+  private static final int MAX_ARRAY_RESULTS = 100;
   private static final Set<String> CONSENT_FIELDS = Set.of("phone", "alternate_phone", "email", "full_address");
   private final ConsentRepository consentRepository;
   private final OpaService opaService;
@@ -30,16 +32,22 @@ public class ConsentService {
     this.notificationService = notificationService;
   }
 
-  public List<Map<String, Object>> requests(String userId) {
-    return consentRepository.requests(userId).stream()
+  public Map<String, Object> requests(String userId, Integer limit, String cursorValue) {
+    int pageSize = pageSize(limit);
+    CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
+    List<Map<String, Object>> items = consentRepository.requests(userId, cursor.createdAt(), cursor.id(), pageSize + 1).stream()
         .map(item -> publicize(item, "requesterUserId", "ownerUserId"))
         .toList();
+    return CursorPages.response(items, pageSize, "createdAt");
   }
 
-  public List<Map<String, Object>> grants(String userId) {
-    return consentRepository.grants(userId).stream()
+  public Map<String, Object> grants(String userId, Integer limit, String cursorValue) {
+    int pageSize = pageSize(limit);
+    CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
+    List<Map<String, Object>> items = consentRepository.grants(userId, cursor.createdAt(), cursor.id(), pageSize + 1).stream()
         .map(item -> publicize(item, "ownerUserId", "granteeUserId"))
         .toList();
+    return CursorPages.response(items, pageSize, "grantedAt");
   }
 
   @Transactional
@@ -100,15 +108,14 @@ public class ConsentService {
     }
     String requesterUserId = String.valueOf(request.get("requesterUserId"));
     String connectionId = String.valueOf(request.get("connectionId"));
-    if (consentRepository.hasActiveGrant(ownerUserId, requesterUserId, connectionId)) {
-      throw new ApiException(HttpStatus.BAD_REQUEST,
-          "An active consent grant already exists for this connection. Revoke it first or wait for it to expire.");
-    }
     String expiresAt = validExpiresAt(body.get("expiresAt"));
-    consentRepository.approveAccessRequest(requestId, ownerUserId);
     Object purpose = body.getOrDefault("purpose", request.get("purpose"));
-    Map<String, Object> grant = consentRepository.insertGrant(requestId, ownerUserId,
-        requesterUserId, connectionId, grantedFields, purpose, expiresAt);
+    Map<String, Object> grant = consentRepository.grantPendingRequest(requestId, ownerUserId,
+        grantedFields, purpose, expiresAt);
+    if (grant == null || grant.isEmpty()) {
+      throw new ApiException(HttpStatus.CONFLICT,
+          "Access request is no longer pending or an active consent grant already exists.");
+    }
     String granteeUserId = requesterUserId;
     auditService.logEvent(ownerUserId, granteeUserId, "pii_access_granted", String.valueOf(purpose),
         Map.of("requestId", requestId, "grantId", String.valueOf(grant.get("id"))));
@@ -124,6 +131,9 @@ public class ConsentService {
     params.put("grantId", grantId);
     params.put("reason", body.get("reason"));
     Map<String, Object> revoked = consentRepository.revokeGrant(grantId, ownerUserId, params.get("reason"));
+    if (revoked == null || revoked.isEmpty()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "Consent grant not found");
+    }
     String granteeUserId = String.valueOf(revoked.get("granteeUserId"));
     auditService.logEvent(ownerUserId, granteeUserId, "pii_access_revoked", String.valueOf(revoked.get("purpose")),
         Map.of("grantId", grantId));
@@ -182,7 +192,9 @@ public class ConsentService {
     for (String field : fields) {
       Object userId = item.get(field);
       if (userId != null) {
-        result.put(field, publicUserId(userId.toString()));
+        String publicField = field.replace("UserId", "PublicUserId");
+        result.put(field, item.containsKey(publicField) ? item.get(publicField) : publicUserId(userId.toString()));
+        result.remove(publicField);
       }
     }
     return result;
@@ -190,6 +202,10 @@ public class ConsentService {
 
   private String publicUserId(String userId) {
     return consentRepository.findUsername(userId);
+  }
+
+  private int pageSize(Integer limit) {
+    return limit == null ? 50 : Math.max(1, Math.min(limit, MAX_ARRAY_RESULTS));
   }
 
   private String resolveInternalUserId(String identifier) {

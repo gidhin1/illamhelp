@@ -3,16 +3,14 @@ import {
   AccessRequestRecord, AuthenticatedUser, canViewConsent, ConnectionRecord,
   CONSENT_FIELDS, ConsentField, ConsentGrantRecord, formatDate, grantConsent,
   listConnections,
-  listConsentGrants, listConsentRequests, requestConsentAccess, revokeConsent
+  listConsentGrantsPage, listConsentRequestsPage, requestConsentAccess, revokeConsent
 } from "../api";
 
 import {
   shouldForceSignOut, asError
 } from "../utils";
 
-import {
-  CONSENT_FIELD_LABELS, MAX_RENDER_ROWS
-} from "../constants";
+import { CONSENT_FIELD_LABELS } from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import {} from "../theme";
@@ -30,6 +28,8 @@ export function ConsentScreen({
 }): JSX.Element {
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
   const [grants, setGrants] = useState<ConsentGrantRecord[]>([]);
+  const [requestsCursor, setRequestsCursor] = useState<string | null>(null);
+  const [grantsCursor, setGrantsCursor] = useState<string | null>(null);
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,26 +76,19 @@ export function ConsentScreen({
     () => grants.filter((grant) => grant.status === "active" && grant.ownerUserId === currentUserId),
     [grants, currentUserId]
   );
-  const visibleRequests = useMemo(
-    () => requests.slice(0, MAX_RENDER_ROWS),
-    [requests]
-  );
-  const visibleGrants = useMemo(
-    () => grants.slice(0, MAX_RENDER_ROWS),
-    [grants]
-  );
-
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const [requestRows, grantRows, connectionRows] = await Promise.all([
-        listConsentRequests(accessToken),
-        listConsentGrants(accessToken),
+      const [requestPage, grantPage, connectionRows] = await Promise.all([
+        listConsentRequestsPage(accessToken),
+        listConsentGrantsPage(accessToken),
         listConnections(accessToken)
       ]);
-      setRequests(requestRows);
-      setGrants(grantRows);
+      setRequests(requestPage.items);
+      setRequestsCursor(requestPage.nextCursor);
+      setGrants(grantPage.items);
+      setGrantsCursor(grantPage.nextCursor);
       setConnections(connectionRows);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load consent data");
@@ -107,6 +100,20 @@ export function ConsentScreen({
       setLoading(false);
     }
   }, [accessToken, onSessionInvalid]);
+
+  const loadMoreRequests = async (): Promise<void> => {
+    if (!requestsCursor) return;
+    const page = await listConsentRequestsPage(accessToken, requestsCursor);
+    setRequests((previous) => [...previous, ...page.items]);
+    setRequestsCursor(page.nextCursor);
+  };
+
+  const loadMoreGrants = async (): Promise<void> => {
+    if (!grantsCursor) return;
+    const page = await listConsentGrantsPage(accessToken, grantsCursor);
+    setGrants((previous) => [...previous, ...page.items]);
+    setGrantsCursor(page.nextCursor);
+  };
 
   useEffect(() => {
     void load();
@@ -505,17 +512,7 @@ export function ConsentScreen({
         {!loading && requests.length === 0 && grants.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No consent records yet.</Text>
         ) : null}
-        {!loading && requests.length > MAX_RENDER_ROWS ? (
-          <Text style={styles.cardBodyMuted}>
-            Showing latest {MAX_RENDER_ROWS} of {requests.length} requests.
-          </Text>
-        ) : null}
-        {!loading && grants.length > MAX_RENDER_ROWS ? (
-          <Text style={styles.cardBodyMuted}>
-            Showing latest {MAX_RENDER_ROWS} of {grants.length} grants.
-          </Text>
-        ) : null}
-        {visibleRequests.map((request) => (
+        {requests.map((request) => (
           <View key={request.id} style={styles.dataRow}>
             <Text style={styles.dataTitle}>Request · {request.status}</Text>
             <Text style={styles.dataMeta}>
@@ -530,7 +527,17 @@ export function ConsentScreen({
             <Text style={styles.dataMeta}>{formatDate(request.createdAt)}</Text>
           </View>
         ))}
-        {visibleGrants.map((grant) => (
+        {requestsCursor ? (
+          <AppButton
+            label="Load more requests"
+            onPress={() => {
+              void loadMoreRequests();
+            }}
+            variant="secondary"
+            testID="consent-load-more-requests"
+          />
+        ) : null}
+        {grants.map((grant) => (
           <View key={grant.id} style={styles.dataRow}>
             <Text style={styles.dataTitle}>Grant · {grant.status}</Text>
             <Text style={styles.dataMeta}>
@@ -542,6 +549,16 @@ export function ConsentScreen({
             <Text style={styles.dataMeta}>{formatDate(grant.grantedAt)}</Text>
           </View>
         ))}
+        {grantsCursor ? (
+          <AppButton
+            label="Load more grants"
+            onPress={() => {
+              void loadMoreGrants();
+            }}
+            variant="secondary"
+            testID="consent-load-more-grants"
+          />
+        ) : null}
         <AppButton
           label={loading ? "Refreshing..." : "Refresh consent data"}
           onPress={() => {

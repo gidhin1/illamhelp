@@ -24,8 +24,9 @@ public class JobsController {
   }
 
   @GetMapping("/jobs")
-  public Map<String, Object> list(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset) {
-    return jobsService.list(CurrentUser.fromJwt(jwt).userId(), limit, offset);
+  public Map<String, Object> list(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String cursor) {
+    return jobsService.list(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/jobs/search")

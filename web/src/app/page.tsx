@@ -1,35 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 
 import { PageShell } from "@/components/PageShell";
 import { useSession } from "@/components/session/SessionProvider";
-import { Button } from "@/components/ui/primitives";
+import { Banner, Button } from "@/components/ui/primitives";
 import { getMyDashboard, DashboardResponse, formatDate } from "@/lib/api";
 
 export default function HomePage(): JSX.Element {
   const { user, loading, accessToken } = useSession();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [dashLoading, setDashLoading] = useState(false);
+  const [dashError, setDashError] = useState<string | null>(null);
+
+  const loadDashboard = useCallback(async (): Promise<void> => {
+    if (!accessToken) return;
+    setDashLoading(true);
+    setDashError(null);
+    try {
+      setDashboard(await getMyDashboard(accessToken));
+    } catch (requestError) {
+      setDashError(requestError instanceof Error ? requestError.message : "Unable to load your dashboard");
+    } finally {
+      setDashLoading(false);
+    }
+  }, [accessToken]);
 
   useEffect(() => {
-    if (!accessToken) return;
-    let cancelled = false;
-    const loadDash = async () => {
-      setDashLoading(true);
-      try {
-        const res = await getMyDashboard(accessToken);
-        if (!cancelled) setDashboard(res);
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setDashLoading(false);
-      }
-    };
-    void loadDash();
-    return () => { cancelled = true; };
-  }, [accessToken]);
+    void loadDashboard();
+  }, [loadDashboard]);
 
   if (loading) {
     return (
@@ -43,13 +43,23 @@ export default function HomePage(): JSX.Element {
     return (
       <PageShell>
         <div className="section-header" style={{ position: "sticky", top: 0, background: "color-mix(in srgb, var(--bg) 85%, transparent)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", zIndex: 10 }}>
-          <h2 style={{ fontSize: "1.5rem" }}>For You</h2>
+          <h1 style={{ fontSize: "1.5rem" }}>For You</h1>
         </div>
         
         {dashLoading ? (
           <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }} aria-live="polite">Loading feed...</div>
+        ) : dashError && !dashboard ? (
+          <div className="stack" style={{ padding: "var(--spacing-xl)" }}>
+            <Banner tone="error">{dashError}</Banner>
+            <Button variant="secondary" onClick={() => void loadDashboard()}>Try again</Button>
+          </div>
         ) : (
           <div className="stack" style={{ gap: 0 }}>
+            {dashError ? (
+              <div style={{ padding: "var(--spacing-md)" }}>
+                <Banner tone="error">{dashError}</Banner>
+              </div>
+            ) : null}
             {/* Quick Stats Pinned to feed top for mobile context */}
             <div className="feed-card" style={{ display: "flex", gap: "var(--spacing-md)", overflowX: "auto", paddingBottom: "var(--spacing-md)" }}>
                <div className="card soft" style={{ flex: "0 0 auto", minWidth: 140, textAlign: "center" }}>

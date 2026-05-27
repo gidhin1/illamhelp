@@ -41,7 +41,7 @@ public class KeycloakAuthService {
         "username", username,
         "password", password));
     String subject = decodePayload(token.get("access_token")).path("sub").asText();
-    List<String> roles = normalizeAppRoles(extractRoles(decodePayload(token.get("access_token"))));
+    List<String> roles = normalizeAppRoles(extractAppRoles(decodePayload(token.get("access_token"))));
     authUserService.syncUserFromToken(subject, roles, username);
     return session(token, subject, username, roles);
   }
@@ -52,8 +52,9 @@ public class KeycloakAuthService {
     String provisionalUserId = UUID.randomUUID().toString();
     String adminToken = adminAccessToken();
     String keycloakUserId = createUser(adminToken, provisionalUserId, username, request);
-    ensureRealmRole(adminToken, "both");
-    assignRealmRoles(adminToken, keycloakUserId, List.of(realmRole(adminToken, "both")));
+    String clientId = clientInternalId(adminToken);
+    ensureClientRole(adminToken, clientId, "both");
+    assignClientRoles(adminToken, clientId, keycloakUserId, List.of(clientRole(adminToken, clientId, "both")));
 
     Map<String, Object> token = token(Map.of(
         "grant_type", "password",
@@ -61,7 +62,7 @@ public class KeycloakAuthService {
         "password", request.password()));
     JsonNode payload = decodePayload(token.get("access_token"));
     String userId = payload.path("sub").asText(keycloakUserId);
-    List<String> roles = normalizeAppRoles(extractRoles(payload));
+    List<String> roles = normalizeAppRoles(extractAppRoles(payload));
     authUserService.syncUserFromToken(userId, roles, username);
     return session(token, userId, username, roles);
   }
@@ -70,7 +71,7 @@ public class KeycloakAuthService {
     Map<String, Object> token = token(Map.of("grant_type", "refresh_token", "refresh_token", refreshToken));
     JsonNode payload = decodePayload(token.get("access_token"));
     String userId = payload.path("sub").asText();
-    List<String> roles = normalizeAppRoles(extractRoles(payload));
+    List<String> roles = normalizeAppRoles(extractAppRoles(payload));
     String username = authUserService.getUsernameByUserId(userId).orElse(userId);
     authUserService.syncUserFromToken(userId, roles, username);
     return session(token, userId, username, roles);
@@ -165,12 +166,26 @@ public class KeycloakAuthService {
     }
   }
 
-  private void ensureRealmRole(String adminToken, String roleName) {
+  private String clientInternalId(String adminToken) {
+    List<?> clients = restClient.get()
+        .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm()
+            + "/clients?clientId=" + properties.keycloakClientId())
+        .header("Authorization", "Bearer " + adminToken)
+        .retrieve()
+        .body(List.class);
+    if (clients == null || clients.isEmpty() || !(clients.getFirst() instanceof Map<?, ?> client)
+        || client.get("id") == null) {
+      throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to resolve application client");
+    }
+    return String.valueOf(client.get("id"));
+  }
+
+  private void ensureClientRole(String adminToken, String clientId, String roleName) {
     try {
-      realmRole(adminToken, roleName);
+      clientRole(adminToken, clientId, roleName);
     } catch (ApiException missing) {
       restClient.post()
-          .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm() + "/roles")
+          .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm() + "/clients/" + clientId + "/roles")
           .header("Authorization", "Bearer " + adminToken)
           .contentType(MediaType.APPLICATION_JSON)
           .body(Map.of("name", roleName))
@@ -179,21 +194,22 @@ public class KeycloakAuthService {
     }
   }
 
-  private Map<String, Object> realmRole(String adminToken, String roleName) {
+  private Map<String, Object> clientRole(String adminToken, String clientId, String roleName) {
     try {
       return restClient.get()
-          .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm() + "/roles/" + roleName)
+          .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm() + "/clients/" + clientId + "/roles/" + roleName)
           .header("Authorization", "Bearer " + adminToken)
           .retrieve()
           .body(Map.class);
     } catch (RuntimeException exception) {
-      throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to fetch realm role '" + roleName + "'");
+      throw new ApiException(HttpStatus.BAD_GATEWAY, "Failed to fetch application client role '" + roleName + "'");
     }
   }
 
-  private void assignRealmRoles(String adminToken, String userId, List<Map<String, Object>> roles) {
+  private void assignClientRoles(String adminToken, String clientId, String userId, List<Map<String, Object>> roles) {
     restClient.post()
-        .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm() + "/users/" + userId + "/role-mappings/realm")
+        .uri(properties.keycloakUrl() + "/admin/realms/" + properties.keycloakRealm() + "/users/" + userId
+            + "/role-mappings/clients/" + clientId)
         .header("Authorization", "Bearer " + adminToken)
         .contentType(MediaType.APPLICATION_JSON)
         .body(roles)
@@ -247,11 +263,10 @@ public class KeycloakAuthService {
     }
   }
 
-  private List<String> extractRoles(JsonNode payload) {
+  private List<String> extractAppRoles(JsonNode payload) {
     List<String> roles = new ArrayList<>();
-    payload.path("realm_access").path("roles").forEach(role -> roles.add(role.asText()));
-    payload.path("resource_access").fields().forEachRemaining(entry ->
-        entry.getValue().path("roles").forEach(role -> roles.add(role.asText())));
+    payload.path("resource_access").path(properties.keycloakClientId()).path("roles")
+        .forEach(role -> roles.add(role.asText()));
     return roles;
   }
 
@@ -259,7 +274,6 @@ public class KeycloakAuthService {
     List<String> normalized = new ArrayList<>();
     for (String role : roles) {
       String mapped = switch (role) {
-        case "realm-admin", "manage-realm", "view-realm", "manage-users", "view-users", "query-users", "manage-clients", "view-clients", "query-clients" -> "admin";
         case "admin", "support", "seeker", "provider", "both" -> role;
         default -> null;
       };

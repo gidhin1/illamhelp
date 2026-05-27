@@ -20,8 +20,11 @@ export interface AppTheme {
     line: string;
     shadow: string;
     success: string;
+    successText: string;
     error: string;
+    errorText: string;
     warning: string;
+    warningText: string;
   };
   radii: typeof tokens.radii;
   spacing: typeof tokens.spacing;
@@ -57,8 +60,11 @@ export function buildTheme(preference: ThemePreference, systemMode?: ThemeMode |
       line: palette.line,
       shadow: palette.shadow,
       success: palette.success,
+      successText: palette.successText,
       error: palette.error,
-      warning: palette.warning
+      errorText: palette.errorText,
+      warning: palette.warning,
+      warningText: palette.warningText
     },
     radii: tokens.radii,
     spacing: tokens.spacing,

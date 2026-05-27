@@ -29,8 +29,9 @@ public class ConnectionsController {
   }
 
   @GetMapping("/connections")
-  public Map<String, Object> list(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit, @RequestParam(required = false) Integer offset) {
-    return service.list(CurrentUser.fromJwt(jwt).userId(), limit, offset);
+  public Map<String, Object> list(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String cursor) {
+    return service.list(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/connections/search")

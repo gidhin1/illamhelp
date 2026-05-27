@@ -23,8 +23,8 @@ public class NotificationController {
       @AuthenticationPrincipal Jwt jwt,
       @RequestParam(required = false, defaultValue = "false") boolean unreadOnly,
       @RequestParam(required = false) Integer limit,
-      @RequestParam(required = false) Integer offset) {
-    return service.list(CurrentUser.fromJwt(jwt).userId(), unreadOnly, limit, offset);
+      @RequestParam(required = false) String cursor) {
+    return service.list(CurrentUser.fromJwt(jwt).userId(), unreadOnly, limit, cursor);
   }
 
   @GetMapping("/notifications/unread-count")

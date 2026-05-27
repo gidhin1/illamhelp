@@ -35,6 +35,7 @@ export function NavBar(): React.JSX.Element {
             key={link.href}
             href={link.href}
             aria-label={link.label}
+            aria-current={active ? "page" : undefined}
             title={link.label}
             style={{
               display: "flex",
@@ -111,8 +112,8 @@ export function NavBar(): React.JSX.Element {
             A
         </div>
         <span
-          className="display-title"
-          style={{ fontSize: "1.25rem", color: "var(--ink)", display: "var(--is-mobile, block)" }}
+          className="display-title sidebar-brand-label"
+          style={{ fontSize: "1.25rem", color: "var(--ink)" }}
         >
           Ops Center
         </span>
@@ -127,6 +128,7 @@ export function NavBar(): React.JSX.Element {
               key={link.href}
               href={link.href}
               aria-label={link.label}
+              aria-current={active ? "page" : undefined}
               title={link.label}
               style={{
                 display: "flex",
@@ -143,7 +145,7 @@ export function NavBar(): React.JSX.Element {
               className="nav-item-hover"
             >
               <Icon size={26} {...(active ? { fill: "currentColor", strokeWidth: 1.5 } : { strokeWidth: 2 })} />
-              <span className="sidebar-label" style={{ display: "var(--is-mobile, block)" }}>{link.label}</span>
+              <span className="sidebar-label">{link.label}</span>
             </Link>
           );
         })}
@@ -153,7 +155,7 @@ export function NavBar(): React.JSX.Element {
         <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>
           <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px" }}>
              <User size={36} color="var(--brand)" />
-             <div className="sidebar-label" style={{ display: "var(--is-mobile, block)" }}>
+             <div className="sidebar-label">
                 <div style={{ fontWeight: 600 }}>{user.publicUserId}</div>
                 <div className="pill" style={{ padding: "2px 6px", fontSize: "0.7rem", marginTop: 4 }}>
                   {hasAdminAccess ? "Admin" : "Member"}
@@ -165,27 +167,19 @@ export function NavBar(): React.JSX.Element {
             onClick={signOut}
             aria-label="Sign out"
             title="Sign out"
+            className="admin-sidebar-action"
             style={{ width: "100%", justifyContent: "flex-start" }}
           >
-             <LogOut size={18} /> <span className="sidebar-label" style={{ display: "var(--is-mobile, block)" }}>Sign Out</span>
+             <LogOut size={18} /> <span className="sidebar-label">Sign Out</span>
           </Button>
         </div>
       ) : (
         <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>
-          <Link href="/auth/login" style={{ width: "100%" }}>
-            <Button style={{ width: "100%" }}>Sign in</Button>
+          <Link href="/auth/login" className="button admin-sidebar-action" style={{ width: "100%" }}>
+            <User size={18} /> <span className="sidebar-label">Sign in</span>
           </Link>
         </div>
       )}
-
-      {/* Adding a style block to hide labels on smaller desktop screens */}
-      <style dangerouslySetInnerHTML={{ __html: `
-        @media (max-width: 1023px) {
-          .sidebar-label { display: none !important; }
-          .nav-item-hover { justify-content: center; }
-        }
-        .nav-item-hover:hover { background: var(--surface-2) !important; }
-      `}} />
     </nav>
   );
 

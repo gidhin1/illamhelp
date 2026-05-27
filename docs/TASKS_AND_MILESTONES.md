@@ -101,7 +101,7 @@ Status: all tasks and exit criteria are `Pending` (except baseline CI/security a
 | Bruno API E2E | In Progress | Automated script covers auth/jobs/connections/consent/media and now validates consent-aware profile visibility before grant, after grant, and after revoke. |
 | Web UI E2E (Playwright) | In Progress | Full-flow spec now covers human-centric people search + connect, consent-aware profile visibility checks, and block action; profile/media web flow has dedicated automation coverage. |
 | Admin UI E2E (Playwright) | In Progress | Admin role gate behavior, moderation review workflow, and consent/audit timeline lookup are covered in `tests/playwright/admin/admin-portal.spec.ts`. |
-| Mobile UI E2E (Maestro) | In Progress | Native Maestro pipeline is now the UI-only iOS/Android coverage path. |
+| Mobile UI E2E (Playwright / Expo Web) | In Progress | Maestro removed because it was slow and unreliable; fast UI-only flows now target the mobile React Native Web rendering. |
 
 ### Security/Quality Gaps to Address Next
 
@@ -114,7 +114,7 @@ Status: all tasks and exit criteria are `Pending` (except baseline CI/security a
 
 ### Phase 1 (Stabilize Current MVP Slice)
 
-- Stabilize UI-only Maestro mobile flows (auth -> jobs -> connections -> consent).
+- Expand fast Playwright-on-Expo-Web mobile coverage for focused auth, jobs, and consent flows.
 - Align Playwright full-flow selectors/assertions with current web UI to remove false negatives.
 - Add startup preflight checks for missing critical env/runtime dependencies and fail fast with actionable messages.
 - Sanitize `.env.example` to remove non-empty credentials.

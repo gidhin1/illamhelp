@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18-alpine
+    image: postgres@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
     container_name: illamhelp-postgres
     restart: unless-stopped
     environment:
@@ -8,7 +8,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
@@ -18,22 +18,24 @@ services:
       retries: 10
 
   redis:
-    image: redis:8-alpine
+    image: redis@sha256:d146f83b1e0f02fc27c26a50cee39338c736674c5959db84363e6ae3cd9e02d2
     container_name: illamhelp-redis
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
     ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+      - "127.0.0.1:6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}"]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     container_name: illamhelp-minio
     restart: unless-stopped
     environment:
@@ -41,8 +43,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -52,7 +54,7 @@ services:
       retries: 5
 
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     container_name: illamhelp-minio-init
     depends_on:
       minio:
@@ -65,13 +67,13 @@ services:
       mc mb -p local/${MINIO_BUCKET_PRIVATE:-illamhelp-private} || true"
 
   nats:
-    image: nats:2.11-alpine
+    image: nats@sha256:e4bf19f15fd3218814a4e3c9e0064e1334bd8aa20d5984b9f1a0afd084f8cc00
     container_name: illamhelp-nats
     restart: unless-stopped
-    command: ["-js", "-sd", "/data", "-m", "8222"]
+    command: ["-js", "-sd", "/data", "-m", "8222", "--user", "${NATS_USER:?Set NATS_USER in .env}", "--pass", "${NATS_PASSWORD:?Set NATS_PASSWORD in .env}"]
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "127.0.0.1:4222:4222"
+      - "127.0.0.1:8222:8222"
     volumes:
       - nats_data:/data
     healthcheck:
@@ -82,12 +84,12 @@ services:
       start_period: 5s
 
   opensearch:
-    image: opensearchproject/opensearch:3.0.0
+    image: opensearchproject/opensearch@sha256:00565f63fa1aa1643d5a2cf61cb5f09b4aeddee2f12703f01c534f051bff1a99
     container_name: illamhelp-opensearch
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      plugins.security.disabled: "true"
+      plugins.security.ssl.http.enabled: "false"
       OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD}
       OPENSEARCH_JAVA_OPTS: ${OPENSEARCH_JAVA_OPTS:--Xms384m -Xmx384m}
     ulimits:
@@ -95,19 +97,19 @@ services:
         soft: -1
         hard: -1
     ports:
-      - "9200:9200"
-      - "9600:9600"
+      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:9600:9600"
     volumes:
       - opensearch_data:/usr/share/opensearch/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sfu '${OPENSEARCH_USERNAME:-admin}:${OPENSEARCH_PASSWORD:?Set OPENSEARCH_PASSWORD in .env}' http://localhost:9200/_cluster/health || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 10
       start_period: 30s
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.1
+    image: quay.io/keycloak/keycloak@sha256:be6a86215213145bfb4fb3e2b3ab982a806d00262655abdcf3ffa6a38d241c7c
     container_name: illamhelp-keycloak
     restart: unless-stopped
     command: ["start-dev", "--http-port=8080"]
@@ -115,7 +117,7 @@ services:
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080; printf 'GET /realms/master/.well-known/openid-configuration HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; grep -q 'HTTP/1.1 200' <&3"]
       interval: 15s
@@ -124,22 +126,22 @@ services:
       start_period: 30s
 
   opa:
-    image: openpolicyagent/opa:latest-static
+    image: openpolicyagent/opa@sha256:bf5d926c9c5163cd43e56de43f47165d12c1e6a91911d0a20648f8e3ab085a61
     container_name: illamhelp-opa
     restart: unless-stopped
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
     volumes:
       - ./opa/policies:/policies:ro
     ports:
-      - "8181:8181"
+      - "127.0.0.1:8181:8181"
 
   clamav:
-    image: clamav/clamav:latest
+    image: clamav/clamav@sha256:f7954ca7ca13f0ebc301bb8a8b492a88db793192c48763a0b9a2ffb64dcf4bee
     container_name: illamhelp-clamav
     platform: ${CLAMAV_PLATFORM:-linux/amd64}
     restart: unless-stopped
     ports:
-      - "3310:3310"
+      - "127.0.0.1:3310:3310"
     volumes:
       - clamav_data:/var/lib/clamav
     healthcheck:

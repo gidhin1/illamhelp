@@ -70,7 +70,7 @@ public class AdminOversightController {
 
   @GetMapping("/admin/oversight/verifications")
   public Map<String, Object> verifications(@Valid @ModelAttribute VerificationListRequest request) {
-    return verificationService.listForAdmin(request.status(), request.limit(), request.offset());
+    return verificationService.listForAdmin(request.status(), request.limit(), request.cursor());
   }
 
   @PostMapping("/admin/oversight/verifications/{id}/review")
@@ -94,7 +94,7 @@ public class AdminOversightController {
   public record VerificationListRequest(
       @Pattern(regexp = "pending|under_review|approved|rejected") String status,
       @Min(1) @Max(100) Integer limit,
-      @Min(0) Integer offset) {
+      String cursor) {
   }
 
   public record VerificationReviewRequest(

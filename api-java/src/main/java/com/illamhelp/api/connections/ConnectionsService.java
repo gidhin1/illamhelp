@@ -1,6 +1,7 @@
 package com.illamhelp.api.connections;
 
 import com.illamhelp.api.common.ApiException;
+import com.illamhelp.api.common.CursorPages;
 import com.illamhelp.api.audit.AuditService;
 import com.illamhelp.api.consent.ConsentService;
 import com.illamhelp.api.notifications.NotificationService;
@@ -26,12 +27,15 @@ public class ConnectionsService {
     this.notificationService = notificationService;
   }
 
-  public Map<String, Object> list(String userId, Integer limit, Integer offset) {
+  public Map<String, Object> list(String userId, Integer limit, String cursorValue) {
     int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
-    int safeOffset = offset == null ? 0 : Math.max(0, offset);
-    var items = connectionRepository.listForUser(userId, safeLimit, safeOffset)
-        .stream().map(this::publicizeConnection).toList();
-    return Map.of("items", items, "total", connectionRepository.countForUser(userId), "limit", safeLimit, "offset", safeOffset);
+    CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
+    List<Map<String, Object>> rows = connectionRepository.listForUser(userId, cursor.createdAt(), cursor.id(), safeLimit + 1);
+    Map<String, Object> page = CursorPages.response(rows, safeLimit, "requestedAt");
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> items = (List<Map<String, Object>>) page.get("items");
+    page.put("items", items.stream().map(this::publicizeConnection).toList());
+    return page;
   }
 
   public List<Map<String, Object>> search(String userId, String q, Integer limit) {
@@ -94,7 +98,10 @@ public class ConnectionsService {
     if ("accepted".equals(status) && actorUserId.equals(requester)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot accept your own connection request");
     }
-    Map<String, Object> connection = connectionRepository.decideConnection(id, status);
+    Map<String, Object> connection = connectionRepository.decideConnection(id, actorUserId, status);
+    if (connection == null || connection.isEmpty()) {
+      throw new ApiException(HttpStatus.CONFLICT, "Connection state changed before this operation completed");
+    }
     auditService.logEvent(actorUserId, requester, "connection_" + status, null, Map.of("connectionId", id));
     if ("accepted".equals(status)) {
       notificationService.create(requester, "connection_request_accepted", "Connection accepted",
@@ -111,9 +118,15 @@ public class ConnectionsService {
 
   private Map<String, Object> publicizeConnection(Map<String, Object> connection) {
     Map<String, Object> publicConnection = new LinkedHashMap<>(connection);
-    publicConnection.put("userAId", publicUserId(connection.get("userAId")));
-    publicConnection.put("userBId", publicUserId(connection.get("userBId")));
-    publicConnection.put("requestedByUserId", publicUserId(connection.get("requestedByUserId")));
+    publicConnection.put("userAId", connection.containsKey("userAPublicId")
+        ? connection.get("userAPublicId") : publicUserId(connection.get("userAId")));
+    publicConnection.put("userBId", connection.containsKey("userBPublicId")
+        ? connection.get("userBPublicId") : publicUserId(connection.get("userBId")));
+    publicConnection.put("requestedByUserId", connection.containsKey("requestedByPublicId")
+        ? connection.get("requestedByPublicId") : publicUserId(connection.get("requestedByUserId")));
+    publicConnection.remove("userAPublicId");
+    publicConnection.remove("userBPublicId");
+    publicConnection.remove("requestedByPublicId");
     return publicConnection;
   }
 
