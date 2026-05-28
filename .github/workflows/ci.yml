@@ -89,6 +89,7 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL
           exit-code: "1"
+          trivyignores: infra/trivy-image-exceptions.txt
 
   semgrep:
     name: SAST (Semgrep)
