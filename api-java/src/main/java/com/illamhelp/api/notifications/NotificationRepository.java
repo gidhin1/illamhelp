@@ -27,16 +27,12 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
              read, read_at AS "readAt", created_at AS "createdAt"
       FROM notifications
       WHERE user_id = cast(:userId as uuid) AND (:unreadOnly = false OR read = false)
-      ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (created_at, id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY created_at DESC, id DESC LIMIT :limit
       """, nativeQuery = true)
   List<Map<String, Object>> listForUser(@Param("userId") String userId, @Param("unreadOnly") boolean unreadOnly,
-      @Param("limit") int limit, @Param("offset") int offset);
-
-  @Query(value = """
-      SELECT count(*) FROM notifications
-      WHERE user_id = cast(:userId as uuid) AND (:unreadOnly = false OR read = false)
-      """, nativeQuery = true)
-  int countForUser(@Param("userId") String userId, @Param("unreadOnly") boolean unreadOnly);
+      @Param("cursorCreatedAt") String cursorCreatedAt, @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = "SELECT count(*) FROM notifications WHERE user_id = cast(:userId as uuid) AND read = false", nativeQuery = true)
   int countUnread(@Param("userId") String userId);

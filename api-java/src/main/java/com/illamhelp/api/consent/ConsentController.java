@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @RestController
 public class ConsentController {
@@ -27,13 +28,15 @@ public class ConsentController {
   }
 
   @GetMapping("/consent/requests")
-  public List<Map<String, Object>> requests(@AuthenticationPrincipal Jwt jwt) {
-    return service.requests(CurrentUser.fromJwt(jwt).userId());
+  public Map<String, Object> requests(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String cursor) {
+    return service.requests(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/consent/grants")
-  public List<Map<String, Object>> grants(@AuthenticationPrincipal Jwt jwt) {
-    return service.grants(CurrentUser.fromJwt(jwt).userId());
+  public Map<String, Object> grants(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+      @RequestParam(required = false) String cursor) {
+    return service.grants(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @PostMapping("/consent/request-access")

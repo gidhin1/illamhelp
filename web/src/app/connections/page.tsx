@@ -31,6 +31,7 @@ import {
 export default function ConnectionsPage(): JSX.Element {
   const { accessToken, user } = useSession();
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -51,6 +52,7 @@ export default function ConnectionsPage(): JSX.Element {
     try {
       const result = await listConnections(accessToken);
       setConnections(result.items);
+      setNextCursor(result.nextCursor);
     } catch (requestErrorValue) {
       setListError(
         requestErrorValue instanceof Error ? requestErrorValue.message : "Unable to load connections"
@@ -59,6 +61,23 @@ export default function ConnectionsPage(): JSX.Element {
       setListLoading(false);
     }
   }, [accessToken]);
+
+  const loadMoreConnections = async (): Promise<void> => {
+    if (!accessToken || !nextCursor) return;
+    setListLoading(true);
+    setListError(null);
+    try {
+      const result = await listConnections(accessToken, { cursor: nextCursor });
+      setConnections((previous) => [...previous, ...result.items]);
+      setNextCursor(result.nextCursor);
+    } catch (requestErrorValue) {
+      setListError(
+        requestErrorValue instanceof Error ? requestErrorValue.message : "Unable to load more connections"
+      );
+    } finally {
+      setListLoading(false);
+    }
+  };
 
   useEffect(() => {
     void loadConnections();
@@ -409,7 +428,7 @@ export default function ConnectionsPage(): JSX.Element {
                   {listLoading ? (
                     <p className="muted-text" aria-live="polite">Loading connections...</p>
                   ) : connections.length > 0 ? (
-                    <DataTable columns={columns} data={connections} />
+                    <DataTable ariaLabel="Current connections" columns={columns} data={connections} />
                   ) : (
                     <EmptyState
                       title="No connections yet"
@@ -417,6 +436,13 @@ export default function ConnectionsPage(): JSX.Element {
                     />
                   )}
                 </div>
+                {nextCursor ? (
+                  <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--spacing-md)" }}>
+                    <Button type="button" variant="secondary" disabled={listLoading} onClick={() => void loadMoreConnections()}>
+                      {listLoading ? "Loading..." : "Load more connections"}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             </div>
           </RequireSession>

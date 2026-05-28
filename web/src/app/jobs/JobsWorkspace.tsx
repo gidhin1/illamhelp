@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 
@@ -75,7 +76,9 @@ export function JobsWorkspace({
   section?: "discover" | "posted" | "assigned";
 }): JSX.Element {
   const { accessToken, user } = useSession();
+  const router = useRouter();
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [myApplicationsByJob, setMyApplicationsByJob] = useState<
     Record<string, JobApplicationRecord>
   >({});
@@ -90,6 +93,8 @@ export function JobsWorkspace({
   const [jobActionLoadingId, setJobActionLoadingId] = useState<string | null>(null);
   const [jobActionError, setJobActionError] = useState<string | null>(null);
   const [jobActionSuccess, setJobActionSuccess] = useState<string | null>(null);
+  const [applyingJob, setApplyingJob] = useState<JobRecord | null>(null);
+  const [applicationMessage, setApplicationMessage] = useState("");
 
   const loadJobs = useCallback(async (): Promise<void> => {
     if (!accessToken) return;
@@ -97,10 +102,11 @@ export function JobsWorkspace({
     setListError(null);
     try {
       const [jobsResult, myApplications] = await Promise.all([
-        listJobs(accessToken, { limit: 200 }),
+        listJobs(accessToken, { limit: 100 }),
         listMyJobApplications(accessToken)
       ]);
       setJobs(jobsResult.items);
+      setNextCursor(jobsResult.nextCursor);
       setMyApplicationsByJob(buildLatestApplicationByJob(myApplications));
     } catch (requestError) {
       setListError(requestError instanceof Error ? requestError.message : "Unable to load jobs");
@@ -108,6 +114,21 @@ export function JobsWorkspace({
       setListLoading(false);
     }
   }, [accessToken]);
+
+  const loadMoreJobs = async (): Promise<void> => {
+    if (!accessToken || !nextCursor) return;
+    setListLoading(true);
+    setListError(null);
+    try {
+      const result = await listJobs(accessToken, { limit: 100, cursor: nextCursor });
+      setJobs((previous) => [...previous, ...result.items]);
+      setNextCursor(result.nextCursor);
+    } catch (requestError) {
+      setListError(requestError instanceof Error ? requestError.message : "Unable to load more jobs");
+    } finally {
+      setListLoading(false);
+    }
+  };
 
   useEffect(() => {
     void loadJobs();
@@ -212,7 +233,7 @@ export function JobsWorkspace({
     }
   };
 
-  const onApply = async (jobId: string): Promise<void> => {
+  const onApply = async (jobId: string, message: string): Promise<void> => {
     if (!accessToken) return;
     setJobActionLoadingId(jobId);
     setJobActionError(null);
@@ -220,11 +241,13 @@ export function JobsWorkspace({
     try {
       const created = await applyToJob(
         jobId,
-        { message: "I can take up this job. Please review my application." },
+        { message: message.trim() },
         accessToken
       );
       setMyApplicationsByJob((previous) => ({ ...previous, [jobId]: created }));
       setJobActionSuccess("Application submitted.");
+      setApplyingJob(null);
+      setApplicationMessage("");
     } catch (requestError) {
       setJobActionError(
         requestError instanceof Error ? requestError.message : "Unable to apply for this job"
@@ -292,9 +315,7 @@ export function JobsWorkspace({
         
         if (type === "posted") {
           return (
-            <Link href={`/jobs/${job.id}`}>
-              <Button type="button" variant="ghost">Manage</Button>
-            </Link>
+            <Button type="button" variant="ghost" onClick={() => router.push(`/jobs/${job.id}`)}>Manage</Button>
           );
         }
         
@@ -308,7 +329,7 @@ export function JobsWorkspace({
         return (
           <div style={{ display: "flex", gap: "8px" }}>
             {canApply && (
-              <Button type="button" disabled={jobActionLoadingId === job.id} onClick={() => void onApply(job.id)}>
+              <Button type="button" disabled={jobActionLoadingId === job.id} onClick={() => { setApplyingJob(job); setApplicationMessage(""); }}>
                 Apply
               </Button>
             )}
@@ -317,14 +338,46 @@ export function JobsWorkspace({
                 Withdraw
               </Button>
             )}
-            <Link href={`/jobs/${job.id}`}>
-              <Button type="button" variant="ghost">View</Button>
-            </Link>
+            <Link className="button ghost" href={`/jobs/${job.id}`}>View</Link>
           </div>
         );
       },
     },
   ];
+
+  const renderMobileJobs = (items: JobRecord[], type: "posted" | "external"): JSX.Element => (
+    <div className="mobile-only job-mobile-list">
+      {items.map((job) => {
+        const application = myApplicationsByJob[job.id] ?? null;
+        const canApply = type === "external" && job.status === "posted"
+          && (!application || application.status === "withdrawn" || application.status === "rejected");
+        const canWithdraw = type === "external" && job.status === "posted"
+          && application ? isPendingApplication(application.status) : false;
+        return (
+          <Card soft className="job-mobile-card" key={job.id}>
+            <div className="job-mobile-title-row">
+              <Link href={`/jobs/${job.id}`} className="job-mobile-title">{job.title}</Link>
+              <span className="pill">{job.status}</span>
+            </div>
+            <p className="muted-text">{job.category} - {job.locationText}</p>
+            <p className="muted-text">Posted {formatDate(job.createdAt).split(",")[0]}</p>
+            <div className="job-mobile-actions">
+              {type === "posted" ? (
+                <Link className="button ghost" href={`/jobs/${job.id}`}>Manage</Link>
+              ) : null}
+              {canApply ? (
+                <Button type="button" disabled={jobActionLoadingId === job.id} onClick={() => { setApplyingJob(job); setApplicationMessage(""); }}>Apply</Button>
+              ) : null}
+              {canWithdraw && application ? (
+                <Button type="button" variant="secondary" disabled={jobActionLoadingId === job.id} onClick={() => void onWithdraw(application)}>Withdraw</Button>
+              ) : null}
+              {type === "external" ? <Link className="button ghost" href={`/jobs/${job.id}`}>View</Link> : null}
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
 
   return (
     <PageShell>
@@ -392,6 +445,22 @@ export function JobsWorkspace({
               </div>
 
               {section === "posted" ? (
+                <div>
+                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Jobs Posted By Me</h3>
+                  {jobsPostedByMe.length > 0 ? (
+                    <>
+                      <div className="desktop-only">
+                        <DataTable ariaLabel="Jobs posted by me" columns={getColumns("posted")} data={jobsPostedByMe} />
+                      </div>
+                      {renderMobileJobs(jobsPostedByMe, "posted")}
+                    </>
+                  ) : (
+                    <EmptyState title="No jobs posted" body="You haven't posted any jobs yet." />
+                  )}
+                </div>
+              ) : null}
+
+              {section === "posted" ? (
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Post a New Job</h3>
                   {createError ? <Banner tone="error">{createError}</Banner> : null}
@@ -449,22 +518,16 @@ export function JobsWorkspace({
               {listLoading ? <p className="muted-text">Loading data...</p> : null}
 
               <div className="stack" style={{ gap: "var(--spacing-3xl)" }}>
-                {section === "posted" ? (
-                  <div>
-                    <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Jobs Posted By Me</h3>
-                    {jobsPostedByMe.length > 0 ? (
-                      <DataTable columns={getColumns("posted")} data={jobsPostedByMe} />
-                    ) : (
-                      <EmptyState title="No jobs posted" body="You haven't posted any jobs yet." />
-                    )}
-                  </div>
-                ) : null}
-
                 {section === "assigned" ? (
                   <div>
                     <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Jobs Assigned To Me</h3>
                     {jobsAssignedToMe.length > 0 ? (
-                      <DataTable columns={getColumns("external")} data={jobsAssignedToMe} />
+                      <>
+                        {renderMobileJobs(jobsAssignedToMe, "external")}
+                        <div className="desktop-only">
+                          <DataTable ariaLabel="Jobs assigned to me" columns={getColumns("external")} data={jobsAssignedToMe} />
+                        </div>
+                      </>
                     ) : (
                       <EmptyState title="No assigned jobs" body="You have not been assigned to any jobs yet." />
                     )}
@@ -476,7 +539,12 @@ export function JobsWorkspace({
                     <div>
                       <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Network Jobs</h3>
                       {jobsFromConnectedPeople.length > 0 ? (
-                        <DataTable columns={getColumns("external")} data={jobsFromConnectedPeople} />
+                        <>
+                          {renderMobileJobs(jobsFromConnectedPeople, "external")}
+                          <div className="desktop-only">
+                            <DataTable ariaLabel="Network jobs" columns={getColumns("external")} data={jobsFromConnectedPeople} />
+                          </div>
+                        </>
                       ) : (
                         <EmptyState title="No network jobs" body="No available jobs from your connections." />
                       )}
@@ -485,7 +553,12 @@ export function JobsWorkspace({
                     <div>
                       <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Public Market</h3>
                       {publicJobs.length > 0 ? (
-                        <DataTable columns={getColumns("external")} data={publicJobs} />
+                        <>
+                          {renderMobileJobs(publicJobs, "external")}
+                          <div className="desktop-only">
+                            <DataTable ariaLabel="Public market jobs" columns={getColumns("external")} data={publicJobs} />
+                          </div>
+                        </>
                       ) : (
                         <EmptyState title="No public jobs" body="No public jobs available right now." />
                       )}
@@ -494,6 +567,41 @@ export function JobsWorkspace({
                 ) : null}
               </div>
 
+              {nextCursor ? (
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <Button type="button" variant="secondary" disabled={listLoading} onClick={() => void loadMoreJobs()}>
+                    {listLoading ? "Loading..." : "Load more jobs"}
+                  </Button>
+                </div>
+              ) : null}
+
+              {applyingJob ? (
+                <div className="dialog-layer">
+                  <button className="dialog-scrim" type="button" aria-label="Cancel application" onClick={() => setApplyingJob(null)} />
+                  <Card className="application-dialog" role="dialog" aria-modal="true" aria-labelledby="application-dialog-title">
+                    <h2 id="application-dialog-title">Apply for {applyingJob.title}</h2>
+                    <Field label="Message to seeker" hint="Explain how you can help with this job.">
+                      <TextArea
+                        autoFocus
+                        value={applicationMessage}
+                        onChange={(event) => setApplicationMessage(event.target.value)}
+                        required
+                        minLength={10}
+                      />
+                    </Field>
+                    <div className="job-mobile-actions">
+                      <Button
+                        type="button"
+                        disabled={applicationMessage.trim().length < 10 || jobActionLoadingId === applyingJob.id}
+                        onClick={() => void onApply(applyingJob.id, applicationMessage)}
+                      >
+                        {jobActionLoadingId === applyingJob.id ? "Submitting..." : "Submit application"}
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => setApplyingJob(null)}>Cancel</Button>
+                    </div>
+                  </Card>
+                </div>
+              ) : null}
             </div>
           </RequireSession>
         </div>

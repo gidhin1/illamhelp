@@ -37,16 +37,17 @@ get_client_internal_id() {
     head -n1
 }
 
-ensure_realm_role() {
+ensure_client_role() {
   local realm="$1"
-  local role_name="$2"
+  local client_internal_id="$2"
+  local role_name="$3"
 
-  if docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh get "roles/${role_name}" \
+  if docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh get "clients/${client_internal_id}/roles/${role_name}" \
     -r "${realm}" >/dev/null 2>&1; then
     return 0
   fi
 
-  docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh create roles \
+  docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh create "clients/${client_internal_id}/roles" \
     -r "${realm}" \
     -s name="${role_name}" \
     -s "description=IllamHelp application role: ${role_name}" >/dev/null
@@ -149,11 +150,6 @@ else
     -s sslRequired=NONE >/dev/null
 fi
 
-echo "Ensuring app roles in realm '${KEYCLOAK_REALM}'..."
-for role_name in both seeker provider admin support; do
-  ensure_realm_role "${KEYCLOAK_REALM}" "${role_name}"
-done
-
 echo "Ensuring Keycloak client '${KEYCLOAK_CLIENT_ID}' in realm '${KEYCLOAK_REALM}'..."
 CLIENT_INTERNAL_ID="$(get_client_internal_id "${KEYCLOAK_REALM}" "${KEYCLOAK_CLIENT_ID}")"
 if [[ -z "${CLIENT_INTERNAL_ID}" ]]; then
@@ -184,4 +180,9 @@ docker exec "${CONTAINER_NAME}" /opt/keycloak/bin/kcadm.sh update "clients/${CLI
   -s standardFlowEnabled=true \
   -s serviceAccountsEnabled=false >/dev/null
 
-echo "Keycloak dev bootstrap complete (realms: master, ${KEYCLOAK_REALM}; sslRequired=NONE, public client=${KEYCLOAK_CLIENT_ID})."
+echo "Ensuring application client roles for '${KEYCLOAK_CLIENT_ID}'..."
+for role_name in both seeker provider admin support; do
+  ensure_client_role "${KEYCLOAK_REALM}" "${CLIENT_INTERNAL_ID}" "${role_name}"
+done
+
+echo "Keycloak dev bootstrap complete (realms: master, ${KEYCLOAK_REALM}; sslRequired=NONE, role client=${KEYCLOAK_CLIENT_ID})."

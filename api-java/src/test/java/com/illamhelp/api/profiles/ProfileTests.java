@@ -5,6 +5,7 @@ import static com.illamhelp.api.TestFixtures.properties;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,6 +19,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.node.NullNode;
 
 class ProfileTests {
@@ -55,6 +57,27 @@ class ProfileTests {
   }
 
   @Test
+  void encryptedRegistrationPiiRoundTripsOnlyForTheOwner() {
+    ProfileRepository repository = mock(ProfileRepository.class);
+    ProfilesService service = new ProfilesService(repository, mock(ConsentService.class), properties());
+    ArgumentCaptor<byte[]> email = ArgumentCaptor.forClass(byte[].class);
+    ArgumentCaptor<byte[]> phone = ArgumentCaptor.forClass(byte[].class);
+
+    service.upsertFromRegistration("u", "First", "Last", "me@example.com", "+974 5555 1234");
+    verify(repository).upsertRegistrationProfile(eq("u"), eq("First"), eq("Last"), any(String[].class),
+        email.capture(), phone.capture());
+    Map<String, Object> row = profileRow();
+    row.put("pii_email_encrypted", email.getValue());
+    row.put("pii_phone_encrypted", phone.getValue());
+    when(repository.profileRow("u")).thenReturn(row);
+
+    Map<?, ?> contact = (Map<?, ?>) service.getOwnProfile("u").get("contact");
+
+    assertThat(contact.get("email")).isEqualTo("me@example.com");
+    assertThat(contact.get("phone")).isEqualTo("+974 5555 1234");
+  }
+
+  @Test
   void returnsOwnProfileAndRejectsMissingProfile() {
     ProfileRepository repository = mock(ProfileRepository.class);
     ProfilesService service = new ProfilesService(repository, mock(ConsentService.class), properties());
@@ -66,6 +89,37 @@ class ProfileTests {
     assertThat(((Map<?, ?>) profile.get("contact")).get("email")).isEqualTo("email@example.com");
     when(repository.profileRow("missing")).thenReturn(Map.of());
     assertThatThrownBy(() -> service.getOwnProfile("missing")).isInstanceOf(ApiException.class);
+  }
+
+  @Test
+  void viewerReceivesOnlyConsentGrantedContactFields() {
+    ProfileRepository repository = mock(ProfileRepository.class);
+    ConsentService consent = mock(ConsentService.class);
+    ProfilesService service = new ProfilesService(repository, consent, properties());
+    when(repository.findInternalUserIdByUsername("member")).thenReturn("owner");
+    when(repository.profileRow("owner")).thenReturn(profileRow());
+    when(consent.canView(eq("viewer"), any())).thenReturn(Map.of("allowed", false));
+    when(consent.canView("viewer", Map.of("ownerUserId", "owner", "field", "email")))
+        .thenReturn(Map.of("allowed", true));
+
+    Map<?, ?> contact = (Map<?, ?>) service.getProfileForViewer("member", "viewer").get("contact");
+
+    assertThat(contact.get("email")).isEqualTo("email@example.com");
+    assertThat(contact.get("phone")).isNull();
+    verify(consent).canView("viewer", Map.of("ownerUserId", "owner", "field", "phone"));
+  }
+
+  @Test
+  void malformedEncryptedContactIsNotExposed() {
+    ProfileRepository repository = mock(ProfileRepository.class);
+    ProfilesService service = new ProfilesService(repository, mock(ConsentService.class), properties());
+    Map<String, Object> row = profileRow();
+    row.put("pii_email_encrypted", "v1:invalid".getBytes());
+    when(repository.profileRow("u")).thenReturn(row);
+
+    Map<?, ?> contact = (Map<?, ?>) service.getOwnProfile("u").get("contact");
+
+    assertThat(contact.get("email")).isNull();
   }
 
   @Test
@@ -97,6 +151,39 @@ class ProfileTests {
     when(repository.latestForUser("u")).thenReturn(Map.of());
 
     assertThat(service.getMyVerification("u")).isNull();
+  }
+
+  @Test
+  void verificationAdminListUsesBoundedCursorPage() {
+    VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
+    VerificationService service = new VerificationService(repository, mock(AuditService.class),
+        mock(ProfilesService.class), mock(NotificationService.class));
+    when(repository.listForAdmin("pending", null, null, 2)).thenReturn(List.of(
+        Map.of("id", "r1", "createdAt", "2026-05-26T10:00:00Z"),
+        Map.of("id", "r2", "createdAt", "2026-05-26T09:00:00Z")));
+
+    Map<String, Object> page = service.listForAdmin("pending", 1, null);
+
+    assertThat((List<?>) page.get("items")).hasSize(1);
+    assertThat(page.get("nextCursor")).isNotNull();
+    verify(repository).listForAdmin("pending", null, null, 2);
+  }
+
+  @Test
+  void verificationReviewRejectsMissingOrConcurrentlyCompletedRequest() {
+    VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
+    NotificationService notifications = mock(NotificationService.class);
+    VerificationService service = new VerificationService(repository, mock(AuditService.class),
+        mock(ProfilesService.class), notifications);
+
+    assertThatThrownBy(() -> service.review("missing", "admin", Map.of("decision", "approved")))
+        .isInstanceOf(ApiException.class).hasMessage("Verification request not found");
+
+    when(repository.findReviewTarget("r")).thenReturn(Map.of("userId", "u", "status", "pending"));
+    when(repository.reviewUpdate("r", "admin", "approved", null)).thenReturn(Map.of());
+    assertThatThrownBy(() -> service.review("r", "admin", Map.of("decision", "approved")))
+        .isInstanceOf(ApiException.class).hasMessage("Verification request was already reviewed");
+    org.mockito.Mockito.verifyNoInteractions(notifications);
   }
 
   @Test

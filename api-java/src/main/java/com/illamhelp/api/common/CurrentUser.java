@@ -9,9 +9,15 @@ public final class CurrentUser {
   }
 
   public static AuthenticatedUser fromJwt(Jwt jwt) {
+    return fromJwt(jwt, "illamhelp-api");
+  }
+
+  public static AuthenticatedUser fromJwt(Jwt jwt, String applicationClientId) {
     List<String> roles = new ArrayList<>();
-    Object realmAccess = jwt.getClaim("realm_access");
-    if (realmAccess instanceof java.util.Map<?, ?> map && map.get("roles") instanceof List<?> values) {
+    Object resourceAccess = jwt.getClaim("resource_access");
+    if (resourceAccess instanceof java.util.Map<?, ?> clients
+        && clients.get(applicationClientId) instanceof java.util.Map<?, ?> application
+        && application.get("roles") instanceof List<?> values) {
       roles.addAll(values.stream().map(String::valueOf).toList());
     }
     if (roles.isEmpty()) {

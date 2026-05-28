@@ -2,6 +2,7 @@ package com.illamhelp.api.auth;
 
 import com.illamhelp.api.common.AuthenticatedUser;
 import com.illamhelp.api.common.CurrentUser;
+import com.illamhelp.api.config.AppProperties;
 import com.illamhelp.api.profiles.ProfilesService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -22,10 +23,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
   private final KeycloakAuthService authService;
   private final ProfilesService profilesService;
+  private final AppProperties properties;
 
-  public AuthController(KeycloakAuthService authService, ProfilesService profilesService) {
+  public AuthController(KeycloakAuthService authService, ProfilesService profilesService, AppProperties properties) {
     this.authService = authService;
     this.profilesService = profilesService;
+    this.properties = properties;
   }
 
   @PostMapping("/auth/login")
@@ -62,7 +65,7 @@ public class AuthController {
 
   @GetMapping("/auth/me")
   public AuthenticatedUser me(@AuthenticationPrincipal Jwt jwt) {
-    return CurrentUser.fromJwt(jwt);
+    return CurrentUser.fromJwt(jwt, properties.keycloakClientId());
   }
 
   public record LoginRequest(

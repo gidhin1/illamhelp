@@ -207,10 +207,10 @@ export function createAppStyles(theme: AppTheme) {
     fontSize: 13
   },
   bannerTextError: {
-    color: theme.colors.error
+    color: theme.colors.errorText
   },
   bannerTextSuccess: {
-    color: theme.colors.success
+    color: theme.colors.successText
   },
   bannerTextInfo: {
     color: theme.colors.brand

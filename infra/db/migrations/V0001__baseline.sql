@@ -3,6 +3,7 @@
 -- Add new Flyway versioned migrations for subsequent schema changes.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TYPE user_role AS ENUM ('both', 'seeker', 'provider', 'admin', 'support');
 CREATE TYPE job_status AS ENUM (
@@ -284,19 +285,115 @@ CREATE TABLE notifications (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE connection_search_documents (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  display_name TEXT,
+  location_label TEXT,
+  service_categories TEXT[] NOT NULL DEFAULT '{}',
+  recent_job_categories TEXT[] NOT NULL DEFAULT '{}',
+  recent_locations TEXT[] NOT NULL DEFAULT '{}',
+  job_count BIGINT NOT NULL DEFAULT 0,
+  searchable_text TEXT NOT NULL DEFAULT '',
+  search_vector TSVECTOR NOT NULL DEFAULT ''::tsvector,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION refresh_connection_search_document(target_user_id UUID) RETURNS VOID AS $$
+BEGIN
+  INSERT INTO connection_search_documents (
+    user_id, display_name, location_label, service_categories, recent_job_categories,
+    recent_locations, job_count, searchable_text, search_vector, updated_at
+  )
+  SELECT u.id,
+         coalesce(nullif(trim(concat(p.first_name, ' ', coalesce(p.last_name, ''))), ''), u.username),
+         nullif(trim(concat(coalesce(p.area, ''), ' ', coalesce(p.city, ''))), ''),
+         coalesce(p.service_categories, '{}'::text[]),
+         coalesce(j.job_categories, '{}'::text[]),
+         coalesce(j.job_locations, '{}'::text[]),
+         coalesce(j.job_count, 0),
+         lower(concat_ws(' ', u.username, p.first_name, p.last_name, p.city, p.area,
+           array_to_string(coalesce(p.service_categories, '{}'::text[]), ' '),
+           array_to_string(coalesce(j.job_categories, '{}'::text[]), ' '),
+           array_to_string(coalesce(j.job_locations, '{}'::text[]), ' '))),
+         to_tsvector('simple', lower(concat_ws(' ', u.username, p.first_name, p.last_name, p.city, p.area,
+           array_to_string(coalesce(p.service_categories, '{}'::text[]), ' '),
+           array_to_string(coalesce(j.job_categories, '{}'::text[]), ' '),
+           array_to_string(coalesce(j.job_locations, '{}'::text[]), ' ')))),
+         now()
+  FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+  LEFT JOIN LATERAL (
+    SELECT array_remove(array_agg(DISTINCT category), NULL) AS job_categories,
+           array_remove(array_agg(DISTINCT location_text), NULL) AS job_locations,
+           count(*) AS job_count
+    FROM jobs WHERE seeker_user_id = u.id
+  ) j ON TRUE
+  WHERE u.id = target_user_id
+  ON CONFLICT (user_id) DO UPDATE SET
+    display_name = EXCLUDED.display_name,
+    location_label = EXCLUDED.location_label,
+    service_categories = EXCLUDED.service_categories,
+    recent_job_categories = EXCLUDED.recent_job_categories,
+    recent_locations = EXCLUDED.recent_locations,
+    job_count = EXCLUDED.job_count,
+    searchable_text = EXCLUDED.searchable_text,
+    search_vector = EXCLUDED.search_vector,
+    updated_at = now();
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION refresh_connection_search_for_user_change() RETURNS TRIGGER AS $$
+BEGIN
+  PERFORM refresh_connection_search_document(COALESCE(NEW.id, OLD.id));
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION refresh_connection_search_for_profile_change() RETURNS TRIGGER AS $$
+BEGIN
+  PERFORM refresh_connection_search_document(COALESCE(NEW.user_id, OLD.user_id));
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION refresh_connection_search_for_job_change() RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.seeker_user_id <> NEW.seeker_user_id THEN
+    PERFORM refresh_connection_search_document(OLD.seeker_user_id);
+  END IF;
+  PERFORM refresh_connection_search_document(COALESCE(NEW.seeker_user_id, OLD.seeker_user_id));
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_connection_search_users
+  AFTER INSERT OR UPDATE OF username ON users
+  FOR EACH ROW EXECUTE FUNCTION refresh_connection_search_for_user_change();
+CREATE TRIGGER trg_connection_search_profiles
+  AFTER INSERT OR UPDATE OR DELETE ON profiles
+  FOR EACH ROW EXECUTE FUNCTION refresh_connection_search_for_profile_change();
+CREATE TRIGGER trg_connection_search_jobs
+  AFTER INSERT OR UPDATE OR DELETE ON jobs
+  FOR EACH ROW EXECUTE FUNCTION refresh_connection_search_for_job_change();
+
 CREATE UNIQUE INDEX users_username_unique_idx ON users (LOWER(username));
 CREATE INDEX idx_users_verified ON users (verified) WHERE verified = TRUE;
 CREATE INDEX idx_jobs_seeker_user_id ON jobs (seeker_user_id);
+CREATE INDEX idx_jobs_assigned_provider_created_at_desc ON jobs (assigned_provider_user_id, created_at DESC, id DESC)
+  WHERE assigned_provider_user_id IS NOT NULL;
 CREATE INDEX idx_jobs_status_updated_at_desc ON jobs (status, updated_at DESC);
-CREATE INDEX idx_jobs_visibility_status_created_at_desc ON jobs (visibility, status, created_at DESC);
+CREATE INDEX idx_jobs_visibility_status_created_at_desc ON jobs (visibility, status, created_at DESC, id DESC);
 CREATE INDEX idx_jobs_location_lat_lon ON jobs (location_latitude, location_longitude)
   WHERE location_latitude IS NOT NULL AND location_longitude IS NOT NULL;
+CREATE INDEX idx_jobs_title_trgm ON jobs USING GIN (lower(title) gin_trgm_ops);
+CREATE INDEX idx_jobs_description_trgm ON jobs USING GIN (lower(description) gin_trgm_ops);
+CREATE INDEX idx_jobs_category_trgm ON jobs USING GIN (lower(category) gin_trgm_ops);
+CREATE INDEX idx_jobs_location_text_trgm ON jobs USING GIN (lower(location_text) gin_trgm_ops);
 CREATE INDEX idx_job_applications_job_id ON job_applications (job_id);
 CREATE INDEX idx_job_applications_provider_created_at_desc ON job_applications (provider_user_id, created_at DESC);
 CREATE INDEX idx_job_applications_job_status_created_at_desc ON job_applications (job_id, status, created_at DESC);
 CREATE INDEX idx_connections_users ON connections (user_a_id, user_b_id);
-CREATE INDEX idx_connections_user_a_requested_at_desc ON connections (user_a_id, requested_at DESC);
-CREATE INDEX idx_connections_user_b_requested_at_desc ON connections (user_b_id, requested_at DESC);
+CREATE INDEX idx_connections_user_a_requested_at_desc ON connections (user_a_id, requested_at DESC, id DESC);
+CREATE INDEX idx_connections_user_b_requested_at_desc ON connections (user_b_id, requested_at DESC, id DESC);
 CREATE INDEX idx_pii_access_requests_owner ON pii_access_requests (owner_user_id, status);
 CREATE INDEX idx_pii_access_requests_requester_created_at_desc ON pii_access_requests (requester_user_id, created_at DESC);
 CREATE INDEX idx_pii_access_requests_owner_created_at_desc ON pii_access_requests (owner_user_id, created_at DESC);
@@ -308,9 +405,17 @@ CREATE INDEX idx_pii_consent_grants_grantee_granted_at_desc ON pii_consent_grant
 CREATE INDEX idx_pii_consent_grants_active_owner_grantee_granted_at_desc
   ON pii_consent_grants (owner_user_id, grantee_user_id, granted_at DESC)
   WHERE status = 'active';
+CREATE UNIQUE INDEX idx_pii_consent_grants_one_active_per_connection
+  ON pii_consent_grants (owner_user_id, grantee_user_id, connection_id)
+  WHERE status = 'active';
 CREATE INDEX idx_pii_consent_grants_granted_fields_gin ON pii_consent_grants USING GIN (granted_fields);
 CREATE INDEX idx_media_assets_owner_state ON media_assets (owner_user_id, state);
+CREATE INDEX idx_media_assets_owner_created_at_desc ON media_assets (owner_user_id, created_at DESC, id DESC);
+CREATE INDEX idx_media_assets_approved_owner_created_at_desc
+  ON media_assets (owner_user_id, created_at DESC, id DESC) WHERE state = 'approved';
 CREATE INDEX idx_moderation_jobs_media_stage ON moderation_jobs (media_asset_id, stage, status);
+CREATE INDEX idx_moderation_jobs_pending_queue
+  ON moderation_jobs (stage, created_at ASC, id) WHERE status = 'pending';
 CREATE INDEX idx_audit_events_actor_created_at ON audit_events (actor_user_id, created_at DESC);
 CREATE INDEX idx_audit_events_target_created_at ON audit_events (target_user_id, created_at DESC);
 CREATE INDEX idx_audit_events_event_type_created_at ON audit_events (event_type, created_at DESC);
@@ -319,7 +424,17 @@ CREATE INDEX idx_internal_event_outbox_event_name_created_at ON internal_event_o
 CREATE INDEX idx_verification_requests_user_id ON verification_requests (user_id);
 CREATE INDEX idx_verification_requests_status ON verification_requests (status);
 CREATE INDEX idx_verification_requests_created_at ON verification_requests (created_at DESC);
+CREATE INDEX idx_verification_requests_status_created_at_desc
+  ON verification_requests (status, created_at DESC, id DESC);
 CREATE UNIQUE INDEX idx_verification_requests_one_active_per_user
   ON verification_requests (user_id) WHERE status IN ('pending', 'under_review');
-CREATE INDEX idx_notifications_user_id_created ON notifications (user_id, created_at DESC);
+CREATE INDEX idx_notifications_user_id_created ON notifications (user_id, created_at DESC, id DESC);
 CREATE INDEX idx_notifications_user_unread ON notifications (user_id) WHERE read = FALSE;
+CREATE INDEX idx_notifications_user_unread_created_at_desc
+  ON notifications (user_id, created_at DESC, id DESC) WHERE read = FALSE;
+CREATE INDEX idx_connection_search_documents_vector
+  ON connection_search_documents USING GIN (search_vector);
+CREATE INDEX idx_connection_search_documents_text_trgm
+  ON connection_search_documents USING GIN (searchable_text gin_trgm_ops);
+CREATE INDEX idx_connection_search_documents_job_count
+  ON connection_search_documents (job_count DESC, updated_at DESC);

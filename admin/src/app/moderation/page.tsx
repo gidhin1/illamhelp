@@ -212,7 +212,7 @@ function ModerationContent(): React.JSX.Element {
       <div className="top-header">
         <div>
            <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Content Safety</div>
-           <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Moderation Queue</h2>
+           <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Moderation Queue</h1>
         </div>
         <div className="section-actions">
            <Button type="button" variant="secondary" data-testid="moderation-process-pending" disabled={submitting} onClick={() => void onProcessPending()}>
@@ -229,10 +229,9 @@ function ModerationContent(): React.JSX.Element {
            </div>
         )}
 
-        {/* Master Detail Grid Layout */}
-        <div className="grid" style={{ gridTemplateColumns: "1fr 400px", alignItems: "start", height: "100%" }}>
+        <div className="moderation-layout">
           {/* Master List */}
-          <Card className="stack" style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 160px)", padding: 0, overflow: "hidden" }}>
+          <Card className="stack moderation-panel" style={{ display: "flex", flexDirection: "column", padding: 0 }}>
             <div style={{ padding: "var(--spacing-md)", borderBottom: "1px solid var(--line)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
                <div>
                   <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>Queue items</h3>
@@ -240,11 +239,11 @@ function ModerationContent(): React.JSX.Element {
                     {queueSummary.total} total · {queueSummary.pending} pending · {queueSummary.reviewed} reviewed
                   </div>
                </div>
-               <div style={{ minWidth: 150 }}>
+               <Field label="Status">
                    <SelectInput data-testid="moderation-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: "0.85rem" }}>
                      {statusOptions.map((opt) => <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>)}
                    </SelectInput>
-               </div>
+               </Field>
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
@@ -256,13 +255,13 @@ function ModerationContent(): React.JSX.Element {
                      <EmptyState title="No items found" body="Try another filter or run machine checks to pull new items." />
                   </div>
                ) : (
-                  <DataTable columns={queueColumns} data={queue} />
+                  <DataTable ariaLabel="Moderation queue" columns={queueColumns} data={queue} />
                )}
             </div>
           </Card>
 
           {/* Details Panel */}
-          <Card className="stack" data-testid="moderation-details-panel" style={{ height: "calc(100vh - 160px)", overflowY: "auto", borderLeft: "4px solid var(--brand)", padding: "var(--spacing-lg)" }}>
+          <Card className="stack moderation-panel moderation-details-panel" data-testid="moderation-details-panel" style={{ borderLeft: "4px solid var(--brand)", padding: "var(--spacing-lg)" }}>
             <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem", paddingBottom: "10px", borderBottom: "1px solid var(--line)" }}>Review Details</h3>
             
             {loadingDetails && <p className="muted-text">Loading Details...</p>}
@@ -321,10 +320,10 @@ function ModerationContent(): React.JSX.Element {
 
                     <div style={{ display: "flex", gap: "8px", paddingTop: "8px" }}>
                       <Button type="button" data-testid="moderation-approve" disabled={submitting} onClick={() => void onReview("approved")} style={{ flex: 1 }}>
-                        ✅ Approve
+                        Approve
                       </Button>
                       <Button type="button" variant="secondary" data-testid="moderation-reject" disabled={submitting} onClick={() => void onReview("rejected")} style={{ flex: 1, color: "var(--danger)" }}>
-                        ❌ Reject
+                        Reject
                       </Button>
                     </div>
                 </div>

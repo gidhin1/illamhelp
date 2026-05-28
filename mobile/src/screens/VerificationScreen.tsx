@@ -160,6 +160,9 @@ export function VerificationScreen({
                 style={[styles.roleChip, documentType === value ? styles.roleChipSelected : null]}
                 onPress={() => setDocumentType(value)}
                 testID={`verification-doc-type-${value}`}
+                accessibilityRole="radio"
+                accessibilityLabel={label}
+                accessibilityState={{ selected: documentType === value }}
               >
                 <Text
                   style={[

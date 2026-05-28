@@ -7,7 +7,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,13 +26,13 @@ class MediaTests {
   void controllerDelegatesPublicAndAuthenticatedMediaCalls() {
     MediaService service = mock(MediaService.class);
     MediaController controller = new MediaController(service);
-    controller.mine(jwt("u"));
-    controller.publicMedia("owner");
+    controller.mine(jwt("u"), null, null);
+    controller.publicMedia("owner", null, null);
     controller.uploadTicket(jwt("u"), new MediaController.UploadTicketRequest(
         "image", "image/jpeg", 512, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "file.jpg", null));
     controller.complete(jwt("u"), "m", new MediaController.CompleteUploadRequest("abc"));
-    verify(service).listMine("u");
-    verify(service).listApprovedForOwner("owner");
+    verify(service).listMine("u", null, null);
+    verify(service).listApprovedForOwner("owner", null, null);
     verify(service).uploadTicket(org.mockito.ArgumentMatchers.eq("u"), any());
     verify(service).complete("u", "m", "abc");
   }
@@ -39,24 +41,18 @@ class MediaTests {
   void createsUploadTicketAndEnqueuesModeration() {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     StorageService storage = mock(StorageService.class);
-    AuditService audit = mock(AuditService.class);
-    InternalEventsService events = mock(InternalEventsService.class);
+    MediaMutationService mutations = mock(MediaMutationService.class);
     when(storage.presignedPut(anyString(), anyString(), anyString(), anyString())).thenReturn(Map.of("uploadUrl", "signed"));
-    MediaService service = new MediaService(repository, properties(), storage, audit, events, new ObjectMapper());
+    MediaService service = new MediaService(repository, properties(), storage, mutations, new ObjectMapper());
 
     Map<String, Object> response = service.uploadTicket("u", Map.of(
         "kind", "image", "contentType", "image/jpeg", "fileSizeBytes", 512, "checksumSha256", "hash"));
 
     assertThat(response).containsEntry("uploadUrl", "signed").containsEntry("bucketName", "quarantine");
-    verify(repository).insertAsset(anyString(), org.mockito.ArgumentMatchers.eq("u"), org.mockito.ArgumentMatchers.isNull(),
-        org.mockito.ArgumentMatchers.eq("image"), org.mockito.ArgumentMatchers.eq("quarantine"), anyString(),
-        org.mockito.ArgumentMatchers.eq("image/jpeg"), org.mockito.ArgumentMatchers.eq(512L), org.mockito.ArgumentMatchers.eq("hash"));
-    verify(repository).enqueueTechnicalValidation(anyString(), anyString());
-    verify(audit).logEvent(org.mockito.ArgumentMatchers.eq("u"), org.mockito.ArgumentMatchers.isNull(),
-        org.mockito.ArgumentMatchers.eq("media_upload_ticket_created"), org.mockito.ArgumentMatchers.isNull(), any());
-    verify(events).mediaUploadTicketIssued(org.mockito.ArgumentMatchers.eq("u"), anyString(),
-        org.mockito.ArgumentMatchers.eq("quarantine"), anyString(), org.mockito.ArgumentMatchers.eq("image"),
-        org.mockito.ArgumentMatchers.eq("image/jpeg"), org.mockito.ArgumentMatchers.eq(512L), org.mockito.ArgumentMatchers.eq("hash"));
+    verify(mutations).recordUploadTicket(org.mockito.ArgumentMatchers.eq("u"), anyString(),
+        org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("image"),
+        org.mockito.ArgumentMatchers.eq("quarantine"), anyString(), org.mockito.ArgumentMatchers.eq("image/jpeg"),
+        org.mockito.ArgumentMatchers.eq(512L), org.mockito.ArgumentMatchers.eq("hash"), anyString());
   }
 
   @Test
@@ -64,46 +60,95 @@ class MediaTests {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     StorageService storage = mock(StorageService.class);
     when(repository.findInternalUserIdByUsername("member")).thenReturn("owner");
-    when(repository.listApprovedForOwner("owner")).thenReturn(List.of(Map.of("bucket_name", "approved", "object_key", "key")));
+    when(repository.listApprovedForOwner("owner", null, null, 51)).thenReturn(List.of(Map.of(
+        "id", "m", "createdAt", "2026-05-26T10:00:00Z", "bucket_name", "approved", "object_key", "key")));
     when(storage.presignedGet("approved", "key")).thenReturn(Map.of("downloadUrl", "url"));
-    MediaService service = new MediaService(repository, properties(), storage, mock(AuditService.class),
-        mock(InternalEventsService.class), new ObjectMapper());
+    MediaService service = new MediaService(repository, properties(), storage, mock(MediaMutationService.class), new ObjectMapper());
 
-    assertThat(service.listApprovedForOwner("member").getFirst()).containsEntry("downloadUrl", "url").doesNotContainKey("bucket_name");
+    @SuppressWarnings("unchecked")
+    Map<String, Object> item = (Map<String, Object>) ((List<?>) service.listApprovedForOwner("member", null, null).get("items")).getFirst();
+    assertThat(item).containsEntry("downloadUrl", "url").doesNotContainKey("bucket_name");
+    verify(repository).listApprovedForOwner("owner", null, null, 51);
+  }
+
+  @Test
+  void signsOnlyReturnedPublicMediaRowsWhenMorePagesExist() {
+    MediaAssetRepository repository = mock(MediaAssetRepository.class);
+    StorageService storage = mock(StorageService.class);
+    when(repository.findInternalUserIdByUsername("member")).thenReturn("owner");
+    when(repository.listApprovedForOwner("owner", null, null, 2)).thenReturn(List.of(
+        Map.of("id", "m1", "createdAt", "2026-05-26T10:00:00Z", "bucket_name", "approved", "object_key", "shown"),
+        Map.of("id", "m2", "createdAt", "2026-05-26T09:00:00Z", "bucket_name", "approved", "object_key", "lookahead")));
+    when(storage.presignedGet("approved", "shown")).thenReturn(Map.of("downloadUrl", "url"));
+    MediaService service = new MediaService(repository, properties(), storage, mock(MediaMutationService.class), new ObjectMapper());
+
+    Map<String, Object> page = service.listApprovedForOwner("member", 1, null);
+
+    assertThat((List<?>) page.get("items")).hasSize(1);
+    assertThat(page.get("nextCursor")).isNotNull();
+    verify(storage).presignedGet("approved", "shown");
+    verify(storage, never()).presignedGet("approved", "lookahead");
+  }
+
+  @Test
+  void boundsPrivateMediaArrayResponses() {
+    MediaAssetRepository repository = mock(MediaAssetRepository.class);
+    when(repository.listMine("u", null, null, 51)).thenReturn(List.of(Map.of("id", "m", "createdAt", "2026-05-26T10:00:00Z")));
+    MediaService service = new MediaService(repository, properties(), mock(StorageService.class), mock(MediaMutationService.class),
+        new ObjectMapper());
+
+    assertThat((List<?>) service.listMine("u", null, null).get("items")).hasSize(1);
+    verify(repository).listMine("u", null, null, 51);
   }
 
   @Test
   void completingVerifiedUploadEmitsVerifiedOutboxEvent() {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     StorageService storage = mock(StorageService.class);
-    InternalEventsService events = mock(InternalEventsService.class);
+    MediaMutationService mutations = mock(MediaMutationService.class);
     when(repository.findOwnedAsset("u", "m")).thenReturn(Map.of("state", "uploaded", "bucketName", "quarantine",
         "objectKey", "u/m", "contentType", "image/jpeg", "fileSizeBytes", 512L, "checksumSha256", "hash"));
     when(storage.headObject("quarantine", "u/m"))
         .thenReturn(new StorageService.UploadedObject("image/jpeg", 512L, "hash", "\"ABC\""));
-    when(repository.completeUpload("u", "m")).thenReturn(Map.of("id", "m", "state", "scanning"));
-    MediaService service = new MediaService(repository, properties(), storage, mock(AuditService.class),
-        events, new ObjectMapper());
+    when(mutations.recordVerifiedCompletion("u", "m", "abc")).thenReturn(Map.of("id", "m", "state", "scanning"));
+    MediaService service = new MediaService(repository, properties(), storage, mutations, new ObjectMapper());
 
     assertThat(service.complete("u", "m", "abc")).containsEntry("state", "scanning");
-    verify(events).mediaUploadCompleted("u", "m", "abc", true);
+    verify(mutations).recordVerifiedCompletion("u", "m", "abc");
   }
 
   @Test
   void rejectsCompletionWhenStoredChecksumDoesNotMatchUploadTicket() {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     StorageService storage = mock(StorageService.class);
+    MediaMutationService mutations = mock(MediaMutationService.class);
     when(repository.findOwnedAsset("u", "m")).thenReturn(Map.of("state", "uploaded", "bucketName", "quarantine",
         "objectKey", "u/m", "contentType", "image/jpeg", "fileSizeBytes", 512L, "checksumSha256", "expected"));
     when(storage.headObject("quarantine", "u/m"))
         .thenReturn(new StorageService.UploadedObject("image/jpeg", 512L, "wrong", "abc"));
-    MediaService service = new MediaService(repository, properties(), storage, mock(AuditService.class),
-        mock(InternalEventsService.class), new ObjectMapper());
+    MediaService service = new MediaService(repository, properties(), storage, mutations, new ObjectMapper());
 
     assertThatThrownBy(() -> service.complete("u", "m", "abc"))
         .isInstanceOf(ApiException.class)
         .hasMessage("Uploaded object checksum metadata mismatch");
-    verify(repository, org.mockito.Mockito.never()).completeUpload(anyString(), anyString());
+    verifyNoInteractions(mutations);
+  }
+
+  @Test
+  void transactionalMediaMutationWritesAssetAuditAndOutboxTogether() {
+    MediaAssetRepository repository = mock(MediaAssetRepository.class);
+    AuditService audit = mock(AuditService.class);
+    InternalEventsService events = mock(InternalEventsService.class);
+    MediaMutationService service = new MediaMutationService(repository, audit, events);
+    when(repository.completeUpload("u", "m")).thenReturn(Map.of("id", "m", "state", "scanning"));
+
+    service.recordUploadTicket("u", "m", null, "image", "quarantine", "u/m", "image/jpeg", 512L, "hash", "{}");
+    assertThat(service.recordVerifiedCompletion("u", "m", "etag")).containsEntry("state", "scanning");
+
+    verify(repository).insertAsset("m", "u", null, "image", "quarantine", "u/m", "image/jpeg", 512L, "hash");
+    verify(repository).enqueueTechnicalValidation("m", "{}");
+    verify(events).mediaUploadTicketIssued("u", "m", "quarantine", "u/m", "image", "image/jpeg", 512L, "hash");
+    verify(events).mediaUploadCompleted("u", "m", "etag", true);
   }
 
   @Test

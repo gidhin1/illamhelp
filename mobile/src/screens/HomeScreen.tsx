@@ -247,6 +247,9 @@ export function HomeScreen({
               onPress={() => setFilter(value)}
               style={[localStyles.filterChip, active ? localStyles.filterChipActive : null]}
               testID={`home-filter-${value}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${label} jobs`}
+              accessibilityState={{ selected: active }}
             >
               <Text style={[localStyles.filterChipLabel, active ? localStyles.filterChipLabelActive : null]}>
                 {label}

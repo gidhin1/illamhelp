@@ -10,35 +10,44 @@ import org.springframework.data.repository.query.Param;
 
 public interface JobRepository extends JpaRepository<JobEntity, UUID> {
   @Query(value = """
-      SELECT id, seeker_user_id AS "seekerUserId", category, title, description, location_text AS "locationText",
-             location_latitude AS "locationLatitude", location_longitude AS "locationLongitude",
-             visibility::text, status::text, assigned_provider_user_id AS "assignedProviderUserId",
-             accepted_application_id AS "acceptedApplicationId", created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM jobs WHERE seeker_user_id = cast(:userId as uuid) OR assigned_provider_user_id = cast(:userId as uuid)
-        OR (status = 'posted' AND (visibility = 'public' OR (visibility = 'connections_only' AND EXISTS (
-          SELECT 1 FROM connections c WHERE c.status = 'accepted' AND
-            ((c.user_a_id = cast(:userId as uuid) AND c.user_b_id = seeker_user_id)
-             OR (c.user_b_id = cast(:userId as uuid) AND c.user_a_id = seeker_user_id))))))
-      ORDER BY created_at DESC LIMIT :limit OFFSET :offset
-      """, nativeQuery = true)
-  List<Map<String, Object>> listVisible(@Param("userId") String userId, @Param("limit") int limit, @Param("offset") int offset);
-
-  @Query(value = """
-      SELECT count(*) FROM jobs WHERE seeker_user_id = cast(:userId as uuid) OR assigned_provider_user_id = cast(:userId as uuid)
-        OR (status = 'posted' AND (visibility = 'public' OR (visibility = 'connections_only' AND EXISTS (
-          SELECT 1 FROM connections c WHERE c.status = 'accepted' AND
-            ((c.user_a_id = cast(:userId as uuid) AND c.user_b_id = seeker_user_id)
-             OR (c.user_b_id = cast(:userId as uuid) AND c.user_a_id = seeker_user_id))))))
-      """, nativeQuery = true)
-  int countVisible(@Param("userId") String userId);
-
-  @Query(value = """
       SELECT j.id, j.seeker_user_id AS "seekerUserId", j.category, j.title, j.description, j.location_text AS "locationText",
              j.location_latitude AS "locationLatitude", j.location_longitude AS "locationLongitude",
              j.visibility::text, j.status::text, j.assigned_provider_user_id AS "assignedProviderUserId",
-             j.accepted_application_id AS "acceptedApplicationId", j.created_at AS "createdAt", j.updated_at AS "updatedAt"
+             j.accepted_application_id AS "acceptedApplicationId", j.created_at AS "createdAt", j.updated_at AS "updatedAt",
+             coalesce(nullif(trim(seeker.username), ''), 'member_' || substring(md5(seeker.id::text) FROM 1 FOR 10)) AS "seekerPublicUserId",
+             CASE WHEN provider.id IS NULL THEN NULL ELSE
+               coalesce(nullif(trim(provider.username), ''), 'member_' || substring(md5(provider.id::text) FROM 1 FOR 10)) END AS "assignedProviderPublicUserId"
+      FROM jobs j JOIN users seeker ON seeker.id = j.seeker_user_id
+      LEFT JOIN users provider ON provider.id = j.assigned_provider_user_id
+      WHERE (j.seeker_user_id = cast(:userId as uuid) OR j.assigned_provider_user_id = cast(:userId as uuid)
+        OR (j.status = 'posted' AND (j.visibility = 'public' OR (j.visibility = 'connections_only' AND EXISTS (
+          SELECT 1 FROM connections c WHERE c.status = 'accepted' AND
+            ((c.user_a_id = cast(:userId as uuid) AND c.user_b_id = j.seeker_user_id)
+             OR (c.user_b_id = cast(:userId as uuid) AND c.user_a_id = j.seeker_user_id)))))))
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (j.created_at, j.id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY j.created_at DESC, j.id DESC LIMIT :limit
+      """, nativeQuery = true)
+  List<Map<String, Object>> listVisible(@Param("userId") String userId,
+      @Param("cursorCreatedAt") String cursorCreatedAt, @Param("cursorId") String cursorId, @Param("limit") int limit);
+
+  @Query(value = """
+      WITH ranked_ids AS (
+        SELECT cast(candidate.id as uuid) AS id, candidate.search_rank
+        FROM unnest(cast(:preferredIds as text[])) WITH ORDINALITY AS candidate(id, search_rank)
+      )
+      SELECT j.id, j.seeker_user_id AS "seekerUserId", j.category, j.title, j.description, j.location_text AS "locationText",
+             j.location_latitude AS "locationLatitude", j.location_longitude AS "locationLongitude",
+             j.visibility::text, j.status::text, j.assigned_provider_user_id AS "assignedProviderUserId",
+             j.accepted_application_id AS "acceptedApplicationId", j.created_at AS "createdAt", j.updated_at AS "updatedAt",
+             coalesce(nullif(trim(seeker.username), ''), 'member_' || substring(md5(seeker.id::text) FROM 1 FOR 10)) AS "seekerPublicUserId",
+             CASE WHEN provider.id IS NULL THEN NULL ELSE
+               coalesce(nullif(trim(provider.username), ''), 'member_' || substring(md5(provider.id::text) FROM 1 FOR 10)) END AS "assignedProviderPublicUserId"
       FROM jobs j LEFT JOIN profiles p ON p.user_id = j.seeker_user_id
-      WHERE (cast(:preferredIds as text) IS NULL OR j.id::text = ANY(string_to_array(:preferredIds, ',')))
+      JOIN users seeker ON seeker.id = j.seeker_user_id
+      LEFT JOIN users provider ON provider.id = j.assigned_provider_user_id
+      LEFT JOIN ranked_ids ranked ON ranked.id = j.id
+      WHERE (cast(:preferredIds as text[]) IS NULL OR ranked.id IS NOT NULL)
         AND (j.seeker_user_id = cast(:userId as uuid) OR j.assigned_provider_user_id = cast(:userId as uuid)
         OR (j.status = 'posted'::job_status AND (j.visibility = 'public'::job_visibility
           OR (j.visibility = 'connections_only'::job_visibility AND EXISTS (
@@ -58,10 +67,9 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
               * cos(radians(j.location_longitude) - radians(cast(:longitude as double precision)))
               + sin(radians(cast(:latitude as double precision))) * sin(radians(j.location_latitude))
           )))) <= cast(:radiusKm as double precision)))
-      ORDER BY CASE WHEN cast(:preferredIds as text) IS NULL THEN NULL
-        ELSE array_position(string_to_array(:preferredIds, ','), j.id::text) END NULLS LAST, j.created_at DESC LIMIT :limit
+      ORDER BY ranked.search_rank NULLS LAST, j.created_at DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> searchVisible(@Param("preferredIds") String preferredIds, @Param("userId") String userId, @Param("q") String query,
+  List<Map<String, Object>> searchVisible(@Param("preferredIds") String[] preferredIds, @Param("userId") String userId, @Param("q") String query,
       @Param("category") String category, @Param("locationText") String locationText,
       @Param("minSeekerRating") Double minSeekerRating, @Param("statuses") String statuses,
       @Param("visibility") String visibility, @Param("latitude") Double latitude,
@@ -98,9 +106,30 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
   Map<String, Object> findIndexableJob(@Param("jobId") String jobId);
 
   @Query(value = """
+      SELECT j.seeker_user_id, j.status::text, j.visibility::text
+      FROM jobs j WHERE j.id = cast(:jobId as uuid) AND (
+        j.seeker_user_id = cast(:userId as uuid)
+        OR j.visibility = 'public'::job_visibility
+        OR (j.visibility = 'connections_only'::job_visibility AND EXISTS (
+          SELECT 1 FROM connections c WHERE c.status = 'accepted'::connection_status AND
+            ((c.user_a_id = cast(:userId as uuid) AND c.user_b_id = j.seeker_user_id)
+             OR (c.user_b_id = cast(:userId as uuid) AND c.user_a_id = j.seeker_user_id))))
+      )
+      """, nativeQuery = true)
+  Map<String, Object> applicationEligibility(@Param("userId") String userId, @Param("jobId") String jobId);
+
+  @Query(value = """
       WITH created AS (
         INSERT INTO job_applications (job_id, provider_user_id, message)
-        VALUES (cast(:jobId as uuid), cast(:userId as uuid), cast(:message as text))
+        SELECT j.id, cast(:userId as uuid), cast(:message as text)
+        FROM jobs j WHERE j.id = cast(:jobId as uuid)
+          AND j.status = 'posted'::job_status
+          AND j.seeker_user_id <> cast(:userId as uuid)
+          AND (j.visibility = 'public'::job_visibility
+            OR (j.visibility = 'connections_only'::job_visibility AND EXISTS (
+              SELECT 1 FROM connections c WHERE c.status = 'accepted'::connection_status AND
+                ((c.user_a_id = cast(:userId as uuid) AND c.user_b_id = j.seeker_user_id)
+                 OR (c.user_b_id = cast(:userId as uuid) AND c.user_a_id = j.seeker_user_id)))))
         ON CONFLICT (job_id, provider_user_id) DO UPDATE
           SET message = EXCLUDED.message, status = 'applied', updated_at = now()
         RETURNING id, job_id, provider_user_id, status, message, created_at, updated_at
@@ -108,24 +137,29 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
       SELECT id, job_id AS "jobId", provider_user_id AS "providerUserId", status::text, message,
              created_at AS "createdAt", updated_at AS "updatedAt" FROM created
       """, nativeQuery = true)
-  Map<String, Object> apply(@Param("userId") String userId, @Param("jobId") String jobId, @Param("message") Object message);
+  Map<String, Object> applyAuthorized(@Param("userId") String userId, @Param("jobId") String jobId, @Param("message") Object message);
 
   @Query(value = """
-      SELECT id, job_id AS "jobId", provider_user_id AS "providerUserId", status::text, message,
-             created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM job_applications ja WHERE ja.job_id = cast(:jobId as uuid) AND (
+      SELECT ja.id, ja.job_id AS "jobId", ja.provider_user_id AS "providerUserId", ja.status::text, ja.message,
+             ja.created_at AS "createdAt", ja.updated_at AS "updatedAt",
+             coalesce(nullif(trim(provider.username), ''), 'member_' || substring(md5(provider.id::text) FROM 1 FOR 10)) AS "providerPublicUserId"
+      FROM job_applications ja JOIN users provider ON provider.id = ja.provider_user_id
+      WHERE ja.job_id = cast(:jobId as uuid) AND (
         EXISTS (SELECT 1 FROM jobs j WHERE j.id = ja.job_id AND j.seeker_user_id = cast(:actorUserId as uuid))
         OR ja.provider_user_id = cast(:actorUserId as uuid))
-      ORDER BY created_at DESC
+      ORDER BY ja.created_at DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listApplications(@Param("jobId") String jobId, @Param("actorUserId") String actorUserId);
+  List<Map<String, Object>> listApplications(@Param("jobId") String jobId, @Param("actorUserId") String actorUserId,
+      @Param("limit") int limit);
 
   @Query(value = """
-      SELECT id, job_id AS "jobId", provider_user_id AS "providerUserId", status::text, message,
-             created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM job_applications WHERE provider_user_id = cast(:userId as uuid) ORDER BY created_at DESC
+      SELECT ja.id, ja.job_id AS "jobId", ja.provider_user_id AS "providerUserId", ja.status::text, ja.message,
+             ja.created_at AS "createdAt", ja.updated_at AS "updatedAt",
+             coalesce(nullif(trim(provider.username), ''), 'member_' || substring(md5(provider.id::text) FROM 1 FOR 10)) AS "providerPublicUserId"
+      FROM job_applications ja JOIN users provider ON provider.id = ja.provider_user_id
+      WHERE ja.provider_user_id = cast(:userId as uuid) ORDER BY ja.created_at DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listMyApplications(@Param("userId") String userId);
+  List<Map<String, Object>> listMyApplications(@Param("userId") String userId, @Param("limit") int limit);
 
   @Query(value = """
       SELECT ja.id, ja.job_id, ja.provider_user_id, ja.status::text, j.seeker_user_id, j.status::text AS job_status
@@ -139,6 +173,27 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
       FROM job_applications WHERE id = cast(:applicationId as uuid)
       """, nativeQuery = true)
   Map<String, Object> applicationById(@Param("applicationId") String applicationId);
+
+  @Query(value = """
+      WITH assigned AS (
+        UPDATE jobs j SET status = 'accepted'::job_status,
+          assigned_provider_user_id = ja.provider_user_id,
+          accepted_application_id = ja.id, updated_at = now()
+        FROM job_applications ja
+        WHERE ja.id = cast(:applicationId as uuid) AND ja.job_id = j.id
+          AND j.seeker_user_id = cast(:seekerUserId as uuid)
+          AND j.status = 'posted'::job_status
+          AND ja.status IN ('applied'::application_status, 'shortlisted'::application_status)
+        RETURNING j.accepted_application_id
+      ), changed AS (
+        UPDATE job_applications ja SET status = 'accepted'::application_status, updated_at = now()
+        FROM assigned a WHERE ja.id = a.accepted_application_id
+        RETURNING ja.id, ja.job_id, ja.provider_user_id, ja.status, ja.message, ja.created_at, ja.updated_at
+      )
+      SELECT id, job_id AS "jobId", provider_user_id AS "providerUserId", status::text, message,
+             created_at AS "createdAt", updated_at AS "updatedAt" FROM changed
+      """, nativeQuery = true)
+  Map<String, Object> acceptAuthorized(@Param("applicationId") String applicationId, @Param("seekerUserId") String seekerUserId);
 
   @Query(value = """
       SELECT EXISTS (
@@ -155,6 +210,7 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
       WITH changed AS (
         UPDATE job_applications SET status = cast(:status as application_status), updated_at = now()
         WHERE id = cast(:applicationId as uuid)
+          AND status IN ('applied'::application_status, 'shortlisted'::application_status)
         RETURNING id, job_id, provider_user_id, status, message, created_at, updated_at
       )
       SELECT id, job_id AS "jobId", provider_user_id AS "providerUserId", status::text, message,
@@ -170,21 +226,13 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
       """, nativeQuery = true)
   void rejectOtherApplications(@Param("jobId") String jobId, @Param("applicationId") String applicationId);
 
-  @Modifying
-  @Query(value = """
-      UPDATE jobs SET status = 'accepted'::job_status, assigned_provider_user_id = cast(:providerUserId as uuid),
-        accepted_application_id = cast(:applicationId as uuid), updated_at = now()
-      WHERE id = cast(:jobId as uuid) AND status = 'posted'::job_status
-      """, nativeQuery = true)
-  void assignProvider(@Param("jobId") String jobId, @Param("providerUserId") String providerUserId,
-      @Param("applicationId") String applicationId);
-
   @Query(value = "SELECT id, seeker_user_id, status::text, assigned_provider_user_id, accepted_application_id FROM jobs WHERE id = cast(:jobId as uuid)", nativeQuery = true)
   Map<String, Object> jobState(@Param("jobId") String jobId);
 
   @Query(value = """
       WITH changed AS (
-        UPDATE jobs SET status = cast(:status as job_status), updated_at = now() WHERE id = cast(:jobId as uuid)
+        UPDATE jobs SET status = cast(:status as job_status), updated_at = now()
+        WHERE id = cast(:jobId as uuid) AND status = cast(:expectedStatus as job_status)
         RETURNING id, seeker_user_id, category, title, description, location_text, visibility, status,
                   location_latitude, location_longitude,
                   assigned_provider_user_id, accepted_application_id, created_at, updated_at
@@ -194,7 +242,8 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
              visibility::text, status::text, assigned_provider_user_id AS "assignedProviderUserId",
              accepted_application_id AS "acceptedApplicationId", created_at AS "createdAt", updated_at AS "updatedAt" FROM changed
       """, nativeQuery = true)
-  Map<String, Object> setJobStatus(@Param("jobId") String jobId, @Param("status") String status);
+  Map<String, Object> transitionJobStatus(@Param("jobId") String jobId, @Param("expectedStatus") String expectedStatus,
+      @Param("status") String status);
 
   @Modifying
   @Query(value = """
@@ -206,7 +255,8 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
   @Query(value = """
       WITH changed AS (
         UPDATE jobs SET status = 'posted'::job_status, assigned_provider_user_id = null,
-          accepted_application_id = null, updated_at = now() WHERE id = cast(:jobId as uuid)
+          accepted_application_id = null, updated_at = now()
+        WHERE id = cast(:jobId as uuid) AND status = 'accepted'::job_status
         RETURNING id, seeker_user_id, category, title, description, location_text, visibility, status,
                   location_latitude, location_longitude,
                   assigned_provider_user_id, accepted_application_id, created_at, updated_at

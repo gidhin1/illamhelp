@@ -33,7 +33,7 @@ const STATUS_OPTS = [
 export default function VerificationsPage(): React.JSX.Element {
     const { accessToken } = useSession();
     const [items, setItems] = useState<VerificationRecord[]>([]);
-    const [total, setTotal] = useState(0);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState("pending");
@@ -52,13 +52,31 @@ export default function VerificationsPage(): React.JSX.Element {
                 accessToken
             );
             setItems(result.items);
-            setTotal(result.total);
+            setNextCursor(result.nextCursor);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load verifications");
         } finally {
             setLoading(false);
         }
     }, [accessToken, statusFilter]);
+
+    const loadMoreVerifications = async (): Promise<void> => {
+        if (!accessToken || !nextCursor) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await listVerifications(
+                { status: statusFilter || undefined, limit: 100, cursor: nextCursor },
+                accessToken
+            );
+            setItems((previous) => [...previous, ...result.items]);
+            setNextCursor(result.nextCursor);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load more verifications");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         void loadVerifications();
@@ -103,9 +121,9 @@ export default function VerificationsPage(): React.JSX.Element {
         cell: ({ row }) => {
           const s = row.original.status;
           let color = "var(--ink)";
-          if (s === "pending") color = "var(--warning)";
-          if (s === "approved") color = "var(--success)";
-          if (s === "rejected") color = "var(--danger)";
+          if (s === "pending") color = "var(--warning-text)";
+          if (s === "approved") color = "var(--success-text)";
+          if (s === "rejected") color = "var(--error-text)";
           return <span className="pill" style={{ color }}>{s.replaceAll("_", " ")}</span>;
         }
       },
@@ -177,13 +195,14 @@ export default function VerificationsPage(): React.JSX.Element {
 
     return (
         <PageShell>
+          <RequireAdminSession>
              <div className="stack" style={{ gap: 0 }}>
                <div className="top-header">
                  <div>
                     <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Trust & Safety</div>
-                    <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Verification Processing</h2>
+                    <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Verification Processing</h1>
                  </div>
-                 <div className="section-actions" style={{ display: "flex", gap: "8px", background: "var(--surface)", padding: "4px", borderRadius: "var(--radius-md)", border: "1px solid var(--line)" }}>
+                 <div className="section-actions" role="group" aria-label="Verification status" style={{ display: "flex", gap: "8px", background: "var(--surface)", padding: "4px", borderRadius: "var(--radius-md)", border: "1px solid var(--line)" }}>
                     {STATUS_OPTS.map((opt) => (
                         <button
                           key={opt.value}
@@ -198,6 +217,7 @@ export default function VerificationsPage(): React.JSX.Element {
                               cursor: "pointer"
                           }}
                           onClick={() => setStatusFilter(opt.value)}
+                          aria-pressed={statusFilter === opt.value}
                         >
                           {opt.label}
                         </button>
@@ -206,7 +226,6 @@ export default function VerificationsPage(): React.JSX.Element {
                </div>
 
                 <div style={{ padding: "var(--spacing-xl)" }}>
-                    <RequireAdminSession>
                         <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
                             {error ? <Banner tone="error">{error}</Banner> : null}
                             {successMessage ? <Banner tone="success">{successMessage}</Banner> : null}
@@ -214,7 +233,7 @@ export default function VerificationsPage(): React.JSX.Element {
                             <Card className="stack" style={{ padding: 0, overflow: "hidden" }}>
                                 <div style={{ padding: "var(--spacing-md)", borderBottom: "1px solid var(--line)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                   <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>Current Queue</h3>
-                                  <span className="pill">{total} Total Requests</span>
+                                  <span className="pill">{items.length} Loaded</span>
                                 </div>
                                 {loading ? (
                                     <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }}><p className="muted-text">Loading...</p></div>
@@ -227,14 +246,21 @@ export default function VerificationsPage(): React.JSX.Element {
                                     </div>
                                 ) : (
                                     <div style={{ position: "relative" }}>
-                                      <DataTable columns={columns} data={items} />
+                                      <DataTable ariaLabel="Verification requests" columns={columns} data={items} />
+                                      {nextCursor ? (
+                                        <div style={{ padding: "var(--spacing-md)", display: "flex", justifyContent: "center" }}>
+                                          <Button variant="secondary" disabled={loading} onClick={() => void loadMoreVerifications()}>
+                                            {loading ? "Loading..." : "Load more requests"}
+                                          </Button>
+                                        </div>
+                                      ) : null}
                                     </div>
                                 )}
                             </Card>
                         </div>
-                    </RequireAdminSession>
                 </div>
             </div>
+          </RequireAdminSession>
         </PageShell>
     );
 }

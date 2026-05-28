@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -92,6 +92,7 @@ function ThemeButtons(): JSX.Element {
             type="button"
             className={`mobile-theme-chip ${active ? "active" : ""}`}
             onClick={() => setPreference(mode)}
+            aria-pressed={active}
           >
             {mode}
           </button>
@@ -107,6 +108,8 @@ export function NavBar(): JSX.Element {
   const [unreadAlerts, setUnreadAlerts] = useState(0);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [jobsExpanded, setJobsExpanded] = useState(false);
+  const drawerToggleRef = useRef<HTMLButtonElement>(null);
+  const drawerPanelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMobileDrawerOpen(false);
@@ -115,6 +118,42 @@ export function NavBar(): JSX.Element {
   useEffect(() => {
     setJobsExpanded(pathname.startsWith("/jobs"));
   }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileDrawerOpen) return;
+    const panel = drawerPanelRef.current;
+    if (!panel) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    panel.focus();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setMobileDrawerOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        panel.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])")
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      (previouslyFocused ?? drawerToggleRef.current)?.focus();
+    };
+  }, [mobileDrawerOpen]);
 
   useEffect(() => {
     if (!user || !accessToken) {
@@ -149,10 +188,13 @@ export function NavBar(): JSX.Element {
     <>
       <header className="mobile-shell-header">
         <button
+          ref={drawerToggleRef}
           type="button"
           className="mobile-shell-icon-button"
           onClick={() => setMobileDrawerOpen(true)}
           aria-label="Open navigation"
+          aria-expanded={mobileDrawerOpen}
+          aria-controls="mobile-navigation-drawer"
           data-testid="mobile-drawer-toggle"
         >
           <NavIcon name="menu" />
@@ -173,9 +215,9 @@ export function NavBar(): JSX.Element {
       </header>
 
       <aside className="sidebar-nav">
-        <Link href="/" className="sidebar-brand">
+        <Link href="/" className="sidebar-brand" aria-label="IllamHelp home">
           <span style={{ fontSize: "2rem" }}>✨</span>
-          <span className="nav-label" style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--brand)", display: "none" }}>
+          <span className="nav-label sidebar-brand-label">
             IllamHelp
           </span>
         </Link>
@@ -183,7 +225,7 @@ export function NavBar(): JSX.Element {
           {desktopLinks.map((link) => {
             const active = isActivePath(pathname, link.webHref);
             return (
-              <Link key={link.key} href={link.webHref ?? "/"} className={`sidebar-link ${active ? "active" : ""}`}>
+              <Link key={link.key} href={link.webHref ?? "/"} className={`sidebar-link ${active ? "active" : ""}`} aria-label={link.label} aria-current={active ? "page" : undefined} title={link.label}>
                 <span style={{ position: "relative", display: "inline-flex" }}>
                   <NavIcon name={link.icon} />
                   {link.key === "alerts" && user && unreadAlerts > 0 ? (
@@ -192,7 +234,7 @@ export function NavBar(): JSX.Element {
                     </span>
                   ) : null}
                 </span>
-                <span className="nav-label" style={{ fontSize: "1.2rem", display: "none" }}>{link.label}</span>
+                <span className="nav-label sidebar-link-label">{link.label}</span>
               </Link>
             );
           })}
@@ -201,17 +243,20 @@ export function NavBar(): JSX.Element {
           {user ? (
             <>
               <div className="card soft sidebar-user-chip">{user.publicUserId}</div>
-              <Button variant="ghost" onClick={signOut} style={{ width: "100%" }}>
-                Sign out
+              <Button className="sidebar-session-action" variant="ghost" onClick={signOut}>
+                <NavIcon name="profile" className="sidebar-action-glyph" />
+                <span className="sidebar-action-label">Sign out</span>
               </Button>
             </>
           ) : (
             <div className="sidebar-footer-actions">
-              <Link href="/auth/login" className="button-link block">
-                <Button variant="ghost" style={{ width: "100%" }}>Log in</Button>
+              <Link href="/auth/login" className="button ghost sidebar-session-action">
+                <NavIcon name="profile" className="sidebar-action-glyph" />
+                <span className="sidebar-action-label">Log in</span>
               </Link>
-              <Link href="/auth/register" className="button-link block">
-                <Button style={{ width: "100%" }}>Sign up</Button>
+              <Link href="/auth/register" className="button sidebar-session-action">
+                <NavIcon name="people" className="sidebar-action-glyph" />
+                <span className="sidebar-action-label">Sign up</span>
               </Link>
             </div>
           )}
@@ -227,9 +272,11 @@ export function NavBar(): JSX.Element {
               href={link.webHref ?? "/"}
               className={`mobile-bottom-link ${active ? "active" : ""}`}
               aria-label={link.label}
+              aria-current={active ? "page" : undefined}
               data-testid={`tab-${link.key}`}
             >
               <NavIcon name={link.icon} />
+              <span className="mobile-bottom-label">{link.label}</span>
             </Link>
           );
         })}
@@ -243,7 +290,15 @@ export function NavBar(): JSX.Element {
             aria-label="Close navigation"
             onClick={() => setMobileDrawerOpen(false)}
           />
-          <div className="mobile-drawer-panel">
+          <div
+            className="mobile-drawer-panel"
+            id="mobile-navigation-drawer"
+            ref={drawerPanelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation menu"
+            tabIndex={-1}
+          >
             <div className="mobile-drawer-profile card soft">
               <div className="mobile-drawer-avatar">{user ? user.publicUserId.slice(0, 1).toUpperCase() : "?"}</div>
               <div>
@@ -269,6 +324,7 @@ export function NavBar(): JSX.Element {
                         className={`mobile-drawer-link ${active ? "active" : ""}`}
                         onClick={() => setJobsExpanded((open) => !open)}
                         data-testid="drawer-nav-jobs-toggle"
+                        aria-expanded={jobsExpanded}
                       >
                         <span className="mobile-drawer-link-icon"><NavIcon name={item.icon} /></span>
                         <span>{item.label}</span>
@@ -333,11 +389,6 @@ export function NavBar(): JSX.Element {
         </div>
       ) : null}
 
-      <style dangerouslySetInnerHTML={{__html: `
-        @media (min-width: 1024px) {
-          .nav-label { display: block !important; }
-        }
-      `}} />
     </>
   );
 }

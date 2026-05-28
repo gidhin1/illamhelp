@@ -42,15 +42,12 @@ public interface VerificationRequestRepository extends JpaRepository<Verificatio
              reviewed_at AS "reviewedAt", created_at AS "createdAt", updated_at AS "updatedAt"
       FROM verification_requests
       WHERE (cast(:status as text) IS NULL OR status::text = cast(:status as text))
-      ORDER BY created_at DESC LIMIT :limit OFFSET :offset
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (created_at, id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY created_at DESC, id DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listForAdmin(@Param("status") String status, @Param("limit") int limit, @Param("offset") int offset);
-
-  @Query(value = """
-      SELECT count(*) FROM verification_requests
-      WHERE (cast(:status as text) IS NULL OR status::text = cast(:status as text))
-      """, nativeQuery = true)
-  int countForAdmin(@Param("status") String status);
+  List<Map<String, Object>> listForAdmin(@Param("status") String status, @Param("cursorCreatedAt") String cursorCreatedAt,
+      @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = "SELECT id, user_id AS \"userId\", status::text FROM verification_requests WHERE id = cast(:id as uuid)", nativeQuery = true)
   Map<String, Object> findReviewTarget(@Param("id") String requestId);
@@ -60,6 +57,7 @@ public interface VerificationRequestRepository extends JpaRepository<Verificatio
         UPDATE verification_requests SET status = cast(:status as verification_status),
           reviewer_user_id = cast(:actorUserId as uuid), reviewer_notes = :notes, reviewed_at = now(), updated_at = now()
         WHERE id = cast(:id as uuid)
+          AND status IN ('pending'::verification_status, 'under_review'::verification_status)
         RETURNING id, user_id, document_media_ids, document_type, notes, status, reviewer_user_id, reviewer_notes,
                   reviewed_at, created_at, updated_at
       )

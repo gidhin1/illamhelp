@@ -21,10 +21,10 @@ import {
 } from "@/lib/api";
 
 const STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {
-    pending: { label: "⏳ Pending review", color: "var(--warning)", bg: "color-mix(in srgb, var(--warning) 15%, transparent)" },
+    pending: { label: "⏳ Pending review", color: "var(--warning-text)", bg: "color-mix(in srgb, var(--warning) 15%, transparent)" },
     under_review: { label: "🔍 Under review", color: "var(--info)", bg: "color-mix(in srgb, var(--info) 15%, transparent)" },
-    approved: { label: "✅ Approved", color: "var(--success)", bg: "color-mix(in srgb, var(--success) 15%, transparent)" },
-    rejected: { label: "❌ Rejected", color: "var(--danger)", bg: "color-mix(in srgb, var(--danger) 15%, transparent)" }
+    approved: { label: "✅ Approved", color: "var(--success-text)", bg: "color-mix(in srgb, var(--success) 15%, transparent)" },
+    rejected: { label: "❌ Rejected", color: "var(--error-text)", bg: "color-mix(in srgb, var(--danger) 15%, transparent)" }
 };
 
 export default function VerificationPage(): JSX.Element {

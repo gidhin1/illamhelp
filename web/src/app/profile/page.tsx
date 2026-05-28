@@ -30,8 +30,8 @@ import {
   DashboardResponse,
   formatDate,
   getMyDashboard,
-  listMyMedia,
-  listPublicApprovedMedia,
+  listMyMediaPage,
+  listPublicApprovedMediaPage,
   MediaAssetRecord,
   MediaKind,
   PublicMediaAssetRecord,
@@ -138,6 +138,7 @@ export default function ProfilePage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [mediaAssets, setMediaAssets] = useState<MediaAssetRecord[]>([]);
+  const [mediaCursor, setMediaCursor] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -145,6 +146,7 @@ export default function ProfilePage(): JSX.Element {
   
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
+  const [publicMediaCursor, setPublicMediaCursor] = useState<string | null>(null);
   const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -160,11 +162,13 @@ export default function ProfilePage(): JSX.Element {
     setPublicGalleryLoading(true);
     setPublicGalleryError(null);
     try {
-      const assets = await listPublicApprovedMedia(normalizedOwnerId);
-      setPublicMediaAssets(assets);
+      const page = await listPublicApprovedMediaPage(normalizedOwnerId);
+      setPublicMediaAssets(page.items);
+      setPublicMediaCursor(page.nextCursor);
     } catch (requestError) {
       setPublicGalleryError(requestError instanceof Error ? requestError.message : "Unable to load public media");
       setPublicMediaAssets([]);
+      setPublicMediaCursor(null);
     } finally {
       setPublicGalleryLoading(false);
     }
@@ -175,9 +179,9 @@ export default function ProfilePage(): JSX.Element {
     setLoading(true);
     setError(null);
     try {
-      const [dashboard, media] = await Promise.all([
+      const [dashboard, mediaPage] = await Promise.all([
         getMyDashboard(accessToken),
-        listMyMedia(accessToken)
+        listMyMediaPage(accessToken)
       ]);
       setMetrics({
         totalJobs: dashboard.metrics.totalJobs,
@@ -189,7 +193,8 @@ export default function ProfilePage(): JSX.Element {
       setRecentJobs(dashboard.recentJobs);
       setProfile(dashboard.profile);
       setForm(buildForm(dashboard.profile));
-      setMediaAssets(media);
+      setMediaAssets(mediaPage.items);
+      setMediaCursor(mediaPage.nextCursor);
       setPublicGalleryOwner(dashboard.profile.userId);
       await loadPublicGallery(dashboard.profile.userId);
     } catch (requestError) {
@@ -198,6 +203,20 @@ export default function ProfilePage(): JSX.Element {
       setLoading(false);
     }
   }, [accessToken, loadPublicGallery]);
+
+  const loadMoreMedia = async (): Promise<void> => {
+    if (!accessToken || !mediaCursor) return;
+    const page = await listMyMediaPage(accessToken, mediaCursor);
+    setMediaAssets((previous) => [...previous, ...page.items]);
+    setMediaCursor(page.nextCursor);
+  };
+
+  const loadMorePublicMedia = async (): Promise<void> => {
+    if (!publicMediaCursor) return;
+    const page = await listPublicApprovedMediaPage(publicGalleryOwner.trim().toLowerCase(), publicMediaCursor);
+    setPublicMediaAssets((previous) => [...previous, ...page.items]);
+    setPublicMediaCursor(page.nextCursor);
+  };
 
   useEffect(() => {
     void loadProfileData();
@@ -462,7 +481,14 @@ export default function ProfilePage(): JSX.Element {
                 {mediaAssets.length === 0 ? (
                   <EmptyState title="No media uploaded" body="Your professional verification and work photos will appear here." />
                 ) : (
-                  <DataTable columns={mediaColumns} data={mediaAssets} />
+                  <>
+                    <DataTable ariaLabel="Media assets" columns={mediaColumns} data={mediaAssets} />
+                    {mediaCursor ? (
+                      <div style={{ display: "flex", justifyContent: "center" }}>
+                        <Button type="button" variant="secondary" onClick={() => void loadMoreMedia()}>Load more media</Button>
+                      </div>
+                    ) : null}
+                  </>
                 )}
               </Card>
 
@@ -498,6 +524,11 @@ export default function ProfilePage(): JSX.Element {
                     ))}
                   </div>
                 )}
+                {publicMediaCursor ? (
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <Button type="button" variant="secondary" onClick={() => void loadMorePublicMedia()}>Load more approved media</Button>
+                  </div>
+                ) : null}
               </Card>
 
               <Card className="stack">
@@ -506,7 +537,7 @@ export default function ProfilePage(): JSX.Element {
                 {!loading && recentJobs.length === 0 ? (
                   <EmptyState title="No recent activity" body="Create a job to view updates here." />
                 ) : (
-                  <DataTable columns={recentJobsColumns} data={recentJobs} />
+                  <DataTable ariaLabel="Recent jobs" columns={recentJobsColumns} data={recentJobs} />
                 )}
               </Card>
             </div>

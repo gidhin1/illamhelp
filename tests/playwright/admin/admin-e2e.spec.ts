@@ -267,6 +267,7 @@ test("admin portal login, navigation, and sign out flow works", async ({ page })
   await loginAdminPortalByUi(page, adminUser);
 
   await expect(page.getByRole("heading", { name: /Operations Dashboard/i })).toBeVisible();
+  await expect(page.locator(".sidebar-label", { hasText: "Moderation" })).toBeVisible();
 
   await clickAdminNav(page, "Moderation");
   await expect(page.getByRole("heading", { name: /Moderation Queue/i })).toBeVisible();
@@ -286,6 +287,7 @@ test("admin portal login, navigation, and sign out flow works", async ({ page })
 
 test("admin moderation page renders queue controls and stable states", async ({ page }) => {
   const adminUser = readAdminPortalUser();
+  await page.setViewportSize({ width: 820, height: 900 });
   await loginAdminPortalByUi(page, adminUser);
   await clickAdminNav(page, "Moderation");
 

@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -31,6 +32,7 @@ public class JobsSearchService {
       ensureIndex();
       Map<?, ?> payload = restClient.post()
           .uri(endpoint("_search"))
+          .headers(this::authorize)
           .body(buildSearchPayload(criteria))
           .retrieve()
           .body(Map.class);
@@ -50,6 +52,7 @@ public class JobsSearchService {
       ensureIndex();
       restClient.put()
                 .uri(endpoint("_doc/" + job.get("id") + "?refresh=wait_for"))
+          .headers(this::authorize)
           .body(indexDocument(job))
           .retrieve()
           .toBodilessEntity();
@@ -129,9 +132,9 @@ public class JobsSearchService {
         return;
       }
       try {
-        restClient.head().uri(endpoint("")).retrieve().toBodilessEntity();
+        restClient.head().uri(endpoint("")).headers(this::authorize).retrieve().toBodilessEntity();
       } catch (RuntimeException missing) {
-        restClient.put().uri(endpoint("")).body(indexMapping()).retrieve().toBodilessEntity();
+        restClient.put().uri(endpoint("")).headers(this::authorize).body(indexMapping()).retrieve().toBodilessEntity();
       }
       indexReady = true;
     }
@@ -159,6 +162,12 @@ public class JobsSearchService {
     String base = properties.openSearchUrl().replaceAll("/+$", "");
     String index = properties.openSearchIndexJobs();
     return suffix.isBlank() ? base + "/" + index : base + "/" + index + "/" + suffix;
+  }
+
+  private void authorize(HttpHeaders headers) {
+    if (properties.openSearchUsername() != null && !properties.openSearchUsername().isBlank()) {
+      headers.setBasicAuth(properties.openSearchUsername(), properties.openSearchPassword());
+    }
   }
 
   private String lower(Object value) {

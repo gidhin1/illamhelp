@@ -41,7 +41,7 @@ export default function NotificationsPage(): JSX.Element {
     const { accessToken } = useSession();
     const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
-    const [total, setTotal] = useState(0);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showUnreadOnly, setShowUnreadOnly] = useState(false);
@@ -57,13 +57,32 @@ export default function NotificationsPage(): JSX.Element {
             );
             setNotifications(result.items);
             setUnreadCount(result.unreadCount);
-            setTotal(result.total);
+            setNextCursor(result.nextCursor);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load notifications");
         } finally {
             setLoading(false);
         }
     }, [accessToken, showUnreadOnly]);
+
+    const loadMoreNotifications = async (): Promise<void> => {
+        if (!accessToken || !nextCursor) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await listNotifications(
+                { unreadOnly: showUnreadOnly, limit: 50, cursor: nextCursor },
+                accessToken
+            );
+            setNotifications((previous) => [...previous, ...result.items]);
+            setUnreadCount(result.unreadCount);
+            setNextCursor(result.nextCursor);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load more notifications");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         void loadNotifications();
@@ -80,9 +99,6 @@ export default function NotificationsPage(): JSX.Element {
                 return prev.map((n) => (n.id === updated.id ? updated : n));
             });
             setUnreadCount((prev) => Math.max(0, prev - 1));
-            if (showUnreadOnly) {
-                setTotal((prev) => Math.max(0, prev - 1));
-            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to mark as read");
         }
@@ -98,9 +114,6 @@ export default function NotificationsPage(): JSX.Element {
                     : prev.map((n) => ({ ...n, read: true, readAt: new Date().toISOString() }))
             );
             setUnreadCount(0);
-            if (showUnreadOnly) {
-                setTotal(0);
-            }
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to mark all as read");
         }
@@ -110,7 +123,7 @@ export default function NotificationsPage(): JSX.Element {
         <PageShell>
             <div className="section-header" style={{ position: "sticky", top: 0, background: "color-mix(in srgb, var(--bg) 85%, transparent)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", zIndex: 10 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
-                    <h2 style={{ fontSize: "1.25rem" }}>Notifications</h2>
+                    <h1 style={{ fontSize: "1.25rem" }}>Notifications</h1>
                     <div style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center", flexWrap: "wrap" }}>
                         <span className="pill">{unreadCount} unread</span>
                         <Button variant="ghost" onClick={() => setShowUnreadOnly((prev) => !prev)}>
@@ -179,9 +192,11 @@ export default function NotificationsPage(): JSX.Element {
                             </div>
                         ))
                     )}
-                    {total > notifications.length && (
+                    {nextCursor && (
                         <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }}>
-                            <p className="muted-text">Showing {notifications.length} of {total} notifications</p>
+                            <Button variant="secondary" disabled={loading} onClick={() => void loadMoreNotifications()}>
+                                {loading ? "Loading..." : "Load more notifications"}
+                            </Button>
                         </div>
                     )}
                 </div>

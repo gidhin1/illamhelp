@@ -263,6 +263,20 @@ test("web guest home shows primary auth call-to-actions", async ({ page }) => {
   await expect(page.getByRole("link", { name: /join now|sign up/i }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" }).first()).not.toBeVisible();
+  await expect(page.locator("main#main-content")).toHaveCount(1);
+});
+
+test("web mobile navigation is labeled and dismissible as a dialog", async ({ page }) => {
+  await resetBrowserSession(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /Trusted help, beautifully organized/i })).toBeVisible();
+
+  await expect(page.getByTestId("tab-home").getByText("Home")).toBeVisible();
+  await page.getByTestId("mobile-drawer-toggle").click();
+  await expect(page.getByRole("dialog", { name: "Navigation menu" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Navigation menu" })).not.toBeVisible();
 });
 
 test("web register and sign out works", async ({ page }) => {

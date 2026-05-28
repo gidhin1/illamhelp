@@ -9,11 +9,13 @@ import {
 } from "@tanstack/react-table";
 
 interface DataTableProps<TData, TValue> {
+  ariaLabel: string;
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
 }
 
 export function DataTable<TData, TValue>({
+  ariaLabel,
   columns,
   data,
 }: DataTableProps<TData, TValue>) {
@@ -29,7 +31,7 @@ export function DataTable<TData, TValue>({
   return (
     <div className="table-wrapper">
       <div className="table-container">
-        <table className="data-table">
+        <table aria-label={ariaLabel} className="data-table">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>

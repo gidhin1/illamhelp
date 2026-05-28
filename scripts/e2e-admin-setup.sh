@@ -57,6 +57,8 @@ fi
 
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-$(read_env_value "KEYCLOAK_REALM" "${ENV_FILE}")}"
 KEYCLOAK_REALM="${KEYCLOAK_REALM:-illamhelp}"
+KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(read_env_value "KEYCLOAK_CLIENT_ID" "${ENV_FILE}")}"
+KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-illamhelp-api}"
 
 KEYCLOAK_ADMIN_USER="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
 KEYCLOAK_ADMIN_PASSWORD="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
@@ -114,7 +116,7 @@ kc set-password \
   --username "${username}" \
   --new-password "${password}" >/dev/null
 
-kc add-roles -r "${KEYCLOAK_REALM}" --uusername "${username}" --rolename "admin" >/dev/null
+kc add-roles -r "${KEYCLOAK_REALM}" --uusername "${username}" --cclientid "${KEYCLOAK_CLIENT_ID}" --rolename "admin" >/dev/null
 
 upsert_env_value "E2E_ADMIN_USERNAME" "${username}" "${ENV_FILE}"
 upsert_env_value "E2E_ADMIN_PASSWORD" "${password}" "${ENV_FILE}"

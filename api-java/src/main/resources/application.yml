@@ -2,7 +2,8 @@ server:
   port: ${PORT:4000}
   compression:
     enabled: true
-  forward-headers-strategy: framework
+  # Forwarded addresses are resolved by RequestGuardFilter only for TRUSTED_PROXY_CIDRS.
+  forward-headers-strategy: none
 
 spring:
   application:
@@ -33,6 +34,11 @@ spring:
     locations: classpath:db/migration
     clean-disabled: true
     baseline-on-migrate: false
+  data:
+    redis:
+      url: ${REDIS_URL:redis://:${REDIS_PASSWORD:}@localhost:6379}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT_MS:500}
+      timeout: ${REDIS_COMMAND_TIMEOUT_MS:500}
   security:
     oauth2:
       resourceserver:
@@ -53,6 +59,8 @@ illamhelp:
   api-prefix: /api/v1
   cors-origins: ${CORS_ORIGINS:http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:3002,http://127.0.0.1:3002,http://localhost:3003,http://127.0.0.1:3003}
   strict-origin-check: ${STRICT_ORIGIN_CHECK:true}
+  trusted-proxy-cidrs: ${TRUSTED_PROXY_CIDRS:}
+  redis-rate-limit-enabled: ${REDIS_RATE_LIMIT_ENABLED:true}
   profile-pii-encryption-key: ${PROFILE_PII_ENCRYPTION_KEY:}
   auth-rate-limit-window-ms: ${AUTH_RATE_LIMIT_WINDOW_MS:60000}
   auth-rate-limit-max: ${AUTH_RATE_LIMIT_MAX:10}
@@ -70,7 +78,7 @@ illamhelp:
   opa-url: ${OPA_URL:http://localhost:8181}
   keycloak-url: ${KEYCLOAK_URL:http://localhost:8080}
   keycloak-realm: ${KEYCLOAK_REALM:illamhelp}
-  keycloak-client-id: ${KEYCLOAK_CLIENT_ID:illamhelp-web}
+  keycloak-client-id: ${KEYCLOAK_CLIENT_ID:illamhelp-api}
   keycloak-client-secret: ${KEYCLOAK_CLIENT_SECRET:}
   keycloak-admin-realm: ${KEYCLOAK_ADMIN_REALM:master}
   keycloak-admin-client-id: ${KEYCLOAK_ADMIN_CLIENT_ID:admin-cli}
@@ -86,7 +94,12 @@ illamhelp:
   media-max-video-bytes: ${MEDIA_MAX_VIDEO_BYTES:104857600}
   media-allowed-image-types: ${MEDIA_ALLOWED_IMAGE_TYPES:image/jpeg,image/png,image/webp}
   media-allowed-video-types: ${MEDIA_ALLOWED_VIDEO_TYPES:video/mp4,video/quicktime,video/webm}
+  media-moderation-worker-enabled: ${MEDIA_MODERATION_WORKER_ENABLED:true}
+  media-moderation-worker-batch-size: ${MEDIA_MODERATION_WORKER_BATCH_SIZE:10}
+  media-moderation-worker-delay-ms: ${MEDIA_MODERATION_WORKER_DELAY_MS:5000}
   open-search-enabled: ${OPENSEARCH_ENABLED:true}
   open-search-url: ${OPENSEARCH_URL:http://localhost:9200}
+  open-search-username: ${OPENSEARCH_USERNAME:}
+  open-search-password: ${OPENSEARCH_PASSWORD:}
   open-search-index-jobs: ${OPENSEARCH_INDEX_JOBS:jobs}
   open-search-timeout-ms: ${OPENSEARCH_TIMEOUT_MS:750}

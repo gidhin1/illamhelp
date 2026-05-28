@@ -560,6 +560,8 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ browse
       .first();
     await expect(providerJobRow).toBeVisible();
     await providerJobRow.getByRole("button", { name: "Apply" }).click();
+    await providerPage.getByLabel("Message to seeker").fill("I can help with this repair and arrive at the agreed time.");
+    await providerPage.getByRole("button", { name: "Submit application" }).click();
     await waitForSuccessMessage(providerPage, "Application submitted.");
 
     await sendConnectionRequestByUi(providerPage, seekerUserId);
@@ -683,6 +685,8 @@ test("web E2E jobs visibility: connections_only blocks non-connections", async (
     }, 10_000);
     await expect(connectedJobRow).toBeVisible();
     await connectedJobRow.getByRole("button", { name: "Apply" }).click();
+    await providerPage.getByLabel("Message to seeker").fill("I can complete this service through your trusted network.");
+    await providerPage.getByRole("button", { name: "Submit application" }).click();
     await waitForSuccessMessage(providerPage, "Application submitted.");
   } finally {
     await seekerContext.close();
@@ -714,6 +718,8 @@ test("web E2E booking lifecycle: apply -> accept -> in_progress -> completed -> 
   const publicJobRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
   await expect(publicJobRow).toBeVisible();
   await publicJobRow.getByRole("button", { name: "Apply" }).click();
+  await page.getByLabel("Message to seeker").fill("I can inspect and resolve this issue safely and promptly.");
+  await page.getByRole("button", { name: "Submit application" }).click();
   await waitForSuccessMessage(page, "Application submitted.");
 
   await signOutIfVisible(page);
@@ -807,4 +813,65 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
     await memberPage.close();
     await adminPage.close();
   }
+});
+
+test("web E2E application lifecycle: apply -> withdraw -> apply again", async ({ page }) => {
+  test.setTimeout(45_000);
+  const seeker = makeUser("seeker");
+  const provider = makeUser("provider");
+  const jobTitle = `Withdraw E2E ${Date.now().toString(36).slice(-5)}`;
+
+  await registerByUi(page, seeker);
+  await createJobByUi(page, {
+    category: "plumber",
+    locationText: "Kochi",
+    title: jobTitle,
+    description: "Need a provider for a plumbing repair appointment.",
+    visibility: "public"
+  });
+
+  await signOutIfVisible(page);
+  await registerByUi(page, provider);
+  await openJobsSection(page, "discover");
+  const jobRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
+  await expect(jobRow).toBeVisible();
+
+  await jobRow.getByRole("button", { name: "Apply" }).click();
+  await page.getByLabel("Message to seeker").fill("I can visit this afternoon and complete the plumbing work.");
+  await page.getByRole("button", { name: "Submit application" }).click();
+  await waitForSuccessMessage(page, "Application submitted.");
+  await expect(jobRow.getByRole("button", { name: "Withdraw" })).toBeVisible();
+
+  await jobRow.getByRole("button", { name: "Withdraw" }).click();
+  await waitForSuccessMessage(page, "Pending application removed.");
+  await expect(jobRow.getByRole("button", { name: "Apply" })).toBeVisible();
+
+  await jobRow.getByRole("button", { name: "Apply" }).click();
+  await page.getByLabel("Message to seeker").fill("I remain available and can complete this job safely.");
+  await page.getByRole("button", { name: "Submit application" }).click();
+  await waitForSuccessMessage(page, "Application submitted.");
+});
+
+test("web E2E owner can cancel a posted job before assignment", async ({ page }) => {
+  test.setTimeout(30_000);
+  const seeker = makeUser("seeker");
+  const jobTitle = `Cancel E2E ${Date.now().toString(36).slice(-5)}`;
+
+  await registerByUi(page, seeker);
+  await createJobByUi(page, {
+    category: "cleaner",
+    locationText: "Doha",
+    title: jobTitle,
+    description: "Need help with a scheduled home cleaning service.",
+    visibility: "public"
+  });
+
+  const postedRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
+  await expect(postedRow).toBeVisible();
+  await postedRow.getByRole("button", { name: "Manage" }).click();
+  await expect(page.getByRole("heading", { name: jobTitle }).first()).toBeVisible();
+  await page.getByLabel("Cancel reason (optional)").fill("Schedule changed before an assignment was made.");
+  await page.getByRole("button", { name: "Cancel booking" }).click();
+  await waitForSuccessMessage(page, "Booking cancelled.");
+  await expect(page.getByText("cancelled").first()).toBeVisible();
 });

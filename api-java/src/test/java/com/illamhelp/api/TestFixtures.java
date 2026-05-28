@@ -22,13 +22,17 @@ public final class TestFixtures {
   }
 
   public static AppProperties properties() {
+    return properties("");
+  }
+
+  public static AppProperties properties(String trustedProxyCidrs) {
     return new AppProperties(
-        "/api/v1", "http://localhost:3000,http://localhost:3001", true, "this-is-a-profile-secret",
+        "/api/v1", "http://localhost:3000,http://localhost:3001", true, trustedProxyCidrs, false, "this-is-a-profile-secret",
         60000, 1, 60000, 2, 30, 60000, 2, 60000, 2, 60000, 2, 60000, 2,
-        "http://localhost:8181", "http://localhost:8080", "illamhelp", "web", "", "master",
+        "http://localhost:8181", "http://localhost:8080", "illamhelp", "illamhelp-api", "", "master",
         "admin-cli", "admin", "password", "http://localhost:9000", "access", "secret",
         "us-east-1", "quarantine", "approved", 10485760, 104857600,
         "image/jpeg,image/png,image/webp", "video/mp4,video/quicktime,video/webm",
-        true, "http://localhost:9200", "jobs", 750);
+        true, "http://localhost:9200", "search", "search-password", "jobs", 750);
   }
 }

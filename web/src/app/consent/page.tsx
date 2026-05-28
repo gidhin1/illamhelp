@@ -27,8 +27,8 @@ import {
   formatDate,
   grantConsent,
   listConnections,
-  listConsentGrants,
-  listConsentRequests,
+  listConsentGrantsPage,
+  listConsentRequestsPage,
   requestConsentAccess,
   revokeConsent
 } from "@/lib/api";
@@ -55,6 +55,8 @@ export default function ConsentPage(): JSX.Element {
   const { accessToken, user } = useSession();
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
   const [grants, setGrants] = useState<ConsentGrantRecord[]>([]);
+  const [requestsCursor, setRequestsCursor] = useState<string | null>(null);
+  const [grantsCursor, setGrantsCursor] = useState<string | null>(null);
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -85,13 +87,15 @@ export default function ConsentPage(): JSX.Element {
     setListLoading(true);
     setListError(null);
     try {
-      const [requestRows, grantRows, connectionResult] = await Promise.all([
-        listConsentRequests(accessToken),
-        listConsentGrants(accessToken),
+      const [requestPage, grantPage, connectionResult] = await Promise.all([
+        listConsentRequestsPage(accessToken),
+        listConsentGrantsPage(accessToken),
         listConnections(accessToken)
       ]);
-      setRequests(requestRows);
-      setGrants(grantRows);
+      setRequests(requestPage.items);
+      setRequestsCursor(requestPage.nextCursor);
+      setGrants(grantPage.items);
+      setGrantsCursor(grantPage.nextCursor);
       setConnections(connectionResult.items);
     } catch (requestError) {
       setListError(requestError instanceof Error ? requestError.message : "Unable to load consent data");
@@ -99,6 +103,20 @@ export default function ConsentPage(): JSX.Element {
       setListLoading(false);
     }
   }, [accessToken]);
+
+  const loadMoreRequests = async (): Promise<void> => {
+    if (!accessToken || !requestsCursor) return;
+    const page = await listConsentRequestsPage(accessToken, requestsCursor);
+    setRequests((previous) => [...previous, ...page.items]);
+    setRequestsCursor(page.nextCursor);
+  };
+
+  const loadMoreGrants = async (): Promise<void> => {
+    if (!accessToken || !grantsCursor) return;
+    const page = await listConsentGrantsPage(accessToken, grantsCursor);
+    setGrants((previous) => [...previous, ...page.items]);
+    setGrantsCursor(page.nextCursor);
+  };
 
   useEffect(() => {
     void loadConsentData();
@@ -340,7 +358,9 @@ export default function ConsentPage(): JSX.Element {
                     <Field label="Why" hint="Explain the reason for needing these details">
                       <TextInput value={requestPurpose} onChange={(e) => setRequestPurpose(e.target.value)} placeholder="Need address to arrive" required minLength={3} />
                     </Field>
-                    <Field label="What" hint="Fields you need visibility into">
+                    <fieldset className="check-fieldset">
+                      <legend className="field-label">What</legend>
+                      <span className="field-hint">Fields you need visibility into</span>
                       <div className="check-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "5px" }}>
                         {CONSENT_FIELDS.map((field) => (
                           <label key={field} style={{ display: "flex", gap: "5px", alignItems: "center" }}>
@@ -349,7 +369,7 @@ export default function ConsentPage(): JSX.Element {
                           </label>
                         ))}
                       </div>
-                    </Field>
+                    </fieldset>
                     <div style={{ marginTop: "10px" }}>
                       <Button type="submit" disabled={submitting || requestFields.length === 0 || requestConnectionId.length === 0}>
                         {submitting ? "Sending..." : "Send Request"}
@@ -375,7 +395,9 @@ export default function ConsentPage(): JSX.Element {
                     <Field label="Expires On (optional)">
                       <TextInput type="datetime-local" value={grantExpiresAt} onChange={(e) => setGrantExpiresAt(e.target.value)} />
                     </Field>
-                    <Field label="What" hint="The exact fields you are sharing">
+                    <fieldset className="check-fieldset">
+                      <legend className="field-label">What</legend>
+                      <span className="field-hint">The exact fields you are sharing</span>
                       <div className="check-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "5px" }}>
                         {CONSENT_FIELDS.map((field) => (
                           <label key={field} style={{ display: "flex", gap: "5px", alignItems: "center" }}>
@@ -384,7 +406,7 @@ export default function ConsentPage(): JSX.Element {
                           </label>
                         ))}
                       </div>
-                    </Field>
+                    </fieldset>
                     <div style={{ marginTop: "10px" }}>
                       <Button type="submit" disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}>
                         {submitting ? "Processing..." : "Grant Details"}
@@ -396,7 +418,7 @@ export default function ConsentPage(): JSX.Element {
 
               <div className="grid two" style={{ alignItems: "start" }}>
                 <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)", color: "var(--error)" }}>Revoke Access</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)", color: "var(--error-text)" }}>Revoke Access</h3>
                   <p className="muted-text" style={{ fontSize: "0.9rem" }}>Immediately withdraw prior sharing permissions.</p>
                   <form className="stack" onSubmit={onRevoke}>
                     <Field label="Active Permission">
@@ -457,7 +479,14 @@ export default function ConsentPage(): JSX.Element {
                   {listLoading ? (
                     <p className="muted-text">Loading...</p>
                   ) : requests.length > 0 ? (
-                    <DataTable columns={requestColumns} data={requests} />
+                    <>
+                      <DataTable ariaLabel="Access requests" columns={requestColumns} data={requests} />
+                      {requestsCursor ? (
+                        <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--spacing-md)" }}>
+                          <Button type="button" variant="secondary" onClick={() => void loadMoreRequests()}>Load more requests</Button>
+                        </div>
+                      ) : null}
+                    </>
                   ) : (
                     <EmptyState title="No access requests" body="Network data sharing requests will appear here." />
                   )}
@@ -469,7 +498,14 @@ export default function ConsentPage(): JSX.Element {
                   {listLoading ? (
                     <p className="muted-text">Loading...</p>
                   ) : grants.length > 0 ? (
-                    <DataTable columns={grantColumns} data={grants} />
+                    <>
+                      <DataTable ariaLabel="Detailed sharing grants" columns={grantColumns} data={grants} />
+                      {grantsCursor ? (
+                        <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--spacing-md)" }}>
+                          <Button type="button" variant="secondary" onClick={() => void loadMoreGrants()}>Load more grants</Button>
+                        </div>
+                      ) : null}
+                    </>
                   ) : (
                     <EmptyState title="No sharing events" body="Records of sharing access will appear here." />
                   )}

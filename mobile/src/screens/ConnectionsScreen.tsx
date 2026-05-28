@@ -2,7 +2,7 @@
 import {
   acceptConnection, AuthenticatedUser, blockConnection,
   ConnectionSearchCandidate, ConnectionRecord,
-  declineConnection, formatDate, listConnections,
+  declineConnection, formatDate, listConnectionsPage,
   requestConnection, searchConnections
 } from "../api";
 
@@ -10,9 +10,6 @@ import {
   shouldForceSignOut, asError
 } from "../utils";
 
-import {
-  MAX_RENDER_ROWS
-} from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import {} from "../theme";
@@ -106,6 +103,7 @@ export function ConnectionsScreen({
   const theme = useAppTheme();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [targetQuery, setTargetQuery] = useState("");
@@ -113,10 +111,7 @@ export function ConnectionsScreen({
   const [searching, setSearching] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const visibleConnections = useMemo(
-    () => connections.slice(0, MAX_RENDER_ROWS),
-    [connections]
-  );
+  const visibleConnections = connections;
   const visibleMatches = useMemo(() => matches.slice(0, 8), [matches]);
   const pendingConnections = useMemo(
     () => visibleConnections.filter((connection) => connection.status === "pending"),
@@ -131,8 +126,9 @@ export function ConnectionsScreen({
     setLoading(true);
     setError(null);
     try {
-      const rows = await listConnections(accessToken);
-      setConnections(rows);
+      const page = await listConnectionsPage(accessToken);
+      setConnections(page.items);
+      setNextCursor(page.nextCursor);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load connections");
       setError(message);
@@ -143,6 +139,25 @@ export function ConnectionsScreen({
       setLoading(false);
     }
   }, [accessToken, onSessionInvalid]);
+
+  const loadMore = useCallback(async (): Promise<void> => {
+    if (!nextCursor) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await listConnectionsPage(accessToken, nextCursor);
+      setConnections((previous) => [...previous, ...page.items]);
+      setNextCursor(page.nextCursor);
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to load more connections");
+      setError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [accessToken, nextCursor, onSessionInvalid]);
 
   useEffect(() => {
     void load();
@@ -344,11 +359,6 @@ export function ConnectionsScreen({
         {!loading && connections.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No connections yet.</Text>
         ) : null}
-        {!loading && connections.length > MAX_RENDER_ROWS ? (
-          <Text style={styles.cardBodyMuted}>
-            Showing latest {MAX_RENDER_ROWS} of {connections.length} connections.
-          </Text>
-        ) : null}
         {visibleConnections.map((connection) => {
           const currentUserId = user.publicUserId;
           const otherUser =
@@ -401,6 +411,17 @@ export function ConnectionsScreen({
             </View>
           );
         })}
+        {nextCursor ? (
+          <AppButton
+            label={loading ? "Loading..." : "Load more connections"}
+            onPress={() => {
+              void loadMore();
+            }}
+            variant="secondary"
+            disabled={loading}
+            testID="connections-load-more"
+          />
+        ) : null}
         <AppButton
           label={loading ? "Refreshing..." : "Refresh connections"}
           onPress={() => {

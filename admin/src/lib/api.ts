@@ -313,23 +313,22 @@ export interface VerificationRecord {
   updatedAt: string;
 }
 
-export interface PaginatedResponse<T> {
+export interface CursorPageResponse<T> {
   items: T[];
-  total: number;
   limit: number;
-  offset: number;
+  nextCursor: string | null;
 }
 
 export function listVerifications(
-  params: { status?: string; limit?: number; offset?: number },
+  params: { status?: string; limit?: number; cursor?: string },
   accessToken: string
-): Promise<PaginatedResponse<VerificationRecord>> {
+): Promise<CursorPageResponse<VerificationRecord>> {
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
   if (params.limit != null) qs.set("limit", String(params.limit));
-  if (params.offset != null) qs.set("offset", String(params.offset));
+  if (params.cursor) qs.set("cursor", params.cursor);
   const q = qs.toString();
-  return apiRequest<PaginatedResponse<VerificationRecord>>(
+  return apiRequest<CursorPageResponse<VerificationRecord>>(
     q ? `/admin/oversight/verifications?${q}` : "/admin/oversight/verifications",
     {},
     accessToken
@@ -350,4 +349,3 @@ export function reviewVerification(
     accessToken
   );
 }
-

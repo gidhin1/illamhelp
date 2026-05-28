@@ -15,23 +15,33 @@ public interface ConsentRepository extends JpaRepository<ConsentGrantEntity, UUI
   Map<String, Object> connectionForConsent(@Param("connectionId") String connectionId);
 
   @Query(value = """
-      SELECT id, requester_user_id AS "requesterUserId", owner_user_id AS "ownerUserId", connection_id AS "connectionId",
-             requested_fields AS "requestedFields", purpose, status::text, created_at AS "createdAt"
-      FROM pii_access_requests
-      WHERE requester_user_id = cast(:userId as uuid) OR owner_user_id = cast(:userId as uuid)
-      ORDER BY created_at DESC
+      SELECT r.id, r.requester_user_id AS "requesterUserId", r.owner_user_id AS "ownerUserId", r.connection_id AS "connectionId",
+             r.requested_fields AS "requestedFields", r.purpose, r.status::text, r.created_at AS "createdAt",
+             requester.username AS "requesterPublicUserId", owner.username AS "ownerPublicUserId"
+      FROM pii_access_requests r JOIN users requester ON requester.id = r.requester_user_id
+      JOIN users owner ON owner.id = r.owner_user_id
+      WHERE (r.requester_user_id = cast(:userId as uuid) OR r.owner_user_id = cast(:userId as uuid))
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (r.created_at, r.id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY r.created_at DESC, r.id DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> requests(@Param("userId") String userId);
+  List<Map<String, Object>> requests(@Param("userId") String userId, @Param("cursorCreatedAt") String cursorCreatedAt,
+      @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = """
-      SELECT id, access_request_id AS "accessRequestId", owner_user_id AS "ownerUserId", grantee_user_id AS "granteeUserId",
-             connection_id AS "connectionId", granted_fields AS "grantedFields", purpose, status::text,
-             granted_at AS "grantedAt", expires_at AS "expiresAt", revoked_at AS "revokedAt", revoke_reason AS "revokeReason"
-      FROM pii_consent_grants
-      WHERE owner_user_id = cast(:userId as uuid) OR grantee_user_id = cast(:userId as uuid)
-      ORDER BY granted_at DESC
+      SELECT g.id, g.access_request_id AS "accessRequestId", g.owner_user_id AS "ownerUserId", g.grantee_user_id AS "granteeUserId",
+             g.connection_id AS "connectionId", g.granted_fields AS "grantedFields", g.purpose, g.status::text,
+             g.granted_at AS "grantedAt", g.expires_at AS "expiresAt", g.revoked_at AS "revokedAt", g.revoke_reason AS "revokeReason",
+             owner.username AS "ownerPublicUserId", grantee.username AS "granteePublicUserId"
+      FROM pii_consent_grants g JOIN users owner ON owner.id = g.owner_user_id
+      JOIN users grantee ON grantee.id = g.grantee_user_id
+      WHERE (g.owner_user_id = cast(:userId as uuid) OR g.grantee_user_id = cast(:userId as uuid))
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (g.granted_at, g.id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY g.granted_at DESC, g.id DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> grants(@Param("userId") String userId);
+  List<Map<String, Object>> grants(@Param("userId") String userId, @Param("cursorCreatedAt") String cursorCreatedAt,
+      @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = """
       WITH created AS (
@@ -54,31 +64,30 @@ public interface ConsentRepository extends JpaRepository<ConsentGrantEntity, UUI
   Map<String, Object> findAccessRequest(@Param("requestId") String requestId);
 
   @Query(value = """
-      WITH changed AS (
-        UPDATE pii_access_requests SET status = 'approved', resolved_at = now()
+      WITH expired AS (
+        UPDATE pii_consent_grants SET status = 'revoked'::pii_grant_status, revoked_at = now(), revoke_reason = 'expired'
+        WHERE owner_user_id = cast(:ownerUserId as uuid) AND status = 'active'::pii_grant_status
+          AND expires_at IS NOT NULL AND expires_at <= now()
+      ), approved AS (
+        UPDATE pii_access_requests SET status = 'approved'::pii_request_status, resolved_at = now()
         WHERE id = cast(:requestId as uuid) AND owner_user_id = cast(:ownerUserId as uuid)
-        RETURNING requester_user_id, owner_user_id, connection_id, requested_fields, purpose
-      )
-      SELECT requester_user_id, owner_user_id, connection_id, requested_fields, purpose FROM changed
-      """, nativeQuery = true)
-  Map<String, Object> approveAccessRequest(@Param("requestId") String requestId, @Param("ownerUserId") String ownerUserId);
-
-  @Query(value = """
-      SELECT EXISTS (
-        SELECT 1 FROM pii_consent_grants
-        WHERE owner_user_id = cast(:ownerUserId as uuid) AND grantee_user_id = cast(:granteeUserId as uuid)
-          AND connection_id = cast(:connectionId as uuid) AND status = 'active'::pii_grant_status
-          AND (expires_at IS NULL OR expires_at > now())
-      )
-      """, nativeQuery = true)
-  boolean hasActiveGrant(@Param("ownerUserId") String ownerUserId, @Param("granteeUserId") String granteeUserId,
-      @Param("connectionId") String connectionId);
-
-  @Query(value = """
-      WITH created AS (
+          AND status = 'pending'::pii_request_status
+        RETURNING requester_user_id, owner_user_id, connection_id
+      ), created AS (
         INSERT INTO pii_consent_grants (access_request_id, owner_user_id, grantee_user_id, connection_id, granted_fields, purpose, expires_at)
-        VALUES (cast(:requestId as uuid), cast(:ownerUserId as uuid), cast(:requesterUserId as uuid),
-                cast(:connectionId as uuid), cast(:grantedFields as text[]), :purpose, cast(:expiresAt as timestamptz))
+        SELECT cast(:requestId as uuid), approved.owner_user_id, approved.requester_user_id, approved.connection_id,
+               cast(:grantedFields as text[]), :purpose, cast(:expiresAt as timestamptz)
+        FROM approved
+        WHERE NOT EXISTS (
+          SELECT 1 FROM pii_consent_grants active
+          WHERE active.owner_user_id = approved.owner_user_id
+            AND active.grantee_user_id = approved.requester_user_id
+            AND active.connection_id = approved.connection_id
+            AND active.status = 'active'::pii_grant_status
+            AND (active.expires_at IS NULL OR active.expires_at > now())
+        )
+        ON CONFLICT (owner_user_id, grantee_user_id, connection_id)
+          WHERE status = 'active'::pii_grant_status DO NOTHING
         RETURNING id, access_request_id, owner_user_id, grantee_user_id, connection_id, granted_fields, purpose,
                   status, granted_at, expires_at, revoked_at, revoke_reason
       )
@@ -87,9 +96,8 @@ public interface ConsentRepository extends JpaRepository<ConsentGrantEntity, UUI
              granted_at AS "grantedAt", expires_at AS "expiresAt", revoked_at AS "revokedAt", revoke_reason AS "revokeReason"
       FROM created
       """, nativeQuery = true)
-  Map<String, Object> insertGrant(@Param("requestId") String requestId, @Param("ownerUserId") Object ownerUserId,
-      @Param("requesterUserId") Object requesterUserId, @Param("connectionId") Object connectionId,
-      @Param("grantedFields") Object grantedFields, @Param("purpose") Object purpose, @Param("expiresAt") String expiresAt);
+  Map<String, Object> grantPendingRequest(@Param("requestId") String requestId, @Param("ownerUserId") String ownerUserId,
+      @Param("grantedFields") String[] grantedFields, @Param("purpose") Object purpose, @Param("expiresAt") String expiresAt);
 
   @Query(value = """
       WITH changed AS (

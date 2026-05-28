@@ -1,6 +1,7 @@
 package com.illamhelp.api.common;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import jakarta.validation.ConstraintViolationException;
 import java.math.BigDecimal;
@@ -31,12 +32,26 @@ class CommonTypesTest {
   void resolvesProviderRoleAndGeneratedPublicId() {
     String id = "12345678-1234-1234-1234-123456789abc";
     Jwt jwt = Jwt.withTokenValue("t").header("alg", "none").subject(id)
-        .claim("realm_access", Map.of("roles", List.of("provider"))).build();
+        .claim("resource_access", Map.of("illamhelp-api", Map.of("roles", List.of("provider")))).build();
 
     AuthenticatedUser user = CurrentUser.fromJwt(jwt);
 
     assertThat(user.userType()).isEqualTo("provider");
     assertThat(user.publicUserId()).isEqualTo("member_1234567812");
+  }
+
+  @Test
+  void ignoresRolesIssuedToOtherClients() {
+    Jwt jwt = Jwt.withTokenValue("t").header("alg", "none").subject(UUID.randomUUID().toString())
+        .claim("resource_access", Map.of(
+            "account", Map.of("roles", List.of("admin")),
+            "illamhelp-api", Map.of("roles", List.of("provider"))))
+        .build();
+
+    AuthenticatedUser user = CurrentUser.fromJwt(jwt, "illamhelp-api");
+
+    assertThat(user.roles()).containsExactly("provider");
+    assertThat(user.roles()).doesNotContain("admin");
   }
 
   @Test
@@ -65,5 +80,19 @@ class CommonTypesTest {
     assertThat(api.getBody().message()).isEqualTo("duplicate");
     assertThat(constraint.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(unknown.getBody().message()).isEqualTo("Internal server error");
+  }
+
+  @Test
+  void buildsCursorPageAndRejectsMalformedCursor() {
+    Map<String, Object> page = CursorPages.response(List.of(
+        Map.of("id", "one", "createdAt", "2026-05-26T10:00:00Z"),
+        Map.of("id", "two", "createdAt", "2026-05-26T09:00:00Z")), 1, "createdAt");
+
+    assertThat((List<?>) page.get("items")).hasSize(1);
+    CursorPages.Cursor cursor = CursorPages.decode(String.valueOf(page.get("nextCursor")));
+    assertThat(cursor.createdAt()).isEqualTo("2026-05-26T10:00:00Z");
+    assertThat(cursor.id()).isEqualTo("one");
+    assertThatThrownBy(() -> CursorPages.decode("broken")).isInstanceOf(ApiException.class)
+        .hasMessage("Invalid pagination cursor");
   }
 }

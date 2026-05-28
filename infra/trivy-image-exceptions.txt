@@ -1,0 +1,5 @@
+# Temporary upstream-image exceptions verified 2026-05-25.
+# Applies only to pinned local-infrastructure image scans; remove upon fixed upstream rebuild.
+# Production release is blocked while either exception remains.
+CVE-2025-68121
+CVE-2026-33186

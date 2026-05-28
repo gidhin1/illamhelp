@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -129,5 +131,54 @@ class ConsentTests {
         "grantedFields", List.of("phone"), "expiresAt", "tomorrow")))
         .isInstanceOf(ApiException.class)
         .hasMessage("expiresAt must be an ISO-8601 timestamp with an offset");
+  }
+
+  @Test
+  void atomicallyGrantsPendingRequestAndRejectsLostRaceWithoutSideEffects() {
+    ConsentRepository repository = mock(ConsentRepository.class);
+    AuditService audit = mock(AuditService.class);
+    NotificationService notifications = mock(NotificationService.class);
+    ConsentService service = new ConsentService(repository, mock(OpaService.class), audit, notifications);
+    when(repository.findAccessRequest("request")).thenReturn(Map.of(
+        "ownerUserId", "owner", "requesterUserId", "viewer", "connectionId", "connection",
+        "requestedFields", new String[]{"phone"}, "purpose", "Discuss service", "status", "pending"));
+    when(repository.grantPendingRequest(org.mockito.ArgumentMatchers.eq("request"), org.mockito.ArgumentMatchers.eq("owner"),
+        any(String[].class), org.mockito.ArgumentMatchers.eq("Discuss service"), org.mockito.ArgumentMatchers.isNull()))
+        .thenReturn(Map.of());
+
+    assertThatThrownBy(() -> service.grant("owner", "request", Map.of(
+        "grantedFields", List.of("phone"), "purpose", "Discuss service")))
+        .isInstanceOf(ApiException.class)
+        .hasMessage("Access request is no longer pending or an active consent grant already exists.");
+    verifyNoInteractions(audit, notifications);
+  }
+
+  @Test
+  void missingConsentRevokeReturnsNotFoundWithoutSideEffects() {
+    ConsentRepository repository = mock(ConsentRepository.class);
+    AuditService audit = mock(AuditService.class);
+    NotificationService notifications = mock(NotificationService.class);
+    ConsentService service = new ConsentService(repository, mock(OpaService.class), audit, notifications);
+    when(repository.revokeGrant("missing", "owner", "No longer needed")).thenReturn(Map.of());
+
+    assertThatThrownBy(() -> service.revoke("owner", "missing", Map.of("reason", "No longer needed")))
+        .isInstanceOf(ApiException.class).hasMessage("Consent grant not found");
+    verifyNoInteractions(audit, notifications);
+  }
+
+  @Test
+  void consentListsAreBoundedAndUseProjectedUsernames() {
+    ConsentRepository repository = mock(ConsentRepository.class);
+    when(repository.requests("actor", null, null, 51)).thenReturn(List.of(Map.of(
+        "id", "request", "createdAt", "2026-05-26T10:00:00Z", "requesterUserId", "internal-a", "ownerUserId", "internal-b",
+        "requesterPublicUserId", "member_a", "ownerPublicUserId", "member_b")));
+    ConsentService service = new ConsentService(repository, mock(OpaService.class),
+        mock(AuditService.class), mock(NotificationService.class));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> item = (Map<String, Object>) ((List<?>) service.requests("actor", null, null).get("items")).getFirst();
+    assertThat(item)
+        .containsEntry("requesterUserId", "member_a").containsEntry("ownerUserId", "member_b");
+    verify(repository, never()).findUsername(org.mockito.ArgumentMatchers.any());
   }
 }

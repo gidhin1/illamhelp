@@ -115,6 +115,9 @@ export function AuthScreen({
             style={[styles.modeButton, mode === "login" ? styles.modeButtonSelected : null]}
             onPress={() => setMode("login")}
             testID="auth-mode-login"
+            accessibilityRole="tab"
+            accessibilityLabel="Sign in"
+            accessibilityState={{ selected: mode === "login" }}
           >
             <Text style={[styles.modeButtonLabel, mode === "login" ? styles.modeButtonLabelSelected : null]}>
               Sign In
@@ -124,6 +127,9 @@ export function AuthScreen({
             style={[styles.modeButton, mode === "register" ? styles.modeButtonSelected : null]}
             onPress={() => setMode("register")}
             testID="auth-mode-register"
+            accessibilityRole="tab"
+            accessibilityLabel="Register"
+            accessibilityState={{ selected: mode === "register" }}
           >
             <Text
               style={[
@@ -148,8 +154,8 @@ export function AuthScreen({
               value={loginForm.username}
               onChangeText={(value) => setLoginForm({ ...loginForm, username: value })}
               placeholder="anita_worker_01"
-              autoComplete="off"
-              textContentType="none"
+              autoComplete="username"
+              textContentType="username"
               testID="auth-login-username"
             />
             <InputField
@@ -158,8 +164,8 @@ export function AuthScreen({
               onChangeText={(value) => setLoginForm({ ...loginForm, password: value })}
               placeholder="StrongPass#2026"
               secureTextEntry
-              autoComplete="off"
-              textContentType="oneTimeCode"
+              autoComplete="current-password"
+              textContentType="password"
               testID="auth-login-password"
             />
             <AppButton
@@ -206,8 +212,8 @@ export function AuthScreen({
               value={registerForm.username}
               onChangeText={(value) => setRegisterForm({ ...registerForm, username: value })}
               placeholder="anita_worker_01"
-              autoComplete="off"
-              textContentType="none"
+              autoComplete="username"
+              textContentType="username"
               testID="auth-register-username"
             />
             <InputField
@@ -225,8 +231,8 @@ export function AuthScreen({
               onChangeText={(value) => setRegisterForm({ ...registerForm, password: value })}
               placeholder="StrongPass#2026"
               secureTextEntry
-              autoComplete="off"
-              textContentType="oneTimeCode"
+              autoComplete="new-password"
+              textContentType="newPassword"
               testID="auth-register-password"
             />
             <AppButton

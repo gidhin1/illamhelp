@@ -7,6 +7,8 @@ public record AppProperties(
     String apiPrefix,
     String corsOrigins,
     boolean strictOriginCheck,
+    String trustedProxyCidrs,
+    boolean redisRateLimitEnabled,
     String profilePiiEncryptionKey,
     long authRateLimitWindowMs,
     int authRateLimitMax,
@@ -42,6 +44,8 @@ public record AppProperties(
     String mediaAllowedVideoTypes,
     boolean openSearchEnabled,
     String openSearchUrl,
+    String openSearchUsername,
+    String openSearchPassword,
     String openSearchIndexJobs,
     int openSearchTimeoutMs
 ) {

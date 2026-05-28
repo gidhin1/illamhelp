@@ -13,18 +13,25 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
       SELECT id, owner_user_id AS "ownerUserId", job_id AS "jobId", kind::text, bucket_name AS "bucketName",
              object_key AS "objectKey", content_type AS "contentType", file_size_bytes AS "fileSizeBytes",
              checksum_sha256 AS "checksumSha256", state::text, created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM media_assets WHERE owner_user_id = cast(:userId as uuid) ORDER BY created_at DESC
+      FROM media_assets WHERE owner_user_id = cast(:userId as uuid)
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (created_at, id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY created_at DESC, id DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listMine(@Param("userId") String userId);
+  List<Map<String, Object>> listMine(@Param("userId") String userId, @Param("cursorCreatedAt") String cursorCreatedAt,
+      @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = """
       SELECT id, owner_user_id AS "ownerUserId", job_id AS "jobId", kind::text, bucket_name, object_key,
              content_type AS "contentType", file_size_bytes AS "fileSizeBytes", state::text,
              created_at AS "createdAt", updated_at AS "updatedAt"
       FROM media_assets WHERE owner_user_id = cast(:ownerUserId as uuid) AND state = 'approved'
-      ORDER BY created_at DESC
+        AND (cast(:cursorCreatedAt as text) IS NULL
+          OR (created_at, id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
+      ORDER BY created_at DESC, id DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listApprovedForOwner(@Param("ownerUserId") String ownerUserId);
+  List<Map<String, Object>> listApprovedForOwner(@Param("ownerUserId") String ownerUserId,
+      @Param("cursorCreatedAt") String cursorCreatedAt, @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Modifying
   @Query(value = """
@@ -56,6 +63,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
       WITH changed AS (
         UPDATE media_assets SET state = 'scanning'::media_state, updated_at = now()
         WHERE id = cast(:mediaId as uuid) AND owner_user_id = cast(:userId as uuid)
+          AND state = 'uploaded'::media_state
         RETURNING id, owner_user_id, job_id, kind, bucket_name, object_key, content_type, file_size_bytes,
                   checksum_sha256, state, created_at, updated_at
       )
@@ -98,19 +106,19 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
   List<Map<String, Object>> listModerationJobs(@Param("mediaId") String mediaId);
 
   @Query(value = """
-      SELECT id, media_asset_id AS "mediaId", stage::text FROM moderation_jobs
-      WHERE status = 'pending'::moderation_status
-        AND stage IN ('technical_validation'::moderation_stage, 'ai_review'::moderation_stage)
-      ORDER BY created_at ASC LIMIT :limit
+      WITH candidate AS (
+        SELECT id FROM moderation_jobs
+        WHERE status = 'pending'::moderation_status
+          AND stage IN ('technical_validation'::moderation_stage, 'ai_review'::moderation_stage)
+        ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED
+      ), claimed AS (
+        UPDATE moderation_jobs mj SET status = 'running'::moderation_status
+        FROM candidate c WHERE mj.id = c.id
+        RETURNING mj.id, mj.media_asset_id, mj.stage
+      )
+      SELECT id::text, media_asset_id::text AS "mediaId", stage::text FROM claimed
       """, nativeQuery = true)
-  List<Map<String, Object>> listPendingAutomatedJobs(@Param("limit") int limit);
-
-  @Modifying
-  @Query(value = """
-      UPDATE moderation_jobs SET status = 'running'::moderation_status
-      WHERE id = cast(:id as uuid) AND status = 'pending'::moderation_status
-      """, nativeQuery = true)
-  int claimModerationJob(@Param("id") String id);
+  Map<String, Object> claimNextAutomatedJob();
 
   @Modifying
   @Query(value = """
@@ -131,9 +139,9 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
       UPDATE moderation_jobs SET status = cast(:status as moderation_status),
         assigned_moderator_user_id = cast(:moderatorUserId as uuid), reason_code = :reasonCode,
         details = coalesce(details, '{}'::jsonb) || cast(:details as jsonb), completed_at = now()
-      WHERE id = cast(:jobId as uuid)
+      WHERE id = cast(:jobId as uuid) AND status = 'pending'::moderation_status
       """, nativeQuery = true)
-  void completeHumanReviewJob(@Param("jobId") String jobId, @Param("status") String status,
+  int completeHumanReviewJob(@Param("jobId") String jobId, @Param("status") String status,
       @Param("moderatorUserId") String moderatorUserId, @Param("reasonCode") String reasonCode, @Param("details") String details);
 
   @Query(value = """
@@ -142,7 +150,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
           moderation_reason_codes = CASE WHEN cast(:reasonCode as text) IS NULL THEN moderation_reason_codes
             WHEN moderation_reason_codes @> ARRAY[cast(:reasonCode as text)] THEN moderation_reason_codes
             ELSE array_append(moderation_reason_codes, cast(:reasonCode as text)) END, updated_at = now()
-        WHERE id = cast(:mediaId as uuid)
+        WHERE id = cast(:mediaId as uuid) AND state = 'human_review_pending'::media_state
         RETURNING id, owner_user_id, job_id, kind, bucket_name, object_key, content_type, file_size_bytes,
                   checksum_sha256, state, created_at, updated_at
       )

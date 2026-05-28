@@ -8,7 +8,6 @@ import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
 import {
   Banner,
-  Button,
   Card,
   EmptyState,
 } from "@/components/ui/primitives";
@@ -57,9 +56,9 @@ function DashboardContent(): React.JSX.Element {
     <div className="stack" style={{ gap: 0 }}>
       {/* Sticky Header */}
       <div className="top-header">
-        <h2 className="display-title" style={{ fontSize: "1.5rem" }}>Operations Dashboard</h2>
+        <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Operations Dashboard</h1>
         <div className="section-actions">
-           <Link href="/moderation"><Button variant="secondary">Go to Moderation</Button></Link>
+           <Link className="button secondary" href="/moderation">Go to Moderation</Link>
         </div>
       </div>
 
@@ -69,7 +68,7 @@ function DashboardContent(): React.JSX.Element {
         <div className="stack" style={{ gap: "var(--spacing-2xl)" }}>
           {/* KPI Section */}
           <div>
-            <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Moderation Queue Overview</h3>
+            <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Content Review Summary</h3>
             <div className="kpi-grid">
               <div className="kpi">
                 <div className="kpi-label">Queue Size</div>
@@ -77,11 +76,11 @@ function DashboardContent(): React.JSX.Element {
               </div>
               <div className="kpi">
                 <div className="kpi-label">Pending Review</div>
-                <div className="kpi-value" style={{ color: kpis.pending > 0 ? "var(--warning)" : "var(--ink)" }}>{kpis.pending}</div>
+                <div className="kpi-value" style={{ color: kpis.pending > 0 ? "var(--warning-text)" : "var(--ink)" }}>{kpis.pending}</div>
               </div>
               <div className="kpi">
                 <div className="kpi-label">Approved</div>
-                <div className="kpi-value" style={{ color: "var(--success)" }}>{kpis.approved}</div>
+                <div className="kpi-value" style={{ color: "var(--success-text)" }}>{kpis.approved}</div>
               </div>
                <div className="kpi">
                 <div className="kpi-label">Rejected</div>
@@ -90,41 +89,27 @@ function DashboardContent(): React.JSX.Element {
             </div>
           </div>
 
-          <div className="grid two" style={{ alignItems: "start" }}>
+          <div className="grid two" style={{ alignItems: "start" }} aria-label="Operations actions">
             <Card className="stack">
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                  <div style={{ background: "var(--brand-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>1</div>
-                 <h3 style={{ fontFamily: "var(--font-display)" }}>Moderation Workflow</h3>
+                 <h3 style={{ fontFamily: "var(--font-display)" }}>Content decisions</h3>
               </div>
               <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                Process incoming uploads, user avatars, and cover photos for safety and compliance.
+                {kpis.pending > 0 ? `${kpis.pending} item${kpis.pending === 1 ? "" : "s"} awaiting a review decision.` : "There are no media decisions waiting right now."}
               </p>
-              <div style={{ padding: "12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", marginTop: "4px" }}>
-                 <ul style={{ paddingLeft: "20px", fontSize: "0.95rem", display: "grid", gap: "6px" }} className="muted-text">
-                    <li>Open Moderation queue</li>
-                    <li>Inspect context of assigned media</li>
-                    <li>Decide quickly with policy reason codes</li>
-                 </ul>
-              </div>
-              <Link href="/moderation" style={{ marginTop: 8 }}><Button variant="secondary" style={{ width: "100%" }}>Open Queue →</Button></Link>
+              <Link href="/moderation" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Open queue</Link>
             </Card>
 
             <Card className="stack">
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                  <div style={{ background: "var(--brand-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>2</div>
-                 <h3 style={{ fontFamily: "var(--font-display)" }}>Consent & Audit Intelligence</h3>
+                 <h3 style={{ fontFamily: "var(--font-display)" }}>Consent and audit search</h3>
               </div>
               <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                Trace exact authorization flows, privacy settings and interaction logs when managing user disputes.
+                Look up a member to review privacy access, grants, and recorded actions.
               </p>
-               <div style={{ padding: "12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", marginTop: "4px" }}>
-                 <ul style={{ paddingLeft: "20px", fontSize: "0.95rem", display: "grid", gap: "6px" }} className="muted-text">
-                    <li>Look up by member ID</li>
-                    <li>Review privacy access requests and grants</li>
-                    <li>Inspect system-wide audit actions</li>
-                 </ul>
-              </div>
-              <Link href="/audit" style={{ marginTop: 8 }}><Button variant="secondary" style={{ width: "100%" }}>Run Audit Search →</Button></Link>
+              <Link href="/audit" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Search timeline</Link>
             </Card>
           </div>
 

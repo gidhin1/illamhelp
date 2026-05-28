@@ -28,7 +28,7 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
       <body>
         <ThemeProvider>
           <SessionProvider>
-            <main id="main-content">{children}</main>
+            {children}
           </SessionProvider>
         </ThemeProvider>
       </body>
