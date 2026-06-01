@@ -24,7 +24,8 @@ tests {
 
   test("media list includes created media id", function () {
     const mediaId = bru.getEnvVar("mediaId");
-    const row = (res.body || []).find((item) => item.id === mediaId);
+    const items = Array.isArray(res.body) ? res.body : (Array.isArray(res.body?.items) ? res.body.items : []);
+    const row = items.find((item) => item.id === mediaId);
     expect(row).to.not.equal(undefined);
   });
 }

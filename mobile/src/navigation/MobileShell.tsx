@@ -69,16 +69,11 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       minHeight: 52,
       alignItems: "center",
       justifyContent: "center",
-      borderRadius: 18,
+      borderRadius: 12,
       gap: 3
     },
     bottomItemActive: {
-      backgroundColor: colors.surface,
-      shadowColor: colors.shadow,
-      shadowOpacity: 0.18,
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 8 },
-      elevation: 3
+      backgroundColor: colors.surface
     },
     bottomItemLabel: {
       color: colors.muted,
@@ -120,17 +115,17 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderRightWidth: 1,
       borderRightColor: colors.line,
       shadowColor: colors.shadow,
-      shadowOpacity: 0.28,
-      shadowRadius: 22,
-      shadowOffset: { width: 8, height: 0 },
-      elevation: 14
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+      shadowOffset: { width: 2, height: 0 },
+      elevation: 4
     },
     drawerScroll: {
       paddingHorizontal: 18,
       gap: 18
     },
     profileCard: {
-      borderRadius: 24,
+      borderRadius: 12,
       padding: 18,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -140,7 +135,7 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     avatar: {
       width: 52,
       height: 52,
-      borderRadius: 26,
+      borderRadius: 12,
       backgroundColor: colors.surfaceAlt,
       alignItems: "center",
       justifyContent: "center",
@@ -155,7 +150,7 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     profileName: {
       color: colors.ink,
       fontSize: 22,
-      fontWeight: "800"
+      fontWeight: "700"
     },
     profileHandle: {
       color: colors.muted,
@@ -163,16 +158,14 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     drawerSectionLabel: {
       color: colors.muted,
-      fontSize: 12,
-      fontWeight: "700",
-      letterSpacing: 0.8,
-      textTransform: "uppercase"
+      fontSize: 13,
+      fontWeight: "600"
     },
     drawerItem: {
       flexDirection: "row",
       alignItems: "center",
       gap: 14,
-      borderRadius: 18,
+      borderRadius: 12,
       paddingHorizontal: 14,
       paddingVertical: 14
     },
@@ -190,7 +183,7 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       paddingLeft: 16
     },
     jobsChildItem: {
-      borderRadius: 16,
+      borderRadius: 8,
       paddingHorizontal: 14,
       paddingVertical: 12,
       backgroundColor: colors.surfaceAlt,
@@ -231,7 +224,7 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     signOut: {
       marginTop: 10,
-      borderRadius: 18,
+      borderRadius: 12,
       paddingVertical: 14,
       alignItems: "center",
       justifyContent: "center",

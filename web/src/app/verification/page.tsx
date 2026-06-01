@@ -11,6 +11,8 @@ import {
     Card,
     Field,
     SectionHeader,
+    Skeleton,
+    StatusLabel,
     TextInput
 } from "@/components/ui/primitives";
 import {
@@ -20,11 +22,11 @@ import {
     VerificationRecord
 } from "@/lib/api";
 
-const STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {
-    pending: { label: "⏳ Pending review", color: "var(--warning-text)", bg: "color-mix(in srgb, var(--warning) 15%, transparent)" },
-    under_review: { label: "🔍 Under review", color: "var(--info)", bg: "color-mix(in srgb, var(--info) 15%, transparent)" },
-    approved: { label: "✅ Approved", color: "var(--success-text)", bg: "color-mix(in srgb, var(--success) 15%, transparent)" },
-    rejected: { label: "❌ Rejected", color: "var(--error-text)", bg: "color-mix(in srgb, var(--danger) 15%, transparent)" }
+const STATUS_STYLES: Record<string, { label: string; tone: "info" | "success" | "warning" | "error" }> = {
+    pending: { label: "Pending review", tone: "warning" },
+    under_review: { label: "Under review", tone: "info" },
+    approved: { label: "Approved", tone: "success" },
+    rejected: { label: "Needs changes", tone: "error" }
 };
 
 export default function VerificationPage(): JSX.Element {
@@ -99,8 +101,7 @@ export default function VerificationPage(): JSX.Element {
             <section className="section">
                 <div className="container stack">
                     <SectionHeader
-                        eyebrow="Trust & Safety"
-                        title="Get Verified"
+                        title="Verify profile"
                         subtitle="Earn the verified badge to stand out and build trust on IllamHelp."
                     />
                     <RequireSession>
@@ -109,29 +110,29 @@ export default function VerificationPage(): JSX.Element {
                             {success ? <Banner tone="success">{success}</Banner> : null}
 
                             {loading ? (
-                                <p className="muted-text">Loading status...</p>
+                                <Skeleton lines={3} />
                             ) : verification ? (
-                                <Card className="stack" style={{ borderLeft: `4px solid ${statusInfo?.color ?? "var(--line)"}` }}>
+                                <Card className="stack">
                                     <h3 style={{ fontFamily: "var(--font-display)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        Current Status
-                                        <span className="pill" style={{ background: statusInfo?.bg, color: statusInfo?.color, borderColor: "transparent" }}>
+                                        Current status
+                                        <StatusLabel tone={statusInfo?.tone ?? "info"}>
                                             {statusInfo?.label ?? verification.status}
-                                        </span>
+                                        </StatusLabel>
                                     </h3>
                                     <div className="grid two" style={{ gap: "var(--spacing-lg)" }}>
                                         <div>
-                                            <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Document Type</div>
+                                            <div className="muted-text" style={{ fontSize: "0.85rem" }}>Document type</div>
                                             <div style={{ fontWeight: 600, fontSize: "1.05rem" }}>{verification.documentType.replaceAll("_", " ")}</div>
                                         </div>
                                         <div>
-                                            <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.5px" }}>Submitted On</div>
+                                            <div className="muted-text" style={{ fontSize: "0.85rem" }}>Submitted on</div>
                                             <div style={{ fontWeight: 600, fontSize: "1.05rem" }}>{formatDate(verification.createdAt)}</div>
                                         </div>
                                     </div>
                                     
                                     {verification.reviewerNotes && (
                                         <div style={{ padding: "var(--spacing-md)", background: "var(--surface-2)", borderRadius: "var(--radius-md)", marginTop: "var(--spacing-sm)" }}>
-                                            <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "4px" }}>Admin Feedback</div>
+                                            <div className="muted-text" style={{ fontSize: "0.85rem", marginBottom: "4px" }}>Review feedback</div>
                                             <div>{verification.reviewerNotes}</div>
                                         </div>
                                     )}

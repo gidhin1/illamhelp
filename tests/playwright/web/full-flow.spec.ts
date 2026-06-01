@@ -415,11 +415,11 @@ async function requestConsentAccessByUi(
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const requestCard = await cardByHeading(page, "Request Access");
+  const requestCard = await cardByHeading(page, "Request contact details");
   const select = requestCard.getByLabel("Who");
   await selectOptionContaining(select, ownerUserId);
   await requestCard.getByLabel("Why").fill(purpose);
-  await requestCard.getByRole("button", { name: "Send Request" }).click();
+  await requestCard.getByRole("button", { name: "Request details" }).click();
   await waitForSuccessMessage(page, "Access request submitted.");
 }
 
@@ -429,12 +429,12 @@ async function grantConsentByUi(
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const grantCard = await cardByHeading(page, "Grant Access");
-  const select = grantCard.getByLabel("Pending Request");
+  const grantCard = await cardByHeading(page, "Share contact details");
+  const select = grantCard.getByLabel("Pending request");
   await selectOptionContaining(select, requesterUserId);
   await grantCard.getByLabel("Why").fill(purpose);
-  await grantCard.getByRole("button", { name: "Grant Details" }).click();
-  await waitForSuccessMessage(page, "Access granted.");
+  await grantCard.getByRole("button", { name: "Share details" }).click();
+  await waitForSuccessMessage(page, "Contact details shared.");
 }
 
 async function revokeConsentByUi(
@@ -443,12 +443,12 @@ async function revokeConsentByUi(
   reason: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const revokeCard = await cardByHeading(page, "Revoke Access");
-  const select = revokeCard.getByLabel("Active Permission");
+  const revokeCard = await cardByHeading(page, "Stop sharing");
+  const select = revokeCard.getByLabel("Active sharing");
   await selectOptionContaining(select, granteeUserId);
   await revokeCard.getByLabel("Reason").fill(reason);
-  await revokeCard.getByRole("button", { name: "Revoke" }).click();
-  await waitForSuccessMessage(page, "Access revoked.");
+  await revokeCard.getByRole("button", { name: "Stop sharing" }).click();
+  await waitForSuccessMessage(page, "Contact sharing stopped.");
 }
 
 async function assertConsentVisibility(
@@ -457,12 +457,12 @@ async function assertConsentVisibility(
   expected: "allowed" | "denied"
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const checkCard = await cardByHeading(page, "Verify Sharing Status");
+  const checkCard = await cardByHeading(page, "Check sharing status");
   const select = checkCard.getByLabel("Who");
   await selectOptionContaining(select, ownerUserId);
-  await checkCard.getByLabel("Contact Field").selectOption("phone");
-  await checkCard.getByRole("button", { name: "Verify Access" }).click();
-  await waitForSuccessMessage(page, "Visibility check completed.");
+  await checkCard.getByLabel("Contact detail").selectOption("phone");
+  await checkCard.getByRole("button", { name: "Check sharing" }).click();
+  await waitForSuccessMessage(page, "Sharing check completed.");
 
   if (expected === "allowed") {
     await expect(page.getByText("Yes, this field is visible to you.").first()).toBeVisible();

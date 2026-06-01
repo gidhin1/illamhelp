@@ -17,6 +17,7 @@
   "dependencies": {
     "@babel/runtime": "^7.28.4",
     "@expo/metro-runtime": "~4.0.1",
+    "@expo/vector-icons": "^14.0.4",
     "@illamhelp/shared-types": "workspace:*",
     "@illamhelp/ui-tokens": "workspace:*",
     "@react-navigation/bottom-tabs": "^7.15.5",

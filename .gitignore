@@ -8,6 +8,11 @@ coverage/
 .turbo/
 .next/
 target/
+graphify-out/
+.obsidian/
+.graphify*
+.impeccable/
+.agents/
 *.class
 android/
 ios/

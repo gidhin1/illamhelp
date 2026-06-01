@@ -3,6 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  Bell,
+  BriefcaseBusiness,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  Home,
+  Lock,
+  Menu,
+  Moon,
+  Settings,
+  ShieldCheck,
+  User,
+  Users
+} from "lucide-react";
 
 import {
   BOTTOM_BAR_NAV,
@@ -39,45 +54,38 @@ function isActivePath(pathname: string, href?: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function iconPath(name: AppNavIcon): JSX.Element {
+function NavIcon({ name, className }: { name: AppNavIcon; className?: string }): JSX.Element {
+  const props = { "aria-hidden": true, className, size: 22, strokeWidth: 1.9 };
   switch (name) {
     case "home":
-      return <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />;
+      return <Home {...props} />;
     case "people":
-      return <><path d="M9 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3Z" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M4 20a5 5 0 0 1 10 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M17 11a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 17 11Z" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M15 20a4 4 0 0 1 5 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></>;
+      return <Users {...props} />;
     case "profile":
-      return <><circle cx="12" cy="8" r="3.5" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M5 20a7 7 0 0 1 14 0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></>;
+      return <User {...props} />;
     case "verify":
-      return <><path d="M12 3 5 6v5c0 4.8 2.8 8.2 7 10 4.2-1.8 7-5.2 7-10V6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="m9.5 12 1.8 1.8L15 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></>;
+      return <ShieldCheck {...props} />;
     case "jobs":
-      return <><rect x="4" y="7" width="16" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M9 7V5.8A1.8 1.8 0 0 1 10.8 4h2.4A1.8 1.8 0 0 1 15 5.8V7" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M4 11h16" fill="none" stroke="currentColor" strokeWidth="1.8"/></>;
+      return <BriefcaseBusiness {...props} />;
     case "alerts":
-      return <><path d="M8 18h8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M6 17h12l-1.2-2.4V10a4.8 4.8 0 1 0-9.6 0v4.6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/></>;
+      return <Bell {...props} />;
     case "privacy":
-      return <><rect x="6" y="11" width="12" height="9" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M8.5 11V8.7a3.5 3.5 0 0 1 7 0V11" fill="none" stroke="currentColor" strokeWidth="1.8"/></>;
+      return <Lock {...props} />;
     case "settings":
-      return <><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M12 4.5v2M12 17.5v2M19.5 12h-2M6.5 12h-2M17.3 6.7l-1.4 1.4M8.1 15.9l-1.4 1.4M17.3 17.3l-1.4-1.4M8.1 8.1 6.7 6.7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></>;
+      return <Settings {...props} />;
     case "help":
-      return <><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8"/><path d="M9.8 9.3a2.3 2.3 0 0 1 4.4.9c0 1.6-1.7 2.1-2.2 3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/><circle cx="12" cy="17" r=".9" fill="currentColor"/></>;
+      return <CircleHelp {...props} />;
     case "menu":
-      return <><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></>;
+      return <Menu {...props} />;
     case "theme":
-      return <><path d="M12 3a9 9 0 1 0 9 9A7 7 0 0 1 12 3Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/></>;
+      return <Moon {...props} />;
     case "chevronDown":
-      return <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />;
+      return <ChevronDown {...props} />;
     case "chevronRight":
-      return <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />;
+      return <ChevronRight {...props} />;
     default:
-      return <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />;
+      return <CircleHelp {...props} />;
   }
-}
-
-function NavIcon({ name, className }: { name: AppNavIcon; className?: string }): JSX.Element {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className} style={{ width: 22, height: 22 }}>
-      {iconPath(name)}
-    </svg>
-  );
 }
 
 function ThemeButtons(): JSX.Element {
@@ -124,6 +132,7 @@ export function NavBar(): JSX.Element {
     const panel = drawerPanelRef.current;
     if (!panel) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const fallbackFocus = drawerToggleRef.current;
     panel.focus();
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -151,7 +160,7 @@ export function NavBar(): JSX.Element {
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
-      (previouslyFocused ?? drawerToggleRef.current)?.focus();
+      (previouslyFocused ?? fallbackFocus)?.focus();
     };
   }, [mobileDrawerOpen]);
 
@@ -216,7 +225,7 @@ export function NavBar(): JSX.Element {
 
       <aside className="sidebar-nav">
         <Link href="/" className="sidebar-brand" aria-label="IllamHelp home">
-          <span style={{ fontSize: "2rem" }}>✨</span>
+          <span className="brand-mark" aria-hidden="true">I</span>
           <span className="nav-label sidebar-brand-label">
             IllamHelp
           </span>
@@ -308,12 +317,12 @@ export function NavBar(): JSX.Element {
             </div>
 
             <div className="mobile-drawer-section">
-              <div className="mobile-drawer-section-title">Appearance</div>
+              <div className="mobile-drawer-section-title">Theme</div>
               <ThemeButtons />
             </div>
 
             <div className="mobile-drawer-section">
-              <div className="mobile-drawer-section-title">Explore</div>
+              <div className="mobile-drawer-section-title">Navigation</div>
               {DRAWER_NAV.map((item) => {
                 if (item.key === "jobs") {
                   const active = pathname.startsWith("/jobs");

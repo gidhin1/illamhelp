@@ -22,7 +22,7 @@ async function registerAccount(page: Page): Promise<void> {
   await openRegister(page);
   await fillRegister(page, uniqueUserId());
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText("Trusted help, work, and people in one social-style flow.")).toBeVisible();
+  await expect(page.getByText("Your next steps")).toBeVisible();
 }
 
 async function openPostedJobs(page: Page): Promise<void> {
@@ -43,6 +43,10 @@ test("mobile registration validates a short user id in the UI", async ({ page })
 
 test("mobile registration opens authenticated navigation and supports sign out", async ({ page }) => {
   await registerAccount(page);
+  await expect(page.getByRole("button", { name: "Home" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "People" })).toBeVisible();
+  await expect(page.getByTestId("tab-profile")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Verify" })).toBeVisible();
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
 
@@ -86,4 +90,39 @@ test("mobile profile edits contact and service details through visible controls"
   await expect(page.getByText("Profile updated.")).toBeVisible();
   await expect(page.getByText("Kochi")).toBeVisible();
   await expect(page.getByText("plumber")).toBeVisible();
+});
+
+test("mobile verification form validates missing media IDs", async ({ page }) => {
+  await registerAccount(page);
+  await page.getByTestId("tab-verify").click();
+
+  await expect(page.getByText("Get verified")).toBeVisible();
+  await expect(page.getByText("No verification request yet.")).toBeVisible();
+  await page.getByTestId("verification-submit").click();
+  await expect(page.getByTestId("verification-error-banner")).toContainText(
+    "Enter at least one document media ID."
+  );
+});
+
+test("mobile navigation drawer opens and closes from explicit controls", async ({ page }) => {
+  await registerAccount(page);
+
+  await page.getByRole("button", { name: "Open navigation menu" }).click();
+  await expect(page.getByRole("button", { name: "Close navigation menu" })).toBeVisible();
+  await expect(page.getByTestId("drawer-signout")).toBeVisible();
+  await expect(page.getByTestId("theme-system")).toBeVisible();
+
+  const viewport = page.viewportSize();
+  const closeX = Math.max((viewport?.width ?? 390) - 12, 12);
+  await page.getByTestId("app-drawer-scrim").click({ force: true, position: { x: closeX, y: 24 } });
+  await expect(page.getByRole("button", { name: "Close navigation menu" })).not.toBeVisible();
+});
+
+test("mobile header profile shortcut opens profile screen", async ({ page }) => {
+  await registerAccount(page);
+  await page.getByRole("button", { name: "Open profile" }).click();
+
+  await expect(page.getByText("Your account")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save profile" })).toBeVisible();
+  await expect(page.getByTestId("profile-signout")).toBeVisible();
 });

@@ -68,6 +68,6 @@ export const consentRequests = [
     requester: "Ravi S.",
     fields: ["Phone"],
     purpose: "Job completion follow-up",
-    status: "Granted"
+    status: "Shared"
   }
 ];

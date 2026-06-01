@@ -10,24 +10,17 @@ type FeedFilter = "all" | "active" | "nearby";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    hero: {
+    header: {
       gap: 14,
       marginBottom: 4
     },
-    heroEyebrow: {
-      color: colors.brand,
-      fontSize: 13,
-      fontWeight: "700",
-      letterSpacing: 0.6,
-      textTransform: "uppercase"
-    },
-    heroTitle: {
+    headerTitle: {
       color: colors.ink,
-      fontSize: 32,
-      lineHeight: 36,
-      fontWeight: "800"
+      fontSize: 26,
+      lineHeight: 32,
+      fontWeight: "700"
     },
-    heroBody: {
+    headerBody: {
       color: colors.muted,
       fontSize: 16,
       lineHeight: 24,
@@ -65,7 +58,7 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     statCard: {
       flex: 1,
-      borderRadius: 22,
+      borderRadius: 12,
       padding: 16,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -75,14 +68,12 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     statLabel: {
       color: colors.muted,
       fontSize: 12,
-      fontWeight: "700",
-      letterSpacing: 0.6,
-      textTransform: "uppercase"
+      fontWeight: "600"
     },
     statValue: {
       color: colors.ink,
       fontSize: 26,
-      fontWeight: "800"
+      fontWeight: "700"
     },
     feedSection: {
       gap: 12
@@ -95,10 +86,10 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     feedTitle: {
       color: colors.ink,
       fontSize: 20,
-      fontWeight: "800"
+      fontWeight: "700"
     },
     jobCard: {
-      borderRadius: 26,
+      borderRadius: 12,
       padding: 18,
       gap: 12,
       backgroundColor: colors.surface,
@@ -126,13 +117,12 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     jobStatus: {
       color: colors.muted,
       fontSize: 12,
-      fontWeight: "700",
-      textTransform: "uppercase"
+      fontWeight: "600"
     },
     jobTitle: {
       color: colors.ink,
       fontSize: 21,
-      fontWeight: "800"
+      fontWeight: "700"
     },
     jobBody: {
       color: colors.muted,
@@ -213,11 +203,10 @@ export function HomeScreen({
       keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}
     >
-      <View style={localStyles.hero}>
-        <Text style={localStyles.heroEyebrow}>For you</Text>
-        <Text style={localStyles.heroTitle}>Trusted help, work, and people in one social-style flow.</Text>
-        <Text style={localStyles.heroBody}>
-          Keep an eye on work opportunities, trust signals, and the network around your home services activity.
+      <View style={localStyles.header}>
+        <Text style={localStyles.headerTitle}>Your next steps</Text>
+        <Text style={localStyles.headerBody}>
+          Review jobs, contact sharing, and profile updates that need your attention.
         </Text>
       </View>
 
@@ -261,7 +250,7 @@ export function HomeScreen({
 
       <View style={localStyles.feedSection}>
         <View style={localStyles.feedHeader}>
-          <Text style={localStyles.feedTitle}>Smart feed</Text>
+          <Text style={localStyles.feedTitle}>Recent jobs</Text>
           <Text style={styles.cardBodyMuted}>{filteredJobs.length} updates</Text>
         </View>
 

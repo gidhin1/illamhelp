@@ -27,6 +27,7 @@ import {
   Field,
   SectionHeader,
   SelectInput,
+  StatusLabel,
   TextArea,
   TextInput
 } from "@/components/ui/primitives";
@@ -295,7 +296,7 @@ export function JobsWorkspace({
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => <span className="pill">{row.original.status}</span>,
+      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>,
     },
     {
       id: "person",
@@ -357,7 +358,7 @@ export function JobsWorkspace({
           <Card soft className="job-mobile-card" key={job.id}>
             <div className="job-mobile-title-row">
               <Link href={`/jobs/${job.id}`} className="job-mobile-title">{job.title}</Link>
-              <span className="pill">{job.status}</span>
+              <StatusLabel tone="info">{job.status.replaceAll("_", " ")}</StatusLabel>
             </div>
             <p className="muted-text">{job.category} - {job.locationText}</p>
             <p className="muted-text">Posted {formatDate(job.createdAt).split(",")[0]}</p>
@@ -570,7 +571,7 @@ export function JobsWorkspace({
               {nextCursor ? (
                 <div style={{ display: "flex", justifyContent: "center" }}>
                   <Button type="button" variant="secondary" disabled={listLoading} onClick={() => void loadMoreJobs()}>
-                    {listLoading ? "Loading..." : "Load more jobs"}
+                    {listLoading ? "Loading jobs" : "Load more jobs"}
                   </Button>
                 </div>
               ) : null}

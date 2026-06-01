@@ -96,7 +96,12 @@ export default defineConfig({
       name: "web-chromium",
       use: {
         ...devices["Desktop Chrome"],
-        channel: browserChannel
+        channel: browserChannel,
+        deviceScaleFactor: undefined,
+        viewport: null,
+        launchOptions: {
+          args: ["--start-maximized"]
+        }
       }
     }
   ]

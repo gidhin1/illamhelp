@@ -1,4 +1,4 @@
-import { Pressable, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import type { TextInputProps, ViewStyle } from "react-native";
 
 import { useAppStyles, useAppTheme } from "./theme-context";
@@ -12,6 +12,7 @@ export function AppButton({
   onPress,
   variant = "primary",
   disabled,
+  loading,
   testID,
   style
 }: {
@@ -19,15 +20,17 @@ export function AppButton({
   onPress: () => void;
   variant?: ButtonVariant;
   disabled?: boolean;
+  loading?: boolean;
   testID?: string;
   style?: ViewStyle;
 }): JSX.Element {
   const styles = useAppStyles();
+  const theme = useAppTheme();
   const buttonStyles = [
     styles.button,
     variant === "secondary" ? styles.buttonSecondary : null,
     variant === "ghost" ? styles.buttonGhost : null,
-    disabled ? styles.buttonDisabled : null,
+    disabled || loading ? styles.buttonDisabled : null,
     style
   ];
   const textStyles = [styles.buttonLabel, variant === "ghost" ? styles.buttonLabelGhost : null];
@@ -35,13 +38,14 @@ export function AppButton({
   return (
     <Pressable
       style={buttonStyles}
-      disabled={disabled}
+      disabled={disabled || loading}
       onPress={onPress}
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled || !!loading, busy: !!loading }}
     >
+      {loading ? <ActivityIndicator size="small" color={variant === "ghost" ? theme.colors.ink : "#fff"} /> : null}
       <Text style={textStyles}>{label}</Text>
     </Pressable>
   );
@@ -114,6 +118,85 @@ export function SectionCard({
       {subtitle ? <Text style={styles.cardBodyMuted}>{subtitle}</Text> : null}
       <View style={styles.stackSmall}>{children}</View>
     </View>
+  );
+}
+
+export function StatusLabel({
+  label,
+  tone = "info",
+  testID
+}: {
+  label: string;
+  tone?: "info" | "success" | "warning" | "error" | "neutral";
+  testID?: string;
+}): JSX.Element {
+  const styles = useAppStyles();
+
+  return (
+    <View
+      style={[
+        styles.statusLabel,
+        tone === "success" ? styles.statusLabelSuccess : null,
+        tone === "warning" ? styles.statusLabelWarning : null,
+        tone === "error" ? styles.statusLabelError : null,
+        tone === "info" ? styles.statusLabelInfo : null
+      ]}
+      testID={testID}
+      accessible
+      accessibilityLabel={label}
+    >
+      <Text
+        style={[
+          styles.statusLabelText,
+          tone === "success" ? styles.statusLabelTextSuccess : null,
+          tone === "warning" ? styles.statusLabelTextWarning : null,
+          tone === "error" ? styles.statusLabelTextError : null,
+          tone === "info" ? styles.statusLabelTextInfo : null
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+export function SkeletonRow({ testID }: { testID?: string }): JSX.Element {
+  const styles = useAppStyles();
+  return (
+    <View style={styles.skeletonRow} testID={testID} accessible={false}>
+      <View style={[styles.skeletonLine, { width: "72%" }]} />
+      <View style={[styles.skeletonLine, { width: "48%" }]} />
+    </View>
+  );
+}
+
+export function SkeletonCard({ testID }: { testID?: string }): JSX.Element {
+  const styles = useAppStyles();
+  return (
+    <View style={styles.card} testID={testID} accessible={false}>
+      <SkeletonRow />
+      <SkeletonRow />
+    </View>
+  );
+}
+
+export function ActionEmptyState({
+  title,
+  message,
+  actionLabel,
+  onAction,
+  testID
+}: {
+  title: string;
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  testID?: string;
+}): JSX.Element {
+  return (
+    <SectionCard title={title} subtitle={message} testID={testID}>
+      {actionLabel && onAction ? <AppButton label={actionLabel} onPress={onAction} variant="secondary" /> : null}
+    </SectionCard>
   );
 }
 

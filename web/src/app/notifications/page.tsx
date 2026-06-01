@@ -8,7 +8,9 @@ import { useSession } from "@/components/session/SessionProvider";
 import {
     Banner,
     Button,
-    EmptyState
+    EmptyState,
+    Skeleton,
+    StatusLabel
 } from "@/components/ui/primitives";
 import {
     formatDate,
@@ -19,22 +21,22 @@ import {
 } from "@/lib/api";
 
 const TYPE_LABELS: Record<string, string> = {
-    job_application_received: "📋 Application",
-    job_application_accepted: "✅ Accepted",
-    job_application_rejected: "❌ Rejected",
-    job_booking_started: "🔨 Booking",
-    job_booking_completed: "🎉 Completed",
-    job_booking_cancelled: "🚫 Cancelled",
-    connection_request_received: "🤝 Connection",
-    connection_request_accepted: "✅ Connected",
-    connection_request_declined: "❌ Declined",
-    verification_approved: "✅ Verified",
-    verification_rejected: "❌ Verification",
-    consent_grant_received: "🔐 Consent",
-    consent_grant_revoked: "🔓 Revoked",
-    media_approved: "📸 Media",
-    media_rejected: "🚫 Media",
-    system_announcement: "📢 System"
+    job_application_received: "Application",
+    job_application_accepted: "Accepted",
+    job_application_rejected: "Rejected",
+    job_booking_started: "Booking started",
+    job_booking_completed: "Booking completed",
+    job_booking_cancelled: "Booking cancelled",
+    connection_request_received: "Connection request",
+    connection_request_accepted: "Connected",
+    connection_request_declined: "Declined",
+    verification_approved: "Verified",
+    verification_rejected: "Verification needs review",
+    consent_grant_received: "Contact details shared",
+    consent_grant_revoked: "Contact sharing stopped",
+    media_approved: "Photo approved",
+    media_rejected: "Photo needs review",
+    system_announcement: "System"
 };
 
 export default function NotificationsPage(): JSX.Element {
@@ -125,7 +127,7 @@ export default function NotificationsPage(): JSX.Element {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", flexWrap: "wrap", gap: "var(--spacing-sm)" }}>
                     <h1 style={{ fontSize: "1.25rem" }}>Notifications</h1>
                     <div style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center", flexWrap: "wrap" }}>
-                        <span className="pill">{unreadCount} unread</span>
+                        <StatusLabel tone="info">{unreadCount} unread</StatusLabel>
                         <Button variant="ghost" onClick={() => setShowUnreadOnly((prev) => !prev)}>
                             {showUnreadOnly ? "Show all" : "Unread only"}
                         </Button>
@@ -147,7 +149,7 @@ export default function NotificationsPage(): JSX.Element {
                     )}
 
                     {loading ? (
-                        <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }} aria-live="polite">Loading notifications...</div>
+                        <div style={{ padding: "var(--spacing-xl)" }} aria-live="polite"><Skeleton lines={4} /></div>
                     ) : notifications.length === 0 ? (
                         <div style={{ padding: "var(--spacing-xl)" }}>
                             <EmptyState
@@ -168,9 +170,9 @@ export default function NotificationsPage(): JSX.Element {
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--spacing-md)" }}>
                                     <div className="stack" style={{ gap: "6px", flex: 1 }}>
                                         <div style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center", flexWrap: "wrap" }}>
-                                            <span className="pill" style={{ padding: "3px 8px", fontSize: "var(--font-xs)", background: "var(--surface-2)" }}>
+                                            <StatusLabel tone={notif.read ? "neutral" : "info"}>
                                                 {TYPE_LABELS[notif.type] ?? notif.type}
-                                            </span>
+                                            </StatusLabel>
                                             <span className="muted-text" style={{ fontSize: "var(--font-xs)" }}>{formatDate(notif.createdAt).split(",")[0]}</span>
                                             {!notif.read && (
                                                 <span style={{ width: 7, height: 7, background: "var(--brand)", borderRadius: "50%", display: "inline-block", flexShrink: 0 }} />
@@ -195,7 +197,7 @@ export default function NotificationsPage(): JSX.Element {
                     {nextCursor && (
                         <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }}>
                             <Button variant="secondary" disabled={loading} onClick={() => void loadMoreNotifications()}>
-                                {loading ? "Loading..." : "Load more notifications"}
+                                {loading ? "Loading notifications" : "Load more notifications"}
                             </Button>
                         </div>
                     )}

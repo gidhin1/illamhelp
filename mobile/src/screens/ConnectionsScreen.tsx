@@ -19,17 +19,17 @@ import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    hero: {
+    header: {
       gap: 12,
       marginBottom: 6
     },
-    heroTitle: {
+    headerTitle: {
       color: colors.ink,
       fontSize: 31,
       lineHeight: 35,
-      fontWeight: "800"
+      fontWeight: "700"
     },
-    heroBody: {
+    headerBody: {
       color: colors.muted,
       fontSize: 15,
       lineHeight: 23
@@ -40,7 +40,7 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     statCard: {
       flex: 1,
-      borderRadius: 22,
+      borderRadius: 12,
       padding: 16,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -50,17 +50,15 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     statLabel: {
       color: colors.muted,
       fontSize: 12,
-      fontWeight: "700",
-      textTransform: "uppercase",
-      letterSpacing: 0.6
+      fontWeight: "600"
     },
     statValue: {
       color: colors.ink,
       fontSize: 26,
-      fontWeight: "800"
+      fontWeight: "700"
     },
     personCard: {
-      borderRadius: 20,
+      borderRadius: 12,
       padding: 14,
       backgroundColor: colors.surfaceAlt,
       borderWidth: 1,
@@ -86,7 +84,7 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     sectionLabel: {
       color: colors.ink,
       fontSize: 19,
-      fontWeight: "800"
+      fontWeight: "700"
     }
   });
 }
@@ -275,9 +273,8 @@ export function ConnectionsScreen({
       keyboardDismissMode="on-drag"
     >
       <View style={styles.screenHeader}>
-        <Text style={styles.pill}>People</Text>
-        <Text style={localStyles.heroTitle}>Build your trusted circle</Text>
-        <Text style={localStyles.heroBody}>
+        <Text style={localStyles.headerTitle}>Trusted people</Text>
+        <Text style={localStyles.headerBody}>
           Search by name, member ID, service, or location.
         </Text>
       </View>
@@ -413,7 +410,7 @@ export function ConnectionsScreen({
         })}
         {nextCursor ? (
           <AppButton
-            label={loading ? "Loading..." : "Load more connections"}
+            label={loading ? "Loading connections" : "Load more connections"}
             onPress={() => {
               void loadMore();
             }}
