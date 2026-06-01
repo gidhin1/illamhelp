@@ -140,7 +140,7 @@ export function NotificationsScreen({
       { key: "jobId", label: "Job" },
       { key: "connectionId", label: "Connection" },
       { key: "applicationId", label: "Application" },
-      { key: "grantId", label: "Grant" },
+      { key: "grantId", label: "Sharing record" },
       { key: "requestId", label: "Request" },
       { key: "mediaId", label: "Media" }
     ];
@@ -245,7 +245,7 @@ export function NotificationsScreen({
             })}
             {nextCursor ? (
               <AppButton
-                label={loading ? "Loading..." : "Load more alerts"}
+                label={loading ? "Loading alerts" : "Load more alerts"}
                 onPress={() => {
                   void loadMore();
                 }}

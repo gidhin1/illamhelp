@@ -16,7 +16,7 @@ export function createAppStyles(theme: AppTheme) {
   },
   authHero: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 20,
+    borderRadius: 12,
     padding: 20,
     borderWidth: 1,
     borderColor: theme.colors.line
@@ -117,7 +117,7 @@ export function createAppStyles(theme: AppTheme) {
   },
   card: {
     backgroundColor: theme.colors.surface,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: theme.colors.line,
     padding: 16,
@@ -165,6 +165,10 @@ export function createAppStyles(theme: AppTheme) {
     paddingVertical: 11,
     paddingHorizontal: 14,
     alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+    minHeight: 44,
     backgroundColor: theme.colors.brand
   },
   buttonSecondary: {
@@ -336,6 +340,53 @@ export function createAppStyles(theme: AppTheme) {
     color: "#fff",
     fontSize: 10,
     fontWeight: "700"
+  },
+  statusLabel: {
+    alignSelf: "flex-start",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surfaceAlt
+  },
+  statusLabelSuccess: {
+    borderColor: theme.colors.success
+  },
+  statusLabelWarning: {
+    borderColor: theme.colors.warning
+  },
+  statusLabelError: {
+    borderColor: theme.colors.error
+  },
+  statusLabelInfo: {
+    borderColor: theme.colors.brand
+  },
+  statusLabelText: {
+    color: theme.colors.ink,
+    fontSize: 12,
+    fontWeight: "600"
+  },
+  statusLabelTextSuccess: {
+    color: theme.colors.successText
+  },
+  statusLabelTextWarning: {
+    color: theme.colors.warningText
+  },
+  statusLabelTextError: {
+    color: theme.colors.errorText
+  },
+  statusLabelTextInfo: {
+    color: theme.colors.brand
+  },
+  skeletonRow: {
+    gap: 8,
+    paddingVertical: 4
+  },
+  skeletonLine: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.colors.surfaceHover
   }
   });
 }

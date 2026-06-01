@@ -270,7 +270,7 @@ test("web mobile navigation is labeled and dismissible as a dialog", async ({ pa
   await resetBrowserSession(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Trusted help, beautifully organized/i })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { name: /Trusted help at home/i })).toBeVisible();
 
   await expect(page.getByTestId("tab-home").getByText("Home")).toBeVisible();
   await page.getByTestId("mobile-drawer-toggle").click();
@@ -310,7 +310,7 @@ test("web authenticated home hides guest auth call-to-actions", async ({ page })
   await loginAsShared(page);
   await gotoHome(page);
 
-  await expect(page.getByRole("link", { name: "Post a job" }).first()).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { name: "Your next steps" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Sign out" }).first()).toBeVisible();
   await expect(page.getByRole("link", { name: /join now|sign up/i }).first()).not.toBeVisible();
   await expect(page.getByRole("link", { name: "Sign in" }).first()).not.toBeVisible();
@@ -503,8 +503,8 @@ test("web consent page shows empty state when no consent activity exists", async
   await loginAsShared(page);
   await clickMainNav(page, "Privacy");
 
-  await expect(page.getByText("No access requests").first()).toBeVisible();
-  await expect(page.getByText("No sharing events").first()).toBeVisible();
+  await expect(page.getByText("No detail requests").first()).toBeVisible();
+  await expect(page.getByText("No sharing history").first()).toBeVisible();
 });
 
 test("web profile page updates details", async ({ page }) => {

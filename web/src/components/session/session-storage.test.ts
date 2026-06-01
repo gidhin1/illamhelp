@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearAccessToken,
+  clearRefreshToken,
   readAccessToken,
+  readRefreshToken,
   writeAccessToken,
   writeRefreshToken
 } from "./session-storage";
@@ -28,6 +30,22 @@ describe("web session cookie storage", () => {
     writeRefreshToken("refresh");
     expect(documentStub.cookie).toContain("illamhelp_refresh_token=refresh");
     clearAccessToken();
+    expect(documentStub.cookie).toContain("Max-Age=0");
+  });
+
+  it("reads refresh cookies and omits Secure on non-https origins", () => {
+    const documentStub = {
+      cookie: "theme=dark; illamhelp_refresh_token=refresh%20token; other=value"
+    };
+    vi.stubGlobal("window", { location: { protocol: "http:" } });
+    vi.stubGlobal("document", documentStub);
+
+    expect(readRefreshToken()).toBe("refresh token");
+    writeAccessToken("plain");
+    expect(documentStub.cookie).toContain("illamhelp_access_token=plain");
+    expect(documentStub.cookie).not.toContain("; Secure");
+    clearRefreshToken();
+    expect(documentStub.cookie).toContain("illamhelp_refresh_token=");
     expect(documentStub.cookie).toContain("Max-Age=0");
   });
 });

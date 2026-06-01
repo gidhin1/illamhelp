@@ -227,16 +227,16 @@ async function loginAdminPortalByUi(page: Page, user: AdminPortalUser): Promise<
 }
 
 async function waitForAnyVisible(locators: Locator[], timeoutMs = 10_000): Promise<Locator> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    for (const locator of locators) {
-      if (await locator.isVisible().catch(() => false)) {
+  try {
+    return await Promise.any(
+      locators.map(async (locator) => {
+        await locator.waitFor({ state: "visible", timeout: timeoutMs });
         return locator;
-      }
-    }
-    await locators[0].page().waitForTimeout(300);
+      })
+    );
+  } catch {
+    throw new Error("None of the expected UI states became visible.");
   }
-  throw new Error("None of the expected UI states became visible.");
 }
 
 test("admin portal auth guard blocks protected pages when signed out", async ({ page }) => {
@@ -299,12 +299,34 @@ test("admin moderation page renders queue controls and stable states", async ({ 
   await page.getByTestId("moderation-status-filter").selectOption("pending");
   await waitForAnyVisible(
     [
-      page.locator("[data-testid^='moderation-item-']").first(),
+      page.getByRole("table", { name: /Moderation queue/i }).first(),
       page.getByText("No items found").first(),
       page.getByText("Loading queue...").first()
     ],
     10_000
   );
+});
+
+test("admin moderation status filter cycles through queue states safely", async ({ page }) => {
+  const adminUser = readAdminPortalUser();
+  await loginAdminPortalByUi(page, adminUser);
+  await clickAdminNav(page, "Moderation");
+
+  await expect(page.getByRole("heading", { name: /Moderation Queue/i })).toBeVisible();
+  const statusFilter = page.getByTestId("moderation-status-filter");
+  await expect(statusFilter).toBeVisible();
+
+  for (const state of ["pending", "running", "approved", "rejected", "error"] as const) {
+    await statusFilter.selectOption(state);
+    await waitForAnyVisible(
+      [
+        page.getByRole("table", { name: /Moderation queue/i }).first(),
+        page.getByText("No items found").first(),
+        page.getByText("Loading queue...").first()
+      ],
+      10_000
+    );
+  }
 });
 
 test("admin verifications page supports filter and refresh interactions", async ({ page }) => {

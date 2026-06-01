@@ -34,6 +34,7 @@ import {
   EmptyState,
   Field,
   SectionHeader,
+  StatusLabel,
   TextArea
 } from "@/components/ui/primitives";
 
@@ -253,7 +254,7 @@ export default function JobDetailPage(): JSX.Element {
               {job ? (
                 <div className="grid two" style={{ alignItems: "start" }}>
                   <Card className="stack">
-                    <div className="pill">{job.status}</div>
+                    <StatusLabel tone="info">{job.status.replaceAll("_", " ")}</StatusLabel>
                     <h2 style={{ fontFamily: "var(--font-display)" }}>{job.title}</h2>
                     <div className="data-meta">
                       {job.category} · {job.locationText}
@@ -473,7 +474,7 @@ export default function JobDetailPage(): JSX.Element {
                     <div className="grid two">
                       {applications.map((application) => (
                         <Card key={application.id} className="stack">
-                          <div className="pill">{application.status}</div>
+                          <StatusLabel tone="info">{application.status.replaceAll("_", " ")}</StatusLabel>
                           <div className="data-title">{application.providerUserId}</div>
                           <div className="data-meta">
                             Applied: {formatDate(application.createdAt)}

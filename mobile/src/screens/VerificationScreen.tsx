@@ -145,7 +145,7 @@ export function VerificationScreen({
       {canSubmitNew ? (
         <SectionCard title={verification?.status === "rejected" ? "Resubmit request" : "Submit request"}>
           <Text style={styles.cardBodyMuted}>
-            Upload your documents from Profile → Professional media first, then paste media IDs here.
+            Upload your documents from Profile, Professional media first, then paste media IDs here.
           </Text>
           <Text style={styles.fieldLabel}>Document type</Text>
           <View style={styles.roleRow}>

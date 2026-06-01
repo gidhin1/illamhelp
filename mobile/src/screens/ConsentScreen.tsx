@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import {} from "../theme";
 import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { AppButton, Banner, InputField, SectionCard, SkeletonCard } from "../components";
 
 export function ConsentScreen({
   accessToken,
@@ -200,7 +200,7 @@ export function ConsentScreen({
       setGrantRequestId("");
       setGrantPurpose("");
       setGrantExpiresAt("");
-      setSuccess("Consent granted.");
+      setSuccess("Contact details shared.");
     });
   };
 
@@ -219,7 +219,7 @@ export function ConsentScreen({
       );
       setRevokeGrantId("");
       setRevokeReason("");
-      setSuccess("Consent revoked.");
+      setSuccess("Contact sharing stopped.");
     });
   };
 
@@ -240,7 +240,7 @@ export function ConsentScreen({
         accessToken
       );
       setCanViewResult(result.allowed);
-      setSuccess("Visibility check completed.");
+      setSuccess("Sharing check completed.");
     });
   };
 
@@ -262,7 +262,7 @@ export function ConsentScreen({
       {error ? <Banner tone="error" message={error} testID="consent-error-banner" /> : null}
       {success ? <Banner tone="success" message={success} testID="consent-success-banner" /> : null}
 
-      <SectionCard title="Request access">
+      <SectionCard title="Request contact details">
         <Text style={styles.fieldLabel}>Choose person</Text>
         <View style={styles.roleRow}>
           {connectionPeople.length === 0 ? (
@@ -318,7 +318,7 @@ export function ConsentScreen({
           ))}
         </View>
         <AppButton
-          label={submitting ? "Submitting..." : "Request access"}
+          label={submitting ? "Sending request..." : "Request details"}
           onPress={() => {
             void onRequestAccess();
           }}
@@ -327,7 +327,7 @@ export function ConsentScreen({
         />
       </SectionCard>
 
-      <SectionCard title="Grant access">
+      <SectionCard title="Share contact details">
         <Text style={styles.fieldLabel}>Pending requests</Text>
         <View style={styles.roleRow}>
           {pendingIncomingRequests.length === 0 ? (
@@ -390,7 +390,7 @@ export function ConsentScreen({
           ))}
         </View>
         <AppButton
-          label={submitting ? "Submitting..." : "Grant"}
+          label={submitting ? "Sharing details..." : "Share details"}
           onPress={() => {
             void onGrant();
           }}
@@ -404,7 +404,7 @@ export function ConsentScreen({
         <Text style={styles.fieldLabel}>Active shares</Text>
         <View style={styles.roleRow}>
           {activeOwnedGrants.length === 0 ? (
-            <Text style={styles.cardBodyMuted}>No active shares to revoke.</Text>
+            <Text style={styles.cardBodyMuted}>No active sharing to stop.</Text>
           ) : null}
           {activeOwnedGrants.map((grant) => (
             <Pressable
@@ -435,7 +435,7 @@ export function ConsentScreen({
           testID="consent-revoke-reason"
         />
         <AppButton
-          label={submitting ? "Submitting..." : "Revoke"}
+          label={submitting ? "Stopping sharing..." : "Stop sharing"}
           onPress={() => {
             void onRevoke();
           }}
@@ -487,7 +487,7 @@ export function ConsentScreen({
           ))}
         </View>
         <AppButton
-          label={submitting ? "Submitting..." : "Can view check"}
+          label={submitting ? "Checking sharing..." : "Check sharing"}
           onPress={() => {
             void onCanView();
           }}
@@ -508,9 +508,9 @@ export function ConsentScreen({
       </SectionCard>
 
       <SectionCard title="Recent privacy records">
-        {loading ? <Text style={styles.cardBodyMuted}>Loading consent records...</Text> : null}
+        {loading ? <SkeletonCard /> : null}
         {!loading && requests.length === 0 && grants.length === 0 ? (
-          <Text style={styles.cardBodyMuted}>No consent records yet.</Text>
+          <Text style={styles.cardBodyMuted}>No contact sharing records yet.</Text>
         ) : null}
         {requests.map((request) => (
           <View key={request.id} style={styles.dataRow}>
@@ -539,7 +539,7 @@ export function ConsentScreen({
         ) : null}
         {grants.map((grant) => (
           <View key={grant.id} style={styles.dataRow}>
-            <Text style={styles.dataTitle}>Grant · {grant.status}</Text>
+            <Text style={styles.dataTitle}>Shared details · {grant.status}</Text>
             <Text style={styles.dataMeta}>
               {grant.ownerUserId} shared with {grant.granteeUserId}
             </Text>
@@ -551,7 +551,7 @@ export function ConsentScreen({
         ))}
         {grantsCursor ? (
           <AppButton
-            label="Load more grants"
+            label="Load more sharing history"
             onPress={() => {
               void loadMoreGrants();
             }}
@@ -560,7 +560,7 @@ export function ConsentScreen({
           />
         ) : null}
         <AppButton
-          label={loading ? "Refreshing..." : "Refresh consent data"}
+          label={loading ? "Refreshing..." : "Refresh sharing data"}
           onPress={() => {
             void load();
           }}

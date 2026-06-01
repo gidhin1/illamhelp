@@ -2,10 +2,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiRequestError,
+  canViewConsent,
+  completeMediaUpload,
+  createMediaUploadTicket,
+  formatDate,
+  getProfileByUserId,
+  listConnections,
   listConsentRequests,
+  listConsentRequestsPage,
+  listVerifications,
   listJobs,
   listNotifications,
-  login
+  login,
+  markAllNotificationsRead,
+  requestConsentAccess,
+  searchConnections,
+  updateMyProfile
 } from "./api";
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -72,5 +84,106 @@ describe("web API client", () => {
       statusCode: 400,
       message: "Username is required, Password is required"
     } satisfies Partial<ApiRequestError>);
+  });
+
+  it("dispatches auth-expired events for unauthorized browser responses", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal("CustomEvent", class {
+      readonly type: string;
+
+      constructor(type: string) {
+        this.type = type;
+      }
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({}, 401)));
+
+    await expect(listConnections("expired")).rejects.toMatchObject({
+      statusCode: 401,
+      message: "Request failed with 401"
+    });
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "illamhelp:auth-expired" }));
+  });
+
+  it("encodes IDs and cursor parameters for profile and consent pages", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ userId: "member/name" }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], limit: 50, nextCursor: null }))
+      .mockResolvedValueOnce(jsonResponse({ items: [], limit: 20, nextCursor: null }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getProfileByUserId("member/name", "token");
+    await listConsentRequestsPage("token", "request/id");
+    await listVerifications({ status: "pending", limit: 20, cursor: "verify/id" }, "admin-token");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:4000/api/v1/profiles/member%2Fname");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "http://localhost:4000/api/v1/consent/requests?cursor=request%2Fid"
+    );
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "http://localhost:4000/api/v1/admin/oversight/verifications?status=pending&limit=20&cursor=verify%2Fid"
+    );
+  });
+
+  it("builds search requests and profile patches from trimmed customer input", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ userId: "me" }))
+      .mockResolvedValueOnce(jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchConnections({ q: "  cleaner near me  ", limit: 5 }, "token");
+    await updateMyProfile({ city: "Kochi", serviceCategories: ["cleaner"] }, "token");
+    await searchConnections({ q: "   " }, "token");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "http://localhost:4000/api/v1/connections/search?q=cleaner+near+me&limit=5"
+    );
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({ city: "Kochi", serviceCategories: ["cleaner"] })
+    });
+    expect(fetchMock.mock.calls[2][0]).toBe("http://localhost:4000/api/v1/connections/search");
+  });
+
+  it("serializes consent, media, and notification mutations", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ allowed: true }))
+      .mockResolvedValueOnce(jsonResponse({ id: "request-1" }))
+      .mockResolvedValueOnce(jsonResponse({ mediaId: "media-1" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "media-1", state: "approved" }))
+      .mockResolvedValueOnce(jsonResponse({ updated: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await canViewConsent({ ownerUserId: "owner", field: "email" }, "token");
+    await requestConsentAccess({
+      ownerUserId: "owner",
+      connectionId: "connection",
+      requestedFields: ["email"],
+      purpose: "Coordinate service"
+    }, "token");
+    await createMediaUploadTicket({
+      kind: "image",
+      contentType: "image/png",
+      fileSizeBytes: 456,
+      checksumSha256: "checksum",
+      originalFileName: "proof.png"
+    }, "token");
+    await completeMediaUpload("media-1", { etag: "etag" }, "token");
+    await markAllNotificationsRead("token");
+
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ ownerUserId: "owner", field: "email" })
+    });
+    expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:4000/api/v1/consent/request-access");
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST" });
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:4000/api/v1/media/media-1/complete");
+    expect(fetchMock.mock.calls[4][1]).toMatchObject({ method: "PATCH" });
+  });
+
+  it("formats missing and invalid dates defensively", () => {
+    expect(formatDate(null)).toBe("-");
+    expect(formatDate("not-a-date")).toBe("not-a-date");
   });
 });

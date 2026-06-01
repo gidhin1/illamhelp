@@ -27,13 +27,13 @@ import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    heroFrame: {
+    authFrame: {
       gap: 14
     },
     logoMark: {
       width: 56,
       height: 56,
-      borderRadius: 18,
+      borderRadius: 12,
       alignItems: "center",
       justifyContent: "center",
       backgroundColor: colors.surface,
@@ -43,13 +43,13 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     logoText: {
       color: colors.brand,
       fontSize: 30,
-      fontWeight: "800"
+      fontWeight: "700"
     },
     display: {
       color: colors.ink,
-      fontSize: 38,
-      lineHeight: 42,
-      fontWeight: "800"
+      fontSize: 32,
+      lineHeight: 38,
+      fontWeight: "700"
     },
     body: {
       color: colors.muted,
@@ -99,7 +99,7 @@ export function AuthScreen({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <View style={[styles.authHero, localStyles.heroFrame]}>
+        <View style={[styles.authHero, localStyles.authFrame]}>
           <View style={localStyles.logoMark}>
             <Text style={localStyles.logoText}>I</Text>
           </View>

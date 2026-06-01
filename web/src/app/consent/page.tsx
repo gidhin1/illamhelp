@@ -15,6 +15,8 @@ import {
   Field,
   SectionHeader,
   SelectInput,
+  Skeleton,
+  StatusLabel,
   TextInput
 } from "@/components/ui/primitives";
 import {
@@ -213,7 +215,7 @@ export default function ConsentPage(): JSX.Element {
           request.id === grant.accessRequestId ? { ...request, status: "approved" } : request
         )
       );
-      setActionSuccess("Access granted.");
+      setActionSuccess("Contact details shared.");
       setGrantRequestId("");
       setGrantPurpose("");
       setGrantExpiresAt("");
@@ -232,7 +234,7 @@ export default function ConsentPage(): JSX.Element {
       setGrants((previous) =>
         previous.map((grant) => (grant.id === updated.id ? updated : grant))
       );
-      setActionSuccess("Access revoked.");
+      setActionSuccess("Contact sharing stopped.");
       setRevokeGrantId("");
       setRevokeReason("");
     });
@@ -251,7 +253,7 @@ export default function ConsentPage(): JSX.Element {
         accessToken
       );
       setCheckResult(result.allowed);
-      setActionSuccess("Visibility check completed.");
+      setActionSuccess("Sharing check completed.");
     });
   };
 
@@ -259,12 +261,12 @@ export default function ConsentPage(): JSX.Element {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => <span className="pill">{row.original.status}</span>,
+      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>,
     },
     {
       id: "parties",
-      header: "Parties",
-      cell: ({ row }) => `${row.original.requesterUserId} (req) → ${row.original.ownerUserId} (own)`,
+      header: "People",
+      cell: ({ row }) => `${row.original.requesterUserId} requested details from ${row.original.ownerUserId}`,
     },
     {
       id: "fields",
@@ -286,16 +288,16 @@ export default function ConsentPage(): JSX.Element {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => <span className="pill">{row.original.status}</span>,
+      cell: ({ row }) => <StatusLabel tone="success">{row.original.status.replaceAll("_", " ")}</StatusLabel>,
     },
     {
       id: "parties",
-      header: "Parties",
+      header: "People",
       cell: ({ row }) => `${row.original.granteeUserId} (has access) ← ${row.original.ownerUserId}`,
     },
     {
       id: "fields",
-      header: "Granted Details",
+      header: "Shared details",
       cell: ({ row }) => row.original.grantedFields.map(f => CONSENT_FIELD_LABELS[f]).join(", "),
     },
     {
@@ -304,7 +306,7 @@ export default function ConsentPage(): JSX.Element {
     },
     {
       accessorKey: "grantedAt",
-      header: "Granted",
+      header: "Shared",
       cell: ({ row }) => formatDate(row.original.grantedAt).split(",")[0],
     }
   ];
@@ -314,9 +316,8 @@ export default function ConsentPage(): JSX.Element {
       <section className="section">
         <div className="container stack">
           <SectionHeader
-            eyebrow="Privacy Settings"
-            title="Manage Information Access"
-            subtitle="Grant or revoke access to your private contact details securely."
+            title="Contact sharing"
+            subtitle="Request, share, and stop sharing private contact details with connected people."
             actions={
               <Button type="button" variant="ghost" onClick={() => void loadConsentData()}>
                 Refresh
@@ -327,15 +328,15 @@ export default function ConsentPage(): JSX.Element {
             <div className="stack">
               <div className="kpi-grid">
                 <div className="kpi">
-                  <div className="kpi-label">Access reqs</div>
+                  <div className="kpi-label">Requests</div>
                   <div className="kpi-value">{stats.requests}</div>
                 </div>
                 <div className="kpi">
-                  <div className="kpi-label">Pending reqs</div>
+                  <div className="kpi-label">Pending requests</div>
                   <div className="kpi-value">{stats.pending}</div>
                 </div>
                 <div className="kpi">
-                  <div className="kpi-label">Active grants</div>
+                  <div className="kpi-label">Active sharing</div>
                   <div className="kpi-value">{stats.active}</div>
                 </div>
               </div>
@@ -345,11 +346,11 @@ export default function ConsentPage(): JSX.Element {
 
               <div className="grid two" style={{ alignItems: "start" }}>
                 <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Request Access</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Request contact details</h3>
                   <form className="stack" onSubmit={onRequestAccess}>
                     <Field label="Who" hint="Select the person whose details you need">
                       <SelectInput value={requestConnectionId} onChange={(e) => setRequestConnectionId(e.target.value)} required>
-                        <option value="">Select connection...</option>
+                        <option value="">Select connected person...</option>
                         {connectionPeople.map((item) => (
                           <option key={item.connectionId} value={item.connectionId}>{item.memberId}</option>
                         ))}
@@ -360,7 +361,7 @@ export default function ConsentPage(): JSX.Element {
                     </Field>
                     <fieldset className="check-fieldset">
                       <legend className="field-label">What</legend>
-                      <span className="field-hint">Fields you need visibility into</span>
+                      <span className="field-hint">Details you need for the job or visit</span>
                       <div className="check-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "5px" }}>
                         {CONSENT_FIELDS.map((field) => (
                           <label key={field} style={{ display: "flex", gap: "5px", alignItems: "center" }}>
@@ -372,16 +373,16 @@ export default function ConsentPage(): JSX.Element {
                     </fieldset>
                     <div style={{ marginTop: "10px" }}>
                       <Button type="submit" disabled={submitting || requestFields.length === 0 || requestConnectionId.length === 0}>
-                        {submitting ? "Sending..." : "Send Request"}
+                        {submitting ? "Sending request..." : "Request details"}
                       </Button>
                     </div>
                   </form>
                 </Card>
 
                 <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Grant Access</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Share contact details</h3>
                   <form className="stack" onSubmit={onGrant}>
-                    <Field label="Pending Request" hint="Select an incoming request to approve">
+                    <Field label="Pending request" hint="Select an incoming request to approve">
                       <SelectInput value={grantRequestId} onChange={(e) => setGrantRequestId(e.target.value)} required>
                         <option value="">Select request...</option>
                         {pendingIncomingRequests.map((req) => (
@@ -389,7 +390,7 @@ export default function ConsentPage(): JSX.Element {
                         ))}
                       </SelectInput>
                     </Field>
-                    <Field label="Why" hint="Reason for your approval">
+                    <Field label="Why" hint="Reason for sharing">
                       <TextInput value={grantPurpose} onChange={(e) => setGrantPurpose(e.target.value)} placeholder="Approved for visit" required />
                     </Field>
                     <Field label="Expires On (optional)">
@@ -409,7 +410,7 @@ export default function ConsentPage(): JSX.Element {
                     </fieldset>
                     <div style={{ marginTop: "10px" }}>
                       <Button type="submit" disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}>
-                        {submitting ? "Processing..." : "Grant Details"}
+                        {submitting ? "Sharing details..." : "Share details"}
                       </Button>
                     </div>
                   </form>
@@ -418,12 +419,12 @@ export default function ConsentPage(): JSX.Element {
 
               <div className="grid two" style={{ alignItems: "start" }}>
                 <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)", color: "var(--error-text)" }}>Revoke Access</h3>
-                  <p className="muted-text" style={{ fontSize: "0.9rem" }}>Immediately withdraw prior sharing permissions.</p>
+                  <h3 style={{ fontFamily: "var(--font-display)", color: "var(--error-text)" }}>Stop sharing</h3>
+                  <p className="muted-text" style={{ fontSize: "0.9rem" }}>Immediately stop sharing contact details you approved earlier.</p>
                   <form className="stack" onSubmit={onRevoke}>
-                    <Field label="Active Permission">
+                    <Field label="Active sharing">
                       <SelectInput value={revokeGrantId} onChange={(e) => setRevokeGrantId(e.target.value)} required>
-                        <option value="">Select active grant...</option>
+                        <option value="">Select active sharing...</option>
                         {activeOwnedGrants.map((grant) => (
                           <option key={grant.id} value={grant.id}>{grant.granteeUserId} - {grant.grantedFields.join(", ")}</option>
                         ))}
@@ -434,14 +435,14 @@ export default function ConsentPage(): JSX.Element {
                     </Field>
                     <div style={{ marginTop: "10px" }}>
                       <Button type="submit" variant="secondary" disabled={submitting || revokeGrantId.length === 0}>
-                        {submitting ? "Revoking..." : "Revoke"}
+                        {submitting ? "Stopping sharing..." : "Stop sharing"}
                       </Button>
                     </div>
                   </form>
                 </Card>
 
                 <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Verify Sharing Status</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Check sharing status</h3>
                   <form className="stack" onSubmit={onCanView}>
                     <Field label="Who">
                       <SelectInput value={checkConnectionId} onChange={(e) => setCheckConnectionId(e.target.value)} required>
@@ -451,14 +452,14 @@ export default function ConsentPage(): JSX.Element {
                         ))}
                       </SelectInput>
                     </Field>
-                    <Field label="Contact Field">
+                    <Field label="Contact detail">
                       <SelectInput value={checkField} onChange={(e) => setCheckField(e.target.value as ConsentField)}>
                         {CONSENT_FIELDS.map((field) => <option key={field} value={field}>{CONSENT_FIELD_LABELS[field]}</option>)}
                       </SelectInput>
                     </Field>
                     <div style={{ marginTop: "10px" }}>
                       <Button type="submit" variant="ghost" disabled={submitting || checkConnectionId.length === 0}>
-                        {submitting ? "Checking..." : "Verify Access"}
+                        {submitting ? "Checking sharing..." : "Check sharing"}
                       </Button>
                     </div>
                     {checkResult !== null && (
@@ -474,10 +475,10 @@ export default function ConsentPage(): JSX.Element {
 
               <div className="stack" style={{ gap: "var(--spacing-3xl)", marginTop: "var(--spacing-xl)" }}>
                 <div>
-                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Log: Access Requests</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Detail requests</h3>
                   {listError ? <Banner tone="error">{listError}</Banner> : null}
                   {listLoading ? (
-                    <p className="muted-text">Loading...</p>
+                    <Skeleton lines={3} />
                   ) : requests.length > 0 ? (
                     <>
                       <DataTable ariaLabel="Access requests" columns={requestColumns} data={requests} />
@@ -488,26 +489,26 @@ export default function ConsentPage(): JSX.Element {
                       ) : null}
                     </>
                   ) : (
-                    <EmptyState title="No access requests" body="Network data sharing requests will appear here." />
+                    <EmptyState title="No detail requests" body="Requests to share contact details will appear here." />
                   )}
                 </div>
 
                 <div>
-                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Log: Detailed Sharing Grants</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Sharing history</h3>
                   {listError ? <Banner tone="error">{listError}</Banner> : null}
                   {listLoading ? (
-                    <p className="muted-text">Loading...</p>
+                    <Skeleton lines={3} />
                   ) : grants.length > 0 ? (
                     <>
-                      <DataTable ariaLabel="Detailed sharing grants" columns={grantColumns} data={grants} />
+                      <DataTable ariaLabel="Contact sharing history" columns={grantColumns} data={grants} />
                       {grantsCursor ? (
                         <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--spacing-md)" }}>
-                          <Button type="button" variant="secondary" onClick={() => void loadMoreGrants()}>Load more grants</Button>
+                          <Button type="button" variant="secondary" onClick={() => void loadMoreGrants()}>Load more sharing history</Button>
                         </div>
                       ) : null}
                     </>
                   ) : (
-                    <EmptyState title="No sharing events" body="Records of sharing access will appear here." />
+                    <EmptyState title="No sharing history" body="Records of shared contact details will appear here." />
                   )}
                 </div>
               </div>

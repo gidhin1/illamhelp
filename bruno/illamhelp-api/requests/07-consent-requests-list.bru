@@ -23,9 +23,9 @@ tests {
   });
 
   test("consent requests list contains latest request", function () {
-    expect(res.body).to.be.an("array");
+    const items = Array.isArray(res.body) ? res.body : (Array.isArray(res.body?.items) ? res.body.items : []);
     const expectedId = bru.getVar("requestId") || bru.getEnvVar("requestId");
-    const found = res.body.find((item) => item.id === expectedId);
+    const found = items.find((item) => item.id === expectedId);
     expect(found).to.not.equal(undefined);
   });
 }

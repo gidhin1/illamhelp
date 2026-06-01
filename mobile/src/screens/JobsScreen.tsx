@@ -974,7 +974,7 @@ export function JobsScreen({
 
       {nextCursor ? (
         <AppButton
-          label={loading ? "Loading..." : "Load more jobs"}
+          label={loading ? "Loading jobs" : "Load more jobs"}
           onPress={() => {
             void loadMore();
           }}

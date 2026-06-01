@@ -23,4 +23,15 @@ describe("admin session cookie storage", () => {
     clearAccessToken();
     expect(documentStub.cookie).toContain("Max-Age=0");
   });
+
+  it("omits Secure on non-https origins and ignores unrelated cookies", () => {
+    const documentStub = { cookie: "theme=dark; other=value" };
+    vi.stubGlobal("window", { location: { protocol: "http:" } });
+    vi.stubGlobal("document", documentStub);
+
+    expect(readAccessToken()).toBeNull();
+    writeAccessToken("admin token");
+    expect(documentStub.cookie).toContain("illamhelp_admin_access_token=admin%20token");
+    expect(documentStub.cookie).not.toContain("; Secure");
+  });
 });

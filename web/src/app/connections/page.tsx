@@ -14,6 +14,8 @@ import {
   EmptyState,
   Field,
   SectionHeader,
+  Skeleton,
+  StatusLabel,
   TextInput
 } from "@/components/ui/primitives";
 import {
@@ -216,7 +218,7 @@ export default function ConnectionsPage(): JSX.Element {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => <span className="pill">{row.original.status}</span>
+      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>
     },
     {
       accessorKey: "requestedByUserId",
@@ -348,7 +350,7 @@ export default function ConnectionsPage(): JSX.Element {
 
                 <div className="mobile-only stack">
                   {listLoading ? (
-                    <p className="muted-text" aria-live="polite">Loading people...</p>
+                    <Skeleton lines={3} />
                   ) : null}
 
                   {!listLoading && connections.length === 0 ? (
@@ -362,7 +364,7 @@ export default function ConnectionsPage(): JSX.Element {
                     <Card className="stack">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
                         <h4 style={{ fontFamily: "var(--font-display)" }}>Pending</h4>
-                        <span className="pill">{pendingConnections.length}</span>
+                        <StatusLabel tone="warning">{pendingConnections.length} pending</StatusLabel>
                       </div>
                       <div className="stack" style={{ gap: "var(--spacing-md)" }}>
                         {pendingConnections.map((connection) => {
@@ -374,7 +376,7 @@ export default function ConnectionsPage(): JSX.Element {
                             <div key={connection.id} className="card soft stack" style={{ gap: "var(--spacing-sm)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
                                 <strong style={{ color: "var(--ink)" }}>{otherUserId}</strong>
-                                <span className="pill">pending</span>
+                                <StatusLabel tone="warning">pending</StatusLabel>
                               </div>
                               <div className="muted-text">Requested {formatDate(connection.requestedAt)}</div>
                               <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
@@ -398,7 +400,7 @@ export default function ConnectionsPage(): JSX.Element {
                     <Card className="stack">
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
                         <h4 style={{ fontFamily: "var(--font-display)" }}>Connected people</h4>
-                        <span className="pill">{acceptedConnections.length}</span>
+                        <StatusLabel tone="success">{acceptedConnections.length} connected</StatusLabel>
                       </div>
                       <div className="stack" style={{ gap: "var(--spacing-md)" }}>
                         {acceptedConnections.map((connection) => {
@@ -408,7 +410,7 @@ export default function ConnectionsPage(): JSX.Element {
                             <div key={connection.id} className="card soft stack" style={{ gap: "var(--spacing-sm)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
                                 <strong style={{ color: "var(--ink)" }}>{otherUserId}</strong>
-                                <span className="pill">accepted</span>
+                                <StatusLabel tone="success">accepted</StatusLabel>
                               </div>
                               <div className="muted-text">Connected {formatDate(connection.requestedAt)}</div>
                               <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
@@ -426,7 +428,7 @@ export default function ConnectionsPage(): JSX.Element {
 
                 <div className="desktop-only">
                   {listLoading ? (
-                    <p className="muted-text" aria-live="polite">Loading connections...</p>
+                    <Skeleton lines={3} />
                   ) : connections.length > 0 ? (
                     <DataTable ariaLabel="Current connections" columns={columns} data={connections} />
                   ) : (
@@ -439,7 +441,7 @@ export default function ConnectionsPage(): JSX.Element {
                 {nextCursor ? (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--spacing-md)" }}>
                     <Button type="button" variant="secondary" disabled={listLoading} onClick={() => void loadMoreConnections()}>
-                      {listLoading ? "Loading..." : "Load more connections"}
+                      {listLoading ? "Loading connections" : "Load more connections"}
                     </Button>
                   </div>
                 ) : null}

@@ -22,6 +22,7 @@ import {
   EmptyState,
   Field,
   SectionHeader,
+  StatusLabel,
   TextInput
 } from "@/components/ui/primitives";
 import {
@@ -300,7 +301,7 @@ export default function ProfilePage(): JSX.Element {
     {
       accessorKey: "kind",
       header: "Type",
-      cell: ({ row }) => <span className="pill" style={{ textTransform: "capitalize" }}>{row.original.kind}</span>
+      cell: ({ row }) => <StatusLabel tone="neutral">{row.original.kind.replaceAll("_", " ")}</StatusLabel>
     },
     {
       accessorKey: "objectKey",
@@ -313,7 +314,7 @@ export default function ProfilePage(): JSX.Element {
     {
       accessorKey: "state",
       header: "Status",
-      cell: ({ row }) => <span className="pill" style={{ background: "var(--surface-2)" }}>{row.original.state.replaceAll("_", " ")}</span>
+      cell: ({ row }) => <StatusLabel tone="info">{row.original.state.replaceAll("_", " ")}</StatusLabel>
     },
     {
       accessorKey: "fileSizeBytes",
@@ -340,7 +341,7 @@ export default function ProfilePage(): JSX.Element {
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => <span className="pill">{row.original.status}</span>
+      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>
     },
     {
       accessorKey: "locationText",
@@ -392,13 +393,13 @@ export default function ProfilePage(): JSX.Element {
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Identity Snapshot</h3>
                   <div className="data-row">
-                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Member ID</div>
+                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Member ID</div>
                     <div style={{ fontWeight: 600, fontSize: "1.1rem" }} data-testid="profile-user-id">
                       {profile?.userId ?? user?.publicUserId}
                     </div>
                   </div>
                   <div className="data-row">
-                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Display Name</div>
+                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Display name</div>
                     <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{profile?.displayName ?? "-"}</div>
                   </div>
                 </Card>
@@ -409,16 +410,16 @@ export default function ProfilePage(): JSX.Element {
                     Your contact information is permanently hidden from the public. Only approved mutual connections can securely view the details below.
                   </p>
                   <div className="data-row" style={{ marginTop: "10px" }}>
-                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Pending Conns</div>
+                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Pending connections</div>
                     <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{metrics.pendingConnections}</div>
                   </div>
                   <div className="data-row">
-                    <div className="muted-text" style={{ fontSize: "0.85rem", textTransform: "uppercase" }}>Contact Requests</div>
+                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Contact requests</div>
                     <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{metrics.consentRequests}</div>
                   </div>
                   <div style={{ marginTop: "10px" }}>
                     <Link href="/consent" className="button-link">
-                      <Button variant="ghost">Manage details sharing →</Button>
+                      <Button variant="ghost">Manage contact sharing</Button>
                     </Link>
                   </div>
                 </Card>
@@ -502,7 +503,7 @@ export default function ProfilePage(): JSX.Element {
                   </Field>
                   <div>
                     <Button type="button" data-testid="profile-public-load-button" disabled={publicGalleryLoading} onClick={() => void loadPublicGallery(publicGalleryOwner)}>
-                      {publicGalleryLoading ? "Loading..." : "Load public media"}
+                      {publicGalleryLoading ? "Loading media" : "Load public media"}
                     </Button>
                   </div>
                 </div>
@@ -514,11 +515,11 @@ export default function ProfilePage(): JSX.Element {
                   <div className="grid two" data-testid="profile-public-media-grid" style={{ marginTop: "15px" }}>
                     {publicMediaAssets.map((asset) => (
                       <div key={asset.id} className="card soft" data-testid="profile-public-media-item" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                        <span className="pill" style={{ alignSelf: "flex-start" }}>{asset.kind}</span>
+                        <StatusLabel tone="neutral">{asset.kind.replaceAll("_", " ")}</StatusLabel>
                         <div style={{ color: "var(--ink)", fontWeight: 600 }}>{formatBytes(asset.fileSizeBytes)}</div>
                         <div className="muted-text" style={{ fontSize: "0.85rem" }}>{formatDate(asset.createdAt)}</div>
                         <a href={asset.downloadUrl} target="_blank" rel="noreferrer" style={{ marginTop: "10px", color: "var(--brand)", fontSize: "0.9rem", fontWeight: 600 }}>
-                          Open Original File →
+                          Open original file
                         </a>
                       </div>
                     ))}

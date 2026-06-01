@@ -18,8 +18,8 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   connection_request_declined: "Connection declined",
   verification_approved: "Verification approved",
   verification_rejected: "Verification rejected",
-  consent_grant_received: "Privacy grant",
-  consent_grant_revoked: "Privacy revoked",
+  consent_grant_received: "Contact details shared",
+  consent_grant_revoked: "Contact sharing stopped",
   media_approved: "Media approved",
   media_rejected: "Media rejected",
   system_announcement: "Announcement"

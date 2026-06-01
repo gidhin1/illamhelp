@@ -19,15 +19,15 @@ import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    hero: {
-      borderRadius: 28,
+    header: {
+      borderRadius: 12,
       padding: 20,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.line,
       gap: 14
     },
-    heroRow: {
+    headerRow: {
       flexDirection: "row",
       alignItems: "center",
       gap: 14
@@ -45,15 +45,15 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     avatarText: {
       color: colors.ink,
       fontSize: 26,
-      fontWeight: "800"
+      fontWeight: "700"
     },
-    heroName: {
+    headerName: {
       color: colors.ink,
       fontSize: 28,
       lineHeight: 31,
-      fontWeight: "800"
+      fontWeight: "700"
     },
-    heroHandle: {
+    headerHandle: {
       color: colors.muted,
       fontSize: 14
     },
@@ -275,16 +275,16 @@ export function ProfileScreen({
       </View>
       {error ? <Banner tone="error" message={error} /> : null}
       {success ? <Banner tone="success" message={success} /> : null}
-      <View style={localStyles.hero}>
-        <View style={localStyles.heroRow}>
+      <View style={localStyles.header}>
+        <View style={localStyles.headerRow}>
           <View style={localStyles.avatar}>
             <Text style={localStyles.avatarText}>
               {(profile?.displayName ?? user.publicUserId).slice(0, 1).toUpperCase()}
             </Text>
           </View>
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={localStyles.heroName}>{profile?.displayName ?? "IllamHelp member"}</Text>
-            <Text style={localStyles.heroHandle}>@{profile?.userId ?? user.publicUserId}</Text>
+            <Text style={localStyles.headerName}>{profile?.displayName ?? "IllamHelp member"}</Text>
+            <Text style={localStyles.headerHandle}>@{profile?.userId ?? user.publicUserId}</Text>
           </View>
         </View>
         <View style={localStyles.metaRow}>
@@ -457,7 +457,7 @@ export function ProfileScreen({
           testID="profile-public-owner-input"
         />
         <AppButton
-          label={publicGalleryLoading ? "Loading..." : "Load approved media"}
+          label={publicGalleryLoading ? "Loading media" : "Load approved media"}
           onPress={() => {
             void loadPublicGallery(publicGalleryOwner);
           }}
