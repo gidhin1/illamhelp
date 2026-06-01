@@ -5,9 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -28,52 +26,47 @@ public class ConsentController {
   }
 
   @GetMapping("/consent/requests")
-  public Map<String, Object> requests(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+  public ConsentService.ConsentPage<ConsentService.AccessRequestRecord> requests(
+      @AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) String cursor) {
     return service.requests(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/consent/grants")
-  public Map<String, Object> grants(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+  public ConsentService.ConsentPage<ConsentService.GrantRecord> grants(
+      @AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) String cursor) {
     return service.grants(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @PostMapping("/consent/request-access")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> requestAccess(@AuthenticationPrincipal Jwt jwt,
+  public ConsentService.AccessRequestRecord requestAccess(@AuthenticationPrincipal Jwt jwt,
       @Valid @RequestBody RequestAccessRequest request) {
-    Map<String, Object> body = new LinkedHashMap<>();
-    body.put("ownerUserId", request.ownerUserId());
-    body.put("connectionId", request.connectionId());
-    body.put("requestedFields", request.requestedFields());
-    body.put("purpose", request.purpose());
-    return service.requestAccess(CurrentUser.fromJwt(jwt).userId(), body);
+    return service.requestAccess(CurrentUser.fromJwt(jwt).userId(),
+        new ConsentService.RequestAccessInput(
+            request.ownerUserId(), request.connectionId(), request.requestedFields(), request.purpose()));
   }
 
   @PostMapping("/consent/{requestId}/grant")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> grant(@AuthenticationPrincipal Jwt jwt, @PathVariable String requestId,
+  public ConsentService.GrantRecord grant(@AuthenticationPrincipal Jwt jwt, @PathVariable String requestId,
       @Valid @RequestBody GrantAccessRequest request) {
-    Map<String, Object> body = new LinkedHashMap<>();
-    body.put("grantedFields", request.grantedFields());
-    body.put("expiresAt", request.expiresAt());
-    body.put("purpose", request.purpose());
-    return service.grant(CurrentUser.fromJwt(jwt).userId(), requestId, body);
+    return service.grant(CurrentUser.fromJwt(jwt).userId(), requestId,
+        new ConsentService.GrantAccessInput(request.grantedFields(), request.expiresAt(), request.purpose()));
   }
 
   @PostMapping("/consent/{grantId}/revoke")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> revoke(@AuthenticationPrincipal Jwt jwt, @PathVariable String grantId,
+  public ConsentService.GrantRecord revoke(@AuthenticationPrincipal Jwt jwt, @PathVariable String grantId,
       @Valid @RequestBody RevokeAccessRequest request) {
-    return service.revoke(CurrentUser.fromJwt(jwt).userId(), grantId, Map.of("reason", request.reason()));
+    return service.revoke(CurrentUser.fromJwt(jwt).userId(), grantId, new ConsentService.RevokeAccessInput(request.reason()));
   }
 
   @PostMapping("/consent/can-view")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> canView(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CanViewRequest request) {
-    return service.canView(CurrentUser.fromJwt(jwt).userId(),
-        Map.of("ownerUserId", request.ownerUserId(), "field", request.field()));
+  public ConsentService.CanViewResponse canView(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody CanViewRequest request) {
+    return service.canView(CurrentUser.fromJwt(jwt).userId(), new ConsentService.CanViewInput(request.ownerUserId(), request.field()));
   }
 
   public record RequestAccessRequest(

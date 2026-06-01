@@ -35,7 +35,7 @@ public class KeycloakAuthService {
   }
 
   @Transactional
-  public Map<String, Object> login(String username, String password) {
+  public AuthSession login(String username, String password) {
     Map<String, Object> token = token(Map.of(
         "grant_type", "password",
         "username", username,
@@ -47,7 +47,7 @@ public class KeycloakAuthService {
   }
 
   @Transactional
-  public Map<String, Object> register(RegisterRequest request) {
+  public AuthSession register(RegisterRequest request) {
     String username = request.username().trim().toLowerCase();
     String provisionalUserId = UUID.randomUUID().toString();
     String adminToken = adminAccessToken();
@@ -67,7 +67,7 @@ public class KeycloakAuthService {
     return session(token, userId, username, roles);
   }
 
-  public Map<String, Object> refresh(String refreshToken) {
+  public AuthSession refresh(String refreshToken) {
     Map<String, Object> token = token(Map.of("grant_type", "refresh_token", "refresh_token", refreshToken));
     JsonNode payload = decodePayload(token.get("access_token"));
     String userId = payload.path("sub").asText();
@@ -230,20 +230,44 @@ public class KeycloakAuthService {
     return properties.keycloakUrl() + "/realms/" + properties.keycloakRealm() + "/protocol/openid-connect";
   }
 
-  private Map<String, Object> session(Map<String, Object> token, String userId, String username, List<String> roles) {
-    Map<String, Object> response = new LinkedHashMap<>();
-    response.put("userId", userId);
-    response.put("publicUserId", username);
-    response.put("username", username);
-    response.put("userType", userTypeFromRoles(roles));
-    response.put("roles", roles);
-    response.put("accessToken", token.get("access_token"));
-    response.put("expiresIn", token.get("expires_in"));
-    response.put("refreshToken", token.get("refresh_token"));
-    response.put("refreshExpiresIn", token.get("refresh_expires_in"));
-    response.put("tokenType", token.getOrDefault("token_type", "Bearer"));
-    response.put("scope", token.get("scope"));
-    return response;
+  private AuthSession session(Map<String, Object> token, String userId, String username, List<String> roles) {
+    return new AuthSession(
+        userId,
+        username,
+        username,
+        userTypeFromRoles(roles),
+        roles,
+        tokenString(token, "access_token"),
+        tokenLong(token, "expires_in"),
+        tokenString(token, "refresh_token"),
+        tokenLong(token, "refresh_expires_in"),
+        tokenStringOrDefault(token, "token_type", "Bearer"),
+        tokenString(token, "scope"));
+  }
+
+  private String tokenString(Map<String, Object> token, String key) {
+    Object value = token.get(key);
+    return value == null ? null : String.valueOf(value);
+  }
+
+  private Long tokenLong(Map<String, Object> token, String key) {
+    Object value = token.get(key);
+    if (value instanceof Number number) {
+      return number.longValue();
+    }
+    if (value == null) {
+      return null;
+    }
+    try {
+      return Long.parseLong(String.valueOf(value));
+    } catch (NumberFormatException exception) {
+      return null;
+    }
+  }
+
+  private String tokenStringOrDefault(Map<String, Object> token, String key, String fallback) {
+    String value = tokenString(token, key);
+    return value == null ? fallback : value;
   }
 
   private JsonNode decodePayload(Object token) {
@@ -295,5 +319,9 @@ public class KeycloakAuthService {
       return "seeker";
     }
     return "both";
+  }
+
+  public record AuthSession(String userId, String publicUserId, String username, String userType, List<String> roles,
+      String accessToken, Long expiresIn, String refreshToken, Long refreshExpiresIn, String tokenType, String scope) {
   }
 }

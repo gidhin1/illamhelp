@@ -29,15 +29,10 @@ class ConsentTests {
     controller.grant(jwt("owner"), "r1", new ConsentController.GrantAccessRequest(
         List.of("phone"), null, "Discuss service"));
     controller.revoke(jwt("owner"), "g1", new ConsentController.RevokeAccessRequest("No longer needed"));
-    verify(service).requestAccess("owner", Map.of(
-        "ownerUserId", "member", "connectionId", "connection-id",
-        "requestedFields", List.of("phone"), "purpose", "Discuss service"));
-    Map<String, Object> grant = new java.util.LinkedHashMap<>();
-    grant.put("grantedFields", List.of("phone"));
-    grant.put("expiresAt", null);
-    grant.put("purpose", "Discuss service");
-    verify(service).grant("owner", "r1", grant);
-    verify(service).revoke("owner", "g1", Map.of("reason", "No longer needed"));
+    verify(service).requestAccess("owner", new ConsentService.RequestAccessInput(
+        "member", "connection-id", List.of("phone"), "Discuss service"));
+    verify(service).grant("owner", "r1", new ConsentService.GrantAccessInput(List.of("phone"), null, "Discuss service"));
+    verify(service).revoke("owner", "g1", new ConsentService.RevokeAccessInput("No longer needed"));
   }
 
   @Test
@@ -48,7 +43,7 @@ class ConsentTests {
     when(repository.findUserIdByUsername("owner")).thenReturn("owner-id");
     when(repository.activeGrant("owner-id", "viewer", "phone")).thenReturn(List.of());
 
-    assertThat(service.canView("viewer", Map.of("ownerUserId", "owner", "field", "phone"))).containsEntry("allowed", false);
+    assertThat(service.canView("viewer", new ConsentService.CanViewInput("owner", "phone")).allowed()).isFalse();
     verify(audit).logEvent("viewer", "owner-id", "pii_access_checked", "consent_read_path",
         Map.of("field", "phone", "allowed", false, "reason", "no_active_grant"));
   }
@@ -58,12 +53,12 @@ class ConsentTests {
     ConsentRepository repository = mock(ConsentRepository.class);
     OpaService opa = mock(OpaService.class);
     when(repository.activeGrant("10000000-0000-4000-8000-000000000000", "viewer", "phone"))
-        .thenReturn(List.of(Map.of("grant_status", "active", "granted_fields", new String[]{"phone"}, "relationship_status", "accepted")));
+        .thenReturn(List.of(activeGrant("active", new String[]{"phone"}, null, "accepted")));
     when(opa.canViewPii(any())).thenReturn(true);
     ConsentService service = new ConsentService(repository, opa, mock(AuditService.class), mock(NotificationService.class));
 
-    assertThat(service.canView("viewer", Map.of("ownerUserId", "10000000-0000-4000-8000-000000000000", "field", "phone")))
-        .containsEntry("allowed", true);
+    assertThat(service.canView("viewer", new ConsentService.CanViewInput("10000000-0000-4000-8000-000000000000", "phone")).allowed())
+        .isTrue();
     verify(opa).canViewPii(any());
   }
 
@@ -79,7 +74,7 @@ class ConsentTests {
     ConsentRepository repository = mock(ConsentRepository.class);
     AuditService audit = mock(AuditService.class);
     when(repository.revokeActiveForConnection("c", "blocked")).thenReturn(List.of(
-        Map.of("id", "g", "ownerUserId", "owner", "granteeUserId", "viewer")));
+        revokedGrant("g", "owner", "viewer")));
     ConsentService service = new ConsentService(repository, mock(OpaService.class), audit, mock(NotificationService.class));
 
     assertThat(service.revokeAllForConnection("c", "blocked")).isEqualTo(1);
@@ -94,11 +89,10 @@ class ConsentTests {
         mock(AuditService.class), mock(NotificationService.class));
     when(repository.findUserIdByUsername("owner")).thenReturn("owner-id");
     when(repository.connectionForConsent("connection")).thenReturn(
-        Map.of("status", "pending", "userAId", "viewer", "userBId", "owner-id"));
+        connectionForConsent("viewer", "owner-id", "pending"));
 
-    assertThatThrownBy(() -> service.requestAccess("viewer", Map.of(
-        "ownerUserId", "owner", "connectionId", "connection",
-        "requestedFields", List.of("phone"), "purpose", "Discuss service")))
+    assertThatThrownBy(() -> service.requestAccess("viewer", new ConsentService.RequestAccessInput(
+        "owner", "connection", List.of("phone"), "Discuss service")))
         .isInstanceOf(ApiException.class)
         .hasMessage("Mutual accepted connection is required before PII access request");
   }
@@ -108,12 +102,11 @@ class ConsentTests {
     ConsentRepository repository = mock(ConsentRepository.class);
     ConsentService service = new ConsentService(repository, mock(OpaService.class),
         mock(AuditService.class), mock(NotificationService.class));
-    when(repository.findAccessRequest("request")).thenReturn(Map.of(
-        "ownerUserId", "owner", "requesterUserId", "viewer", "connectionId", "connection",
-        "requestedFields", new String[]{"phone"}, "purpose", "Discuss service", "status", "pending"));
+    when(repository.findAccessRequest("request")).thenReturn(accessRequestCore(
+        "request", "viewer", "owner", "connection", new String[]{"phone"}, "Discuss service", "pending"));
 
-    assertThatThrownBy(() -> service.grant("owner", "request", Map.of(
-        "grantedFields", List.of("email"), "purpose", "Discuss service")))
+    assertThatThrownBy(() -> service.grant("owner", "request",
+        new ConsentService.GrantAccessInput(List.of("email"), null, "Discuss service")))
         .isInstanceOf(ApiException.class)
         .hasMessage("Granted field was not requested: email");
   }
@@ -123,12 +116,11 @@ class ConsentTests {
     ConsentRepository repository = mock(ConsentRepository.class);
     ConsentService service = new ConsentService(repository, mock(OpaService.class),
         mock(AuditService.class), mock(NotificationService.class));
-    when(repository.findAccessRequest("request")).thenReturn(Map.of(
-        "ownerUserId", "owner", "requesterUserId", "viewer", "connectionId", "connection",
-        "requestedFields", new String[]{"phone"}, "purpose", "Discuss service", "status", "pending"));
+    when(repository.findAccessRequest("request")).thenReturn(accessRequestCore(
+        "request", "viewer", "owner", "connection", new String[]{"phone"}, "Discuss service", "pending"));
 
-    assertThatThrownBy(() -> service.grant("owner", "request", Map.of(
-        "grantedFields", List.of("phone"), "expiresAt", "tomorrow")))
+    assertThatThrownBy(() -> service.grant("owner", "request",
+        new ConsentService.GrantAccessInput(List.of("phone"), "tomorrow", null)))
         .isInstanceOf(ApiException.class)
         .hasMessage("expiresAt must be an ISO-8601 timestamp with an offset");
   }
@@ -139,15 +131,14 @@ class ConsentTests {
     AuditService audit = mock(AuditService.class);
     NotificationService notifications = mock(NotificationService.class);
     ConsentService service = new ConsentService(repository, mock(OpaService.class), audit, notifications);
-    when(repository.findAccessRequest("request")).thenReturn(Map.of(
-        "ownerUserId", "owner", "requesterUserId", "viewer", "connectionId", "connection",
-        "requestedFields", new String[]{"phone"}, "purpose", "Discuss service", "status", "pending"));
+    when(repository.findAccessRequest("request")).thenReturn(accessRequestCore(
+        "request", "viewer", "owner", "connection", new String[]{"phone"}, "Discuss service", "pending"));
     when(repository.grantPendingRequest(org.mockito.ArgumentMatchers.eq("request"), org.mockito.ArgumentMatchers.eq("owner"),
         any(String[].class), org.mockito.ArgumentMatchers.eq("Discuss service"), org.mockito.ArgumentMatchers.isNull()))
-        .thenReturn(Map.of());
+        .thenReturn(null);
 
-    assertThatThrownBy(() -> service.grant("owner", "request", Map.of(
-        "grantedFields", List.of("phone"), "purpose", "Discuss service")))
+    assertThatThrownBy(() -> service.grant("owner", "request",
+        new ConsentService.GrantAccessInput(List.of("phone"), null, "Discuss service")))
         .isInstanceOf(ApiException.class)
         .hasMessage("Access request is no longer pending or an active consent grant already exists.");
     verifyNoInteractions(audit, notifications);
@@ -159,9 +150,9 @@ class ConsentTests {
     AuditService audit = mock(AuditService.class);
     NotificationService notifications = mock(NotificationService.class);
     ConsentService service = new ConsentService(repository, mock(OpaService.class), audit, notifications);
-    when(repository.revokeGrant("missing", "owner", "No longer needed")).thenReturn(Map.of());
+    when(repository.revokeGrant("missing", "owner", "No longer needed")).thenReturn(null);
 
-    assertThatThrownBy(() -> service.revoke("owner", "missing", Map.of("reason", "No longer needed")))
+    assertThatThrownBy(() -> service.revoke("owner", "missing", new ConsentService.RevokeAccessInput("No longer needed")))
         .isInstanceOf(ApiException.class).hasMessage("Consent grant not found");
     verifyNoInteractions(audit, notifications);
   }
@@ -169,16 +160,72 @@ class ConsentTests {
   @Test
   void consentListsAreBoundedAndUseProjectedUsernames() {
     ConsentRepository repository = mock(ConsentRepository.class);
-    when(repository.requests("actor", null, null, 51)).thenReturn(List.of(Map.of(
-        "id", "request", "createdAt", "2026-05-26T10:00:00Z", "requesterUserId", "internal-a", "ownerUserId", "internal-b",
-        "requesterPublicUserId", "member_a", "ownerPublicUserId", "member_b")));
+    when(repository.requests("actor", null, null, 51)).thenReturn(List.of(accessRequest(
+        "request", "internal-a", "internal-b", "connection", new String[]{"phone"},
+        "purpose", "pending", "2026-05-26T10:00:00Z", "member_a", "member_b")));
     ConsentService service = new ConsentService(repository, mock(OpaService.class),
         mock(AuditService.class), mock(NotificationService.class));
 
-    @SuppressWarnings("unchecked")
-    Map<String, Object> item = (Map<String, Object>) ((List<?>) service.requests("actor", null, null).get("items")).getFirst();
-    assertThat(item)
-        .containsEntry("requesterUserId", "member_a").containsEntry("ownerUserId", "member_b");
+    ConsentService.AccessRequestRecord item = service.requests("actor", null, null).items().getFirst();
+    assertThat(item.requesterUserId()).isEqualTo("member_a");
+    assertThat(item.ownerUserId()).isEqualTo("member_b");
     verify(repository, never()).findUsername(org.mockito.ArgumentMatchers.any());
+  }
+
+  private static ConsentRepository.ConnectionForConsentRow connectionForConsent(String userAId, String userBId, String status) {
+    return new ConsentRepository.ConnectionForConsentRow() {
+      @Override public String getUserAId() { return userAId; }
+      @Override public String getUserBId() { return userBId; }
+      @Override public String getStatus() { return status; }
+    };
+  }
+
+  private static ConsentRepository.AccessRequestCoreRow accessRequestCore(
+      String id, String requesterUserId, String ownerUserId, String connectionId,
+      Object requestedFields, String purpose, String status) {
+    return new ConsentRepository.AccessRequestCoreRow() {
+      @Override public String getId() { return id; }
+      @Override public String getRequesterUserId() { return requesterUserId; }
+      @Override public String getOwnerUserId() { return ownerUserId; }
+      @Override public String getConnectionId() { return connectionId; }
+      @Override public Object getRequestedFields() { return requestedFields; }
+      @Override public String getPurpose() { return purpose; }
+      @Override public String getStatus() { return status; }
+    };
+  }
+
+  private static ConsentRepository.AccessRequestRow accessRequest(
+      String id, String requesterUserId, String ownerUserId, String connectionId, Object requestedFields,
+      String purpose, String status, String createdAt, String requesterPublicUserId, String ownerPublicUserId) {
+    return new ConsentRepository.AccessRequestRow() {
+      @Override public String getId() { return id; }
+      @Override public String getRequesterUserId() { return requesterUserId; }
+      @Override public String getOwnerUserId() { return ownerUserId; }
+      @Override public String getConnectionId() { return connectionId; }
+      @Override public Object getRequestedFields() { return requestedFields; }
+      @Override public String getPurpose() { return purpose; }
+      @Override public String getStatus() { return status; }
+      @Override public String getCreatedAt() { return createdAt; }
+      @Override public String getRequesterPublicUserId() { return requesterPublicUserId; }
+      @Override public String getOwnerPublicUserId() { return ownerPublicUserId; }
+    };
+  }
+
+  private static ConsentRepository.RevokedGrantRow revokedGrant(String id, String ownerUserId, String granteeUserId) {
+    return new ConsentRepository.RevokedGrantRow() {
+      @Override public String getId() { return id; }
+      @Override public String getOwnerUserId() { return ownerUserId; }
+      @Override public String getGranteeUserId() { return granteeUserId; }
+    };
+  }
+
+  private static ConsentRepository.ActiveGrantRow activeGrant(
+      String grantStatus, Object grantedFields, String expiresAt, String relationshipStatus) {
+    return new ConsentRepository.ActiveGrantRow() {
+      @Override public String getGrantStatus() { return grantStatus; }
+      @Override public Object getGrantedFields() { return grantedFields; }
+      @Override public String getExpiresAt() { return expiresAt; }
+      @Override public String getRelationshipStatus() { return relationshipStatus; }
+    };
   }
 }

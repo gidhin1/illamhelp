@@ -33,7 +33,7 @@ public class MediaMutationService {
   }
 
   @Transactional
-  public Map<String, Object> recordVerifiedCompletion(String userId, String mediaId, String normalizedEtag) {
+  public MediaService.MediaAssetRecord recordVerifiedCompletion(String userId, String mediaId, String normalizedEtag) {
     Map<String, Object> asset = mediaAssetRepository.completeUpload(userId, mediaId);
     if (asset == null || asset.isEmpty()) {
       throw new ApiException(HttpStatus.CONFLICT, "Media upload was already completed");
@@ -41,6 +41,6 @@ public class MediaMutationService {
     auditService.logEvent(userId, null, "media_upload_completed", null,
         Map.of("mediaId", mediaId, "verifiedByHead", true));
     internalEventsService.mediaUploadCompleted(userId, mediaId, normalizedEtag, true);
-    return asset;
+    return MediaService.mediaAssetRecord(asset);
   }
 }

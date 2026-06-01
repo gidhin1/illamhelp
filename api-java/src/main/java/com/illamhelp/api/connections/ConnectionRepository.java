@@ -1,7 +1,6 @@
 package com.illamhelp.api.connections;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -9,8 +8,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UUID> {
   @Query(value = """
-      SELECT c.id, c.user_a_id AS "userAId", c.user_b_id AS "userBId", c.requested_by_user_id AS "requestedByUserId",
-             c.status::text, c.requested_at AS "requestedAt", c.decided_at AS "decidedAt",
+      SELECT c.id::text AS id, c.user_a_id::text AS "userAId", c.user_b_id::text AS "userBId", c.requested_by_user_id::text AS "requestedByUserId",
+             c.status::text, c.requested_at::text AS "requestedAt", c.decided_at::text AS "decidedAt",
              coalesce(nullif(trim(a.username), ''), 'member_' || substring(md5(a.id::text) FROM 1 FOR 10)) AS "userAPublicId",
              coalesce(nullif(trim(b.username), ''), 'member_' || substring(md5(b.id::text) FROM 1 FOR 10)) AS "userBPublicId",
              coalesce(nullif(trim(requester.username), ''), 'member_' || substring(md5(requester.id::text) FROM 1 FOR 10)) AS "requestedByPublicId"
@@ -22,7 +21,7 @@ public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UU
       ORDER BY c.requested_at DESC, c.id DESC
       LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listForUser(@Param("userId") String userId,
+  List<ConnectionRow> listForUser(@Param("userId") String userId,
       @Param("cursorCreatedAt") String cursorCreatedAt, @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = """
@@ -39,7 +38,7 @@ public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UU
                d.job_count DESC, d.updated_at DESC
       LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> searchCandidates(@Param("userId") String userId, @Param("query") String query,
+  List<SearchCandidateRow> searchCandidates(@Param("userId") String userId, @Param("query") String query,
       @Param("needle") String needle, @Param("limit") int limit);
 
   @Query(value = """
@@ -53,26 +52,26 @@ public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UU
         WHERE connections.status = 'declined'::connection_status
         RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
       )
-      SELECT id, user_a_id AS "userAId", user_b_id AS "userBId", requested_by_user_id AS "requestedByUserId",
-             status::text, requested_at AS "requestedAt", decided_at AS "decidedAt" FROM changed
+      SELECT id::text AS id, user_a_id::text AS "userAId", user_b_id::text AS "userBId", requested_by_user_id::text AS "requestedByUserId",
+             status::text, requested_at::text AS "requestedAt", decided_at::text AS "decidedAt" FROM changed
       """, nativeQuery = true)
-  Map<String, Object> requestConnection(@Param("requesterUserId") String requesterUserId, @Param("targetUserId") String targetUserId);
+  ConnectionRow requestConnection(@Param("requesterUserId") String requesterUserId, @Param("targetUserId") String targetUserId);
 
   @Query(value = """
-      SELECT id, user_a_id AS "userAId", user_b_id AS "userBId", requested_by_user_id AS "requestedByUserId",
-             status::text, requested_at AS "requestedAt", decided_at AS "decidedAt"
+      SELECT id::text AS id, user_a_id::text AS "userAId", user_b_id::text AS "userBId", requested_by_user_id::text AS "requestedByUserId",
+             status::text, requested_at::text AS "requestedAt", decided_at::text AS "decidedAt"
       FROM connections
       WHERE user_a_id = least(cast(:requesterUserId as uuid), cast(:targetUserId as uuid))
         AND user_b_id = greatest(cast(:requesterUserId as uuid), cast(:targetUserId as uuid))
       """, nativeQuery = true)
-  Map<String, Object> findBetween(@Param("requesterUserId") String requesterUserId, @Param("targetUserId") String targetUserId);
+  ConnectionRow findBetween(@Param("requesterUserId") String requesterUserId, @Param("targetUserId") String targetUserId);
 
   @Query(value = """
-      SELECT id, user_a_id AS "userAId", user_b_id AS "userBId", requested_by_user_id AS "requestedByUserId",
-             status::text, requested_at AS "requestedAt", decided_at AS "decidedAt"
+      SELECT id::text AS id, user_a_id::text AS "userAId", user_b_id::text AS "userBId", requested_by_user_id::text AS "requestedByUserId",
+             status::text, requested_at::text AS "requestedAt", decided_at::text AS "decidedAt"
       FROM connections WHERE id = cast(:id as uuid)
       """, nativeQuery = true)
-  Map<String, Object> findConnection(@Param("id") String id);
+  ConnectionRow findConnection(@Param("id") String id);
 
   @Query(value = """
       WITH changed AS (
@@ -83,10 +82,10 @@ public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UU
           AND (cast(:status as text) <> 'accepted' OR requested_by_user_id <> cast(:actorUserId as uuid))
         RETURNING id, user_a_id, user_b_id, requested_by_user_id, status, requested_at, decided_at
       )
-      SELECT id, user_a_id AS "userAId", user_b_id AS "userBId", requested_by_user_id AS "requestedByUserId",
-             status::text, requested_at AS "requestedAt", decided_at AS "decidedAt" FROM changed
+      SELECT id::text AS id, user_a_id::text AS "userAId", user_b_id::text AS "userBId", requested_by_user_id::text AS "requestedByUserId",
+             status::text, requested_at::text AS "requestedAt", decided_at::text AS "decidedAt" FROM changed
       """, nativeQuery = true)
-  Map<String, Object> decideConnection(@Param("id") String id, @Param("actorUserId") String actorUserId,
+  ConnectionRow decideConnection(@Param("id") String id, @Param("actorUserId") String actorUserId,
       @Param("status") String status);
 
   @Query(value = "SELECT id::text FROM users WHERE lower(username) = lower(:identifier) LIMIT 1", nativeQuery = true)
@@ -97,4 +96,26 @@ public interface ConnectionRepository extends JpaRepository<ConnectionEntity, UU
       FROM users WHERE id = cast(:userId as uuid)
       """, nativeQuery = true)
   String findPublicUserId(@Param("userId") String userId);
+
+  interface ConnectionRow {
+    String getId();
+    String getUserAId();
+    String getUserBId();
+    String getRequestedByUserId();
+    String getStatus();
+    String getRequestedAt();
+    String getDecidedAt();
+    String getUserAPublicId();
+    String getUserBPublicId();
+    String getRequestedByPublicId();
+  }
+
+  interface SearchCandidateRow {
+    String getUserId();
+    String getDisplayName();
+    String getLocationLabel();
+    String getServiceCategories();
+    String getRecentJobCategories();
+    String getRecentLocations();
+  }
 }

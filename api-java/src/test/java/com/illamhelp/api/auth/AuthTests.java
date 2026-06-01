@@ -36,12 +36,12 @@ class AuthTests {
     ProfilesService profiles = mock(ProfilesService.class);
     AuthController controller = new AuthController(auth, profiles, properties());
     var register = new AuthController.RegisterRequest("member", "password", "First", "Last", "m@test.io", "1234", "both");
-    when(auth.login("u", "p")).thenReturn(Map.of("accessToken", "token"));
-    when(auth.register(register)).thenReturn(Map.of("userId", "u1"));
+    when(auth.login("u", "p")).thenReturn(authSession("u", "member", "both", List.of("both"), "token"));
+    when(auth.register(register)).thenReturn(authSession("u1", "member", "both", List.of("both"), "token"));
 
-    assertThat(controller.login(new AuthController.LoginRequest("u", "p"))).containsEntry("accessToken", "token");
-    assertThat(controller.register(register)).containsEntry("userId", "u1");
-    assertThat(controller.logout(new AuthController.RefreshRequest("refresh"))).containsEntry("success", true);
+    assertThat(controller.login(new AuthController.LoginRequest("u", "p")).accessToken()).isEqualTo("token");
+    assertThat(controller.register(register).userId()).isEqualTo("u1");
+    assertThat(controller.logout(new AuthController.RefreshRequest("refresh")).success()).isTrue();
     assertThat(controller.me(jwt("u1")).userId()).isEqualTo("u1");
     verify(auth).login("u", "p");
     verify(profiles).upsertFromRegistration("u1", "First", "Last", "m@test.io", "1234");
@@ -102,10 +102,11 @@ class AuthTests {
             {"access_token":"%s","refresh_token":"refresh","expires_in":300,"refresh_expires_in":600}
             """.formatted(token), MediaType.APPLICATION_JSON));
 
-    Map<String, Object> session = service.login("provider.name", "secret");
+    KeycloakAuthService.AuthSession session = service.login("provider.name", "secret");
 
-    assertThat(session).containsEntry("userId", "user-1").containsEntry("userType", "provider");
-    assertThat(session.get("roles")).isEqualTo(List.of("provider"));
+    assertThat(session.userId()).isEqualTo("user-1");
+    assertThat(session.userType()).isEqualTo("provider");
+    assertThat(session.roles()).isEqualTo(List.of("provider"));
     verify(users).syncUserFromToken("user-1", List.of("provider"), "provider.name");
     server.verify();
   }
@@ -144,11 +145,12 @@ class AuthTests {
             {"access_token":"%s","refresh_token":"refresh","expires_in":300,"token_type":"Bearer"}
             """.formatted(token), MediaType.APPLICATION_JSON));
 
-    Map<String, Object> session = service.register(request);
+    KeycloakAuthService.AuthSession session = service.register(request);
 
-    assertThat(session).containsEntry("userId", "created-user")
-        .containsEntry("username", "new.member").containsEntry("userType", "both");
-    assertThat(session.get("roles")).isEqualTo(List.of("both"));
+    assertThat(session.userId()).isEqualTo("created-user");
+    assertThat(session.username()).isEqualTo("new.member");
+    assertThat(session.userType()).isEqualTo("both");
+    assertThat(session.roles()).isEqualTo(List.of("both"));
     verify(users).syncUserFromToken("created-user", List.of("both"), "new.member");
     server.verify();
   }
@@ -170,8 +172,9 @@ class AuthTests {
         .andExpect(method(HttpMethod.POST))
         .andRespond(withSuccess());
 
-    assertThat(service.refresh("refresh-token")).containsEntry("username", "public_name")
-        .containsEntry("userType", "seeker");
+    KeycloakAuthService.AuthSession refreshed = service.refresh("refresh-token");
+    assertThat(refreshed.username()).isEqualTo("public_name");
+    assertThat(refreshed.userType()).isEqualTo("seeker");
     service.logout("refresh-token");
 
     verify(users).syncUserFromToken("refreshed-user", List.of("seeker"), "public_name");
@@ -215,5 +218,11 @@ class AuthTests {
         """));
 
     assertThat(roles).containsExactly("support");
+  }
+
+  private KeycloakAuthService.AuthSession authSession(
+      String userId, String username, String userType, List<String> roles, String accessToken) {
+    return new KeycloakAuthService.AuthSession(
+        userId, username, username, userType, roles, accessToken, 300L, "refresh", 600L, "Bearer", null);
   }
 }

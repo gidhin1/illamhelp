@@ -1,4 +1,5 @@
 import { Platform } from "react-native";
+import type { MetadataDto } from "@illamhelp/shared-types";
 
 export type UserType = "seeker" | "provider" | "both";
 export type AppRole = "both" | "seeker" | "provider" | "admin" | "support";
@@ -46,6 +47,9 @@ export interface JobRecord {
   title: string;
   description: string;
   locationText: string;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
+  seekerRating: number | null;
   visibility: "public" | "connections_only";
   status:
     | "posted"
@@ -875,7 +879,7 @@ export interface NotificationRecord {
   type: string;
   title: string;
   body: string;
-  data: Record<string, unknown>;
+  data: MetadataDto;
   read: boolean;
   readAt: string | null;
   createdAt: string;

@@ -1,7 +1,6 @@
 package com.illamhelp.api.profiles;
 
 import com.illamhelp.api.common.ApiException;
-import com.illamhelp.api.common.JsonMaps;
 import com.illamhelp.api.config.AppProperties;
 import com.illamhelp.api.consent.ConsentService;
 import java.nio.charset.StandardCharsets;
@@ -47,11 +46,11 @@ public class ProfilesService {
     }
   }
 
-  public Map<String, Object> getOwnProfile(String userId) {
+  public ProfileRecord getOwnProfile(String userId) {
     return profile(userId, Map.of("email", true, "phone", true, "alternatePhone", true, "fullAddress", true));
   }
 
-  public Map<String, Object> getProfileForViewer(String targetUserId, String viewerUserId) {
+  public ProfileRecord getProfileForViewer(String targetUserId, String viewerUserId) {
     targetUserId = resolveInternalUserId(targetUserId);
     if (targetUserId.equals(viewerUserId)) {
       return getOwnProfile(targetUserId);
@@ -64,11 +63,22 @@ public class ProfilesService {
     return profile(targetUserId, visibility);
   }
 
-  public Map<String, Object> dashboard(String userId) {
-    Map<String, Object> profile = getOwnProfile(userId);
-    Map<String, Object> counts = profileRepository.dashboardMetrics(userId);
-    List<Map<String, Object>> recentJobs = profileRepository.recentJobs(userId);
-    return Map.of("profile", profile, "metrics", counts, "recentJobs", recentJobs);
+  public DashboardResponse dashboard(String userId) {
+    ProfileRecord profile = getOwnProfile(userId);
+    ProfileRepository.DashboardMetricsRow counts = profileRepository.dashboardMetrics(userId);
+    List<RecentJobRecord> recentJobs = profileRepository.recentJobs(userId).stream()
+        .map(this::toRecentJobRecord)
+        .toList();
+    DashboardMetrics metrics = counts == null
+        ? new DashboardMetrics(0, 0, 0, 0, 0, 0)
+        : new DashboardMetrics(
+            zeroIfNull(counts.getTotalJobs()),
+            zeroIfNull(counts.getTotalConnections()),
+            zeroIfNull(counts.getPendingConnections()),
+            zeroIfNull(counts.getConsentRequests()),
+            zeroIfNull(counts.getActiveConsentGrants()),
+            zeroIfNull(counts.getTotalMedia()));
+    return new DashboardResponse(profile, metrics, recentJobs);
   }
 
   @Transactional
@@ -82,15 +92,15 @@ public class ProfilesService {
   }
 
   @Transactional
-  public Map<String, Object> updateOwnProfile(String userId, UpdateProfileRequest body) {
-    Map<String, Object> existing = profileRepository.existingPii(userId);
-    String email = body.email() == null ? decryptOptionalPii((byte[]) existing.get("pii_email_encrypted")) : body.email().trim().toLowerCase();
-    String phone = body.phone() == null ? decryptOptionalPii((byte[]) existing.get("pii_phone_encrypted")) : body.phone().trim();
+  public ProfileRecord updateOwnProfile(String userId, UpdateProfileRequest body) {
+    ProfileRepository.ExistingPiiRow existing = profileRepository.existingPii(userId);
+    String email = body.email() == null ? decryptOptionalPii(existing == null ? null : existing.getPiiEmailEncrypted()) : body.email().trim().toLowerCase();
+    String phone = body.phone() == null ? decryptOptionalPii(existing == null ? null : existing.getPiiPhoneEncrypted()) : body.phone().trim();
     String alternatePhone = body.alternatePhone() == null
-        ? decryptOptionalPii((byte[]) existing.get("pii_alternate_phone_encrypted"))
+        ? decryptOptionalPii(existing == null ? null : existing.getPiiAlternatePhoneEncrypted())
         : body.alternatePhone().trim();
     String fullAddress = body.fullAddress() == null
-        ? decryptOptionalPii((byte[]) existing.get("pii_full_address_encrypted"))
+        ? decryptOptionalPii(existing == null ? null : existing.getPiiFullAddressEncrypted())
         : body.fullAddress().trim();
     profileRepository.updateProfile(userId, body.firstName(), body.lastName(), body.city(), body.area(), body.serviceCategories(),
         encryptOptionalPii(email), encryptOptionalPii(phone), encryptOptionalPii(alternatePhone), encryptOptionalPii(fullAddress));
@@ -100,39 +110,37 @@ public class ProfilesService {
   }
 
   @Transactional
-  public Map<String, Object> setVerified(String userId, boolean verified) {
+  public ProfileRecord setVerified(String userId, boolean verified) {
     String internalUserId = resolveInternalUserId(userId);
     profileRepository.setUserVerified(internalUserId, verified);
     return getOwnProfile(internalUserId);
   }
 
-  private Map<String, Object> profile(String userId, Map<String, Boolean> visibility) {
-    Map<String, Object> row = profileRepository.profileRow(userId);
-    if (JsonMaps.string(row, "first_name") == null) {
+  private ProfileRecord profile(String userId, Map<String, Boolean> visibility) {
+    ProfileRepository.ProfileRow row = profileRepository.profileRow(userId);
+    if (row == null || row.getFirstName() == null) {
       throw new ApiException(HttpStatus.NOT_FOUND, "Profile not found");
     }
-    Map<String, Object> contact = new LinkedHashMap<>();
-    contact.put("email", visible(visibility, "email") ? decryptOptionalPii((byte[]) row.get("pii_email_encrypted")) : null);
-    contact.put("phone", visible(visibility, "phone") ? decryptOptionalPii((byte[]) row.get("pii_phone_encrypted")) : null);
-    contact.put("alternatePhone", visible(visibility, "alternatePhone") ? decryptOptionalPii((byte[]) row.get("pii_alternate_phone_encrypted")) : null);
-    contact.put("fullAddress", visible(visibility, "fullAddress") ? decryptOptionalPii((byte[]) row.get("pii_full_address_encrypted")) : null);
-    contact.put("emailMasked", row.get("email_masked"));
-    contact.put("phoneMasked", row.get("phone_masked"));
-
-    Map<String, Object> profile = new LinkedHashMap<>();
-    profile.put("userId", JsonMaps.string(row, "username"));
-    profile.put("firstName", JsonMaps.string(row, "first_name"));
-    profile.put("lastName", JsonMaps.string(row, "last_name"));
-    profile.put("displayName", JsonMaps.string(row, "display_name"));
-    profile.put("city", JsonMaps.string(row, "city"));
-    profile.put("area", JsonMaps.string(row, "area"));
-    profile.put("serviceCategories", row.get("service_categories"));
-    profile.put("ratingAverage", row.get("rating_average"));
-    profile.put("ratingCount", row.get("rating_count"));
-    profile.put("verified", row.get("verified"));
-    profile.put("contact", contact);
-    profile.put("visibility", visibility);
-    return profile;
+    ProfileContact contact = new ProfileContact(
+        visible(visibility, "email") ? decryptOptionalPii(row.getPiiEmailEncrypted()) : null,
+        visible(visibility, "phone") ? decryptOptionalPii(row.getPiiPhoneEncrypted()) : null,
+        visible(visibility, "alternatePhone") ? decryptOptionalPii(row.getPiiAlternatePhoneEncrypted()) : null,
+        visible(visibility, "fullAddress") ? decryptOptionalPii(row.getPiiFullAddressEncrypted()) : null,
+        row.getEmailMasked(),
+        row.getPhoneMasked());
+    return new ProfileRecord(
+        row.getUsername(),
+        row.getFirstName(),
+        row.getLastName(),
+        row.getDisplayName(),
+        row.getCity(),
+        row.getArea(),
+        row.getServiceCategories(),
+        row.getRatingAverage(),
+        row.getRatingCount(),
+        row.getVerified(),
+        contact,
+        visibility);
   }
 
   private String resolveInternalUserId(String identifier) {
@@ -143,8 +151,7 @@ public class ProfilesService {
   }
 
   private boolean canView(String ownerUserId, String viewerUserId, String field) {
-    return Boolean.TRUE.equals(consentService.canView(
-        viewerUserId, Map.of("ownerUserId", ownerUserId, "field", field)).get("allowed"));
+    return consentService.canView(viewerUserId, new ConsentService.CanViewInput(ownerUserId, field)).allowed();
   }
 
   private boolean visible(Map<String, Boolean> visibility, String field) {
@@ -216,6 +223,20 @@ public class ProfilesService {
     return "****" + digits.substring(digits.length() - 4);
   }
 
+  private RecentJobRecord toRecentJobRecord(ProfileRepository.RecentJobRow row) {
+    return new RecentJobRecord(
+        row.getId(),
+        row.getTitle(),
+        row.getCategory(),
+        row.getStatus(),
+        row.getLocationText(),
+        row.getCreatedAt());
+  }
+
+  private int zeroIfNull(Integer value) {
+    return value == null ? 0 : value;
+  }
+
   public record UpdateProfileRequest(
       @Size(min = 2, max = 80) String firstName,
       @Size(max = 80) String lastName,
@@ -227,5 +248,25 @@ public class ProfilesService {
       @Size(min = 8, max = 20) @Pattern(regexp = "^[+0-9][0-9\\s-]{7,19}$") String alternatePhone,
       @Size(min = 5, max = 240) String fullAddress
   ) {
+  }
+
+  public record ProfileContact(String email, String phone, String alternatePhone, String fullAddress,
+      String emailMasked, String phoneMasked) {
+  }
+
+  public record ProfileRecord(String userId, String firstName, String lastName, String displayName, String city,
+      String area, String[] serviceCategories, Double ratingAverage, Integer ratingCount, Boolean verified,
+      ProfileContact contact, Map<String, Boolean> visibility) {
+  }
+
+  public record DashboardMetrics(int totalJobs, int totalConnections, int pendingConnections, int consentRequests,
+      int activeConsentGrants, int totalMedia) {
+  }
+
+  public record RecentJobRecord(String id, String title, String category, String status, String locationText,
+      String createdAt) {
+  }
+
+  public record DashboardResponse(ProfileRecord profile, DashboardMetrics metrics, List<RecentJobRecord> recentJobs) {
   }
 }

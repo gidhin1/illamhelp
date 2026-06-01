@@ -6,9 +6,6 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -29,34 +26,36 @@ public class MediaController {
   }
 
   @GetMapping("/media")
-  public Map<String, Object> mine(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+  public MediaService.MediaPage<MediaService.MediaAssetRecord> mine(@AuthenticationPrincipal Jwt jwt,
+      @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) String cursor) {
     return service.listMine(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/media/public/{ownerUserId}")
-  public Map<String, Object> publicMedia(@PathVariable String ownerUserId, @RequestParam(required = false) Integer limit,
+  public MediaService.MediaPage<MediaService.PublicMediaRecord> publicMedia(@PathVariable String ownerUserId,
+      @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) String cursor) {
     return service.listApprovedForOwner(ownerUserId, limit, cursor);
   }
 
   @PostMapping("/media/upload-ticket")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> uploadTicket(@AuthenticationPrincipal Jwt jwt,
+  public MediaService.UploadTicketResponse uploadTicket(@AuthenticationPrincipal Jwt jwt,
       @Valid @RequestBody UploadTicketRequest request) {
-    Map<String, Object> body = new LinkedHashMap<>();
-    body.put("kind", request.kind());
-    body.put("contentType", request.contentType());
-    body.put("fileSizeBytes", request.fileSizeBytes());
-    body.put("checksumSha256", request.checksumSha256());
-    body.put("originalFileName", request.originalFileName());
-    body.put("jobId", request.jobId());
-    return service.uploadTicket(CurrentUser.fromJwt(jwt).userId(), body);
+    return service.uploadTicket(CurrentUser.fromJwt(jwt).userId(),
+        new MediaService.UploadTicketInput(
+            request.kind(),
+            request.contentType(),
+            request.fileSizeBytes(),
+            request.checksumSha256(),
+            request.originalFileName(),
+            request.jobId()));
   }
 
   @PostMapping("/media/{mediaId}/complete")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> complete(@AuthenticationPrincipal Jwt jwt, @PathVariable String mediaId,
+  public MediaService.MediaAssetRecord complete(@AuthenticationPrincipal Jwt jwt, @PathVariable String mediaId,
       @Valid @RequestBody(required = false) CompleteUploadRequest request) {
     return service.complete(CurrentUser.fromJwt(jwt).userId(), mediaId, request == null ? null : request.etag());
   }

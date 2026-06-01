@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -31,14 +32,14 @@ public class MediaService {
     this.objectMapper = objectMapper;
   }
 
-  public Map<String, Object> listMine(String userId, Integer limit, String cursorValue) {
+  public MediaPage<MediaAssetRecord> listMine(String userId, Integer limit, String cursorValue) {
     int pageSize = pageSize(limit);
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
     List<Map<String, Object>> items = mediaAssetRepository.listMine(userId, cursor.createdAt(), cursor.id(), pageSize + 1);
-    return CursorPages.response(items, pageSize, "createdAt");
+    return mediaPage(items, pageSize, MediaService::mediaAssetRecord);
   }
 
-  public Map<String, Object> listApprovedForOwner(String ownerUserId, Integer limit, String cursorValue) {
+  public MediaPage<PublicMediaRecord> listApprovedForOwner(String ownerUserId, Integer limit, String cursorValue) {
     int pageSize = pageSize(limit);
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
     String internalOwnerUserId = resolveInternalUserId(ownerUserId);
@@ -47,41 +48,50 @@ public class MediaService {
     Map<String, Object> page = CursorPages.response(rows, pageSize, "createdAt");
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> pageItems = (List<Map<String, Object>>) page.get("items");
-    List<Map<String, Object>> items = pageItems.stream().map(row -> {
-      Map<String, Object> signed = storageService.presignedGet(String.valueOf(row.get("bucket_name")), String.valueOf(row.get("object_key")));
-      Map<String, Object> out = new HashMap<>(row);
-      out.remove("bucket_name");
-      out.remove("object_key");
-      out.putAll(signed);
-      return out;
+    List<PublicMediaRecord> items = pageItems.stream().map(row -> {
+      StorageService.PresignedGetTicket signed =
+          storageService.presignedGet(String.valueOf(row.get("bucket_name")), String.valueOf(row.get("object_key")));
+      return new PublicMediaRecord(
+          string(row, "id"),
+          string(row, "ownerUserId"),
+          string(row, "jobId"),
+          string(row, "kind"),
+          string(row, "contentType"),
+          longValue(row, "fileSizeBytes"),
+          string(row, "state"),
+          string(row, "createdAt"),
+          string(row, "updatedAt"),
+          signed.downloadUrl(),
+          signed.downloadUrlExpiresAt());
     }).toList();
-    page.put("items", items);
-    return page;
+    return new MediaPage<>(items, pageSize, (String) page.get("nextCursor"));
   }
 
-  public Map<String, Object> uploadTicket(String userId, Map<String, Object> body) {
+  public UploadTicketResponse uploadTicket(String userId, UploadTicketInput body) {
     String mediaId = UUID.randomUUID().toString();
-    String kind = String.valueOf(body.get("kind"));
-    String contentType = String.valueOf(body.get("contentType"));
+    String kind = body.kind();
+    String contentType = body.contentType();
     String objectKey = userId + "/" + mediaId;
-    String jobId = body.get("jobId") == null ? null : String.valueOf(body.get("jobId"));
-    Long fileSizeBytes = body.get("fileSizeBytes") instanceof Number number ? number.longValue() : null;
-    String checksumSha256 = body.get("checksumSha256") == null ? null : String.valueOf(body.get("checksumSha256"));
-    Map<String, Object> signed = storageService.presignedPut(properties.minioQuarantineBucket(), objectKey, contentType,
+    String jobId = body.jobId();
+    Long fileSizeBytes = body.fileSizeBytes();
+    String checksumSha256 = body.checksumSha256();
+    StorageService.PresignedPutTicket signed = storageService.presignedPut(properties.minioQuarantineBucket(), objectKey, contentType,
         checksumSha256 == null ? "" : checksumSha256);
     mediaMutationService.recordUploadTicket(userId, mediaId, jobId, kind, properties.minioQuarantineBucket(),
         objectKey, contentType, fileSizeBytes, checksumSha256, json(Map.of(
             "source", "upload_ticket",
             "expectedContentType", contentType,
-            "expectedSize", body.get("fileSizeBytes"))));
-    Map<String, Object> response = new HashMap<>(signed);
-    response.put("mediaId", mediaId);
-    response.put("bucketName", properties.minioQuarantineBucket());
-    response.put("objectKey", objectKey);
-    return response;
+            "expectedSize", body.fileSizeBytes())));
+    return new UploadTicketResponse(
+        signed.uploadUrl(),
+        signed.expiresAt(),
+        signed.requiredHeaders(),
+        mediaId,
+        properties.minioQuarantineBucket(),
+        objectKey);
   }
 
-  public Map<String, Object> complete(String userId, String mediaId, String etag) {
+  public MediaAssetRecord complete(String userId, String mediaId, String etag) {
     Map<String, Object> existing = mediaAssetRepository.findOwnedAsset(userId, mediaId);
     if (existing == null || existing.isEmpty()) {
       throw new ApiException(HttpStatus.NOT_FOUND, "Media asset not found");
@@ -99,6 +109,30 @@ public class MediaService {
     verifyUpload(existing, uploaded, etag);
     String normalizedEtag = normalizeEtag(etag);
     return mediaMutationService.recordVerifiedCompletion(userId, mediaId, normalizedEtag);
+  }
+
+  private static <T> MediaPage<T> mediaPage(List<Map<String, Object>> rows, int pageSize,
+      Function<Map<String, Object>, T> mapper) {
+    Map<String, Object> page = CursorPages.response(rows, pageSize, "createdAt");
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> pageItems = (List<Map<String, Object>>) page.get("items");
+    return new MediaPage<>(pageItems.stream().map(mapper).toList(), pageSize, (String) page.get("nextCursor"));
+  }
+
+  static MediaAssetRecord mediaAssetRecord(Map<String, Object> row) {
+    return new MediaAssetRecord(
+        string(row, "id"),
+        string(row, "ownerUserId"),
+        string(row, "jobId"),
+        string(row, "kind"),
+        string(row, "bucketName"),
+        string(row, "objectKey"),
+        string(row, "contentType"),
+        longValue(row, "fileSizeBytes"),
+        string(row, "checksumSha256"),
+        string(row, "state"),
+        string(row, "createdAt"),
+        string(row, "updatedAt"));
   }
 
   private void verifyUpload(Map<String, Object> expected, StorageService.UploadedObject uploaded, String suppliedEtag) {
@@ -142,5 +176,39 @@ public class MediaService {
     } catch (JsonProcessingException exception) {
       return "{}";
     }
+  }
+
+  static String string(Map<String, Object> row, String key) {
+    Object value = row.get(key);
+    return value == null ? null : String.valueOf(value);
+  }
+
+  static Long longValue(Map<String, Object> row, String key) {
+    Object value = row.get(key);
+    if (value == null) {
+      return null;
+    }
+    return value instanceof Number number ? number.longValue() : Long.valueOf(String.valueOf(value));
+  }
+
+  public record MediaPage<T>(List<T> items, int limit, String nextCursor) {
+  }
+
+  public record MediaAssetRecord(String id, String ownerUserId, String jobId, String kind, String bucketName,
+      String objectKey, String contentType, Long fileSizeBytes, String checksumSha256, String state, String createdAt,
+      String updatedAt) {
+  }
+
+  public record PublicMediaRecord(String id, String ownerUserId, String jobId, String kind, String contentType,
+      Long fileSizeBytes, String state, String createdAt, String updatedAt, String downloadUrl,
+      String downloadUrlExpiresAt) {
+  }
+
+  public record UploadTicketInput(String kind, String contentType, Long fileSizeBytes, String checksumSha256,
+      String originalFileName, String jobId) {
+  }
+
+  public record UploadTicketResponse(String uploadUrl, String expiresAt, Map<String, String> requiredHeaders,
+      String mediaId, String bucketName, String objectKey) {
   }
 }

@@ -1,9 +1,11 @@
 package com.illamhelp.api.notifications;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.illamhelp.api.common.CursorPages;
-import java.util.LinkedHashMap;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.springframework.stereotype.Service;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class NotificationService {
+  private static final String CURSOR_SEPARATOR = "\u001f";
   private final NotificationRepository notificationRepository;
   private final ObjectMapper objectMapper;
 
@@ -20,35 +23,33 @@ public class NotificationService {
   }
 
   @Transactional
-  public Map<String, Object> create(String userId, String type, String title, String body, Map<String, Object> data) {
-    return normalizeData(notificationRepository.insert(userId, type, title, body, json(data == null ? Map.of() : data)));
+  public NotificationRecord create(String userId, String type, String title, String body, Map<String, Object> data) {
+    return toRecord(notificationRepository.insert(userId, type, title, body, json(data == null ? Map.of() : data)));
   }
 
-  public Map<String, Object> list(String userId, boolean unreadOnly, Integer limit, String cursorValue) {
+  public NotificationListResponse list(String userId, boolean unreadOnly, Integer limit, String cursorValue) {
     int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
-    List<Map<String, Object>> rows = notificationRepository.listForUser(userId, unreadOnly,
-        cursor.createdAt(), cursor.id(), safeLimit + 1);
-    Map<String, Object> page = CursorPages.response(rows, safeLimit, "createdAt");
-    @SuppressWarnings("unchecked")
-    List<Map<String, Object>> items = (List<Map<String, Object>>) page.get("items");
-    page.put("items", items.stream().map(this::normalizeData).toList());
-    page.put("unreadCount", notificationRepository.countUnread(userId));
-    return page;
+    List<NotificationRecord> rows = notificationRepository.listForUser(userId, unreadOnly,
+        cursor.createdAt(), cursor.id(), safeLimit + 1).stream().map(this::toRecord).toList();
+    boolean hasMore = rows.size() > safeLimit;
+    List<NotificationRecord> items = hasMore ? rows.subList(0, safeLimit) : rows;
+    String nextCursor = hasMore ? encodeCursor(items.getLast()) : null;
+    return new NotificationListResponse(items, safeLimit, nextCursor, notificationRepository.countUnread(userId));
   }
 
-  public Map<String, Integer> unreadCount(String userId) {
-    return Map.of("unreadCount", notificationRepository.countUnread(userId));
-  }
-
-  @Transactional
-  public Map<String, Object> markRead(String userId, String notificationId) {
-    return normalizeData(notificationRepository.markRead(userId, notificationId));
+  public UnreadCountResponse unreadCount(String userId) {
+    return new UnreadCountResponse(notificationRepository.countUnread(userId));
   }
 
   @Transactional
-  public Map<String, Integer> markAllRead(String userId) {
-    return Map.of("updated", notificationRepository.markAllRead(userId));
+  public NotificationRecord markRead(String userId, String notificationId) {
+    return toRecord(notificationRepository.markRead(userId, notificationId));
+  }
+
+  @Transactional
+  public UpdatedCountResponse markAllRead(String userId) {
+    return new UpdatedCountResponse(notificationRepository.markAllRead(userId));
   }
 
   private String json(Map<String, Object> data) {
@@ -59,16 +60,52 @@ public class NotificationService {
     }
   }
 
-  private Map<String, Object> normalizeData(Map<String, Object> row) {
-    if (row == null || row.get("data") == null || row.get("data") instanceof Map<?, ?>) {
-      return row;
+  private NotificationRecord toRecord(NotificationRepository.NotificationRow row) {
+    if (row == null) {
+      return null;
     }
-    Map<String, Object> normalized = new LinkedHashMap<>(row);
+    Map<String, Object> parsedData;
     try {
-      normalized.put("data", objectMapper.readValue(String.valueOf(row.get("data")), Map.class));
+      parsedData = objectMapper.readValue(String.valueOf(row.getData()), new TypeReference<>() {
+      });
     } catch (JsonProcessingException exception) {
-      normalized.put("data", Map.of());
+      parsedData = Map.of();
     }
-    return normalized;
+    return new NotificationRecord(
+        row.getId(),
+        row.getUserId(),
+        row.getType(),
+        row.getTitle(),
+        row.getBody(),
+        parsedData,
+        row.getRead(),
+        row.getReadAt(),
+        row.getCreatedAt());
+  }
+
+  public record NotificationRecord(
+      String id,
+      String userId,
+      String type,
+      String title,
+      String body,
+      Map<String, Object> data,
+      boolean read,
+      String readAt,
+      String createdAt) {
+  }
+
+  public record NotificationListResponse(List<NotificationRecord> items, int limit, String nextCursor, int unreadCount) {
+  }
+
+  public record UnreadCountResponse(int unreadCount) {
+  }
+
+  public record UpdatedCountResponse(int updated) {
+  }
+
+  private String encodeCursor(NotificationRecord row) {
+    String value = row.createdAt() + CURSOR_SEPARATOR + row.id();
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
   }
 }

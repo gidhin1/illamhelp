@@ -12,6 +12,60 @@ export type ConsentGrantStatus = "active" | "revoked";
 
 export type MediaKind = "image" | "video";
 
+export type MetadataValue =
+  | string
+  | number
+  | boolean
+  | null
+  | MetadataDto
+  | MetadataValue[];
+
+export interface MetadataDto {
+  [key: string]: MetadataValue;
+}
+
+export interface CursorPageDto<T> {
+  items: T[];
+  limit: number;
+  nextCursor: string | null;
+}
+
+export interface JobDto {
+  id: string;
+  seekerUserId: string;
+  category: string;
+  title: string;
+  description: string;
+  locationText: string;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
+  seekerRating: number | null;
+  visibility: "public" | "connections_only";
+  status:
+    | "posted"
+    | "accepted"
+    | "in_progress"
+    | "completed"
+    | "payment_done"
+    | "payment_received"
+    | "closed"
+    | "cancelled";
+  assignedProviderUserId: string | null;
+  acceptedApplicationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobApplicationDto {
+  id: string;
+  jobId: string;
+  providerUserId: string;
+  status: "applied" | "shortlisted" | "accepted" | "rejected" | "withdrawn";
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type MediaState =
   | "uploaded"
   | "scanning"

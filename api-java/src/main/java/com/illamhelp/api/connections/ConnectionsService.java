@@ -5,7 +5,9 @@ import com.illamhelp.api.common.CursorPages;
 import com.illamhelp.api.audit.AuditService;
 import com.illamhelp.api.consent.ConsentService;
 import com.illamhelp.api.notifications.NotificationService;
-import java.util.LinkedHashMap;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -14,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ConnectionsService {
+  private static final String CURSOR_SEPARATOR = "\u001f";
   private final ConnectionRepository connectionRepository;
   private final ConsentService consentService;
   private final AuditService auditService;
@@ -27,70 +30,71 @@ public class ConnectionsService {
     this.notificationService = notificationService;
   }
 
-  public Map<String, Object> list(String userId, Integer limit, String cursorValue) {
+  public ConnectionListResponse list(String userId, Integer limit, String cursorValue) {
     int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
-    List<Map<String, Object>> rows = connectionRepository.listForUser(userId, cursor.createdAt(), cursor.id(), safeLimit + 1);
-    Map<String, Object> page = CursorPages.response(rows, safeLimit, "requestedAt");
-    @SuppressWarnings("unchecked")
-    List<Map<String, Object>> items = (List<Map<String, Object>>) page.get("items");
-    page.put("items", items.stream().map(this::publicizeConnection).toList());
-    return page;
+    List<ConnectionRecord> rows = connectionRepository.listForUser(userId, cursor.createdAt(), cursor.id(), safeLimit + 1)
+        .stream().map(this::toConnectionRecord).toList();
+    boolean hasMore = rows.size() > safeLimit;
+    List<ConnectionRecord> items = hasMore ? rows.subList(0, safeLimit) : rows;
+    String nextCursor = hasMore ? encodeCursor(items.getLast()) : null;
+    return new ConnectionListResponse(items, safeLimit, nextCursor);
   }
 
-  public List<Map<String, Object>> search(String userId, String q, Integer limit) {
+  public List<ConnectionSearchCandidate> search(String userId, String q, Integer limit) {
     int safeLimit = limit == null ? 20 : Math.max(1, Math.min(limit, 20));
     String normalizedQuery = q == null ? "" : q.trim().toLowerCase();
     String needle = "%" + normalizedQuery + "%";
-    return connectionRepository.searchCandidates(userId, normalizedQuery, needle, safeLimit);
+    return connectionRepository.searchCandidates(userId, normalizedQuery, needle, safeLimit).stream()
+        .map(this::toSearchCandidate).toList();
   }
 
   @Transactional
-  public Map<String, Object> request(String requesterUserId, Map<String, Object> body) {
-    Object target = body.get("targetUserId");
-    if (target == null) {
-      target = body.get("targetQuery");
+  public ConnectionRecord request(String requesterUserId, ConnectionRequestInput input) {
+    String target = input.targetUserId();
+    if (target == null || target.isBlank()) {
+      target = input.targetQuery();
     }
-    if (target == null || target.toString().isBlank()) {
+    if (target == null || target.isBlank()) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Provide targetUserId or targetQuery");
     }
-    String targetUserId = resolveInternalUserId(target.toString());
+    String targetUserId = resolveInternalUserId(target);
     if (requesterUserId.equals(targetUserId)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Requester and target cannot be the same user");
     }
-    Map<String, Object> existing = connectionRepository.findBetween(requesterUserId, targetUserId);
-    if (existing != null && !existing.isEmpty() && !"declined".equals(String.valueOf(existing.get("status")))) {
-      return publicizeConnection(existing);
+    ConnectionRepository.ConnectionRow existing = connectionRepository.findBetween(requesterUserId, targetUserId);
+    if (existing != null && !"declined".equals(existing.getStatus())) {
+      return toConnectionRecord(existing);
     }
-    Map<String, Object> connection = connectionRepository.requestConnection(requesterUserId, targetUserId);
-    boolean changed = connection != null && !connection.isEmpty();
+    ConnectionRepository.ConnectionRow connection = connectionRepository.requestConnection(requesterUserId, targetUserId);
+    boolean changed = connection != null;
     if (!changed) {
       connection = connectionRepository.findBetween(requesterUserId, targetUserId);
     }
-    if ((existing == null || existing.isEmpty()) && changed) {
+    if (existing == null && changed) {
       auditService.logEvent(requesterUserId, targetUserId, "connection_requested", null,
-          Map.of("connectionId", String.valueOf(connection.get("id"))));
+          Map.of("connectionId", connection.getId()));
       notificationService.create(targetUserId, "connection_request_received", "Connection request",
-          "You received a new connection request.", Map.of("connectionId", String.valueOf(connection.get("id"))));
+          "You received a new connection request.", Map.of("connectionId", connection.getId()));
     }
-    return publicizeConnection(connection);
+    return toConnectionRecord(connection);
   }
 
   @Transactional
-  public Map<String, Object> decide(String id, String actorUserId, String status) {
-    Map<String, Object> current = connectionRepository.findConnection(id);
-    if (current == null || current.isEmpty()) {
+  public ConnectionRecord decide(String id, String actorUserId, String status) {
+    ConnectionRepository.ConnectionRow current = connectionRepository.findConnection(id);
+    if (current == null) {
       throw new ApiException(HttpStatus.NOT_FOUND, "Connection not found");
     }
-    boolean participant = actorUserId.equals(String.valueOf(current.get("userAId")))
-        || actorUserId.equals(String.valueOf(current.get("userBId")));
+    boolean participant = actorUserId.equals(current.getUserAId())
+        || actorUserId.equals(current.getUserBId());
     if (!participant) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Actor is not part of this connection");
     }
-    String currentStatus = String.valueOf(current.get("status"));
-    String requester = String.valueOf(current.get("requestedByUserId"));
+    String currentStatus = current.getStatus();
+    String requester = current.getRequestedByUserId();
     if ("blocked".equals(status) && "blocked".equals(currentStatus)) {
-      return publicizeConnection(current);
+      return toConnectionRecord(current);
     }
     if (List.of("accepted", "declined").contains(status) && !"pending".equals(currentStatus)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Only pending connections can be " + status);
@@ -98,8 +102,8 @@ public class ConnectionsService {
     if ("accepted".equals(status) && actorUserId.equals(requester)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot accept your own connection request");
     }
-    Map<String, Object> connection = connectionRepository.decideConnection(id, actorUserId, status);
-    if (connection == null || connection.isEmpty()) {
+    ConnectionRepository.ConnectionRow connection = connectionRepository.decideConnection(id, actorUserId, status);
+    if (connection == null) {
       throw new ApiException(HttpStatus.CONFLICT, "Connection state changed before this operation completed");
     }
     auditService.logEvent(actorUserId, requester, "connection_" + status, null, Map.of("connectionId", id));
@@ -113,21 +117,44 @@ public class ConnectionsService {
     if ("blocked".equals(status)) {
       consentService.revokeAllForConnection(id, "Connection blocked by participant");
     }
-    return publicizeConnection(connection);
+    return toConnectionRecord(connection);
   }
 
-  private Map<String, Object> publicizeConnection(Map<String, Object> connection) {
-    Map<String, Object> publicConnection = new LinkedHashMap<>(connection);
-    publicConnection.put("userAId", connection.containsKey("userAPublicId")
-        ? connection.get("userAPublicId") : publicUserId(connection.get("userAId")));
-    publicConnection.put("userBId", connection.containsKey("userBPublicId")
-        ? connection.get("userBPublicId") : publicUserId(connection.get("userBId")));
-    publicConnection.put("requestedByUserId", connection.containsKey("requestedByPublicId")
-        ? connection.get("requestedByPublicId") : publicUserId(connection.get("requestedByUserId")));
-    publicConnection.remove("userAPublicId");
-    publicConnection.remove("userBPublicId");
-    publicConnection.remove("requestedByPublicId");
-    return publicConnection;
+  private ConnectionRecord toConnectionRecord(ConnectionRepository.ConnectionRow connection) {
+    String userAId = connection.getUserAPublicId() != null
+        ? connection.getUserAPublicId() : publicUserId(connection.getUserAId());
+    String userBId = connection.getUserBPublicId() != null
+        ? connection.getUserBPublicId() : publicUserId(connection.getUserBId());
+    String requestedByUserId = connection.getRequestedByPublicId() != null
+        ? connection.getRequestedByPublicId() : publicUserId(connection.getRequestedByUserId());
+    return new ConnectionRecord(
+        connection.getId(),
+        userAId,
+        userBId,
+        requestedByUserId,
+        connection.getStatus(),
+        connection.getRequestedAt(),
+        connection.getDecidedAt());
+  }
+
+  private ConnectionSearchCandidate toSearchCandidate(ConnectionRepository.SearchCandidateRow row) {
+    return new ConnectionSearchCandidate(
+        row.getUserId(),
+        row.getDisplayName(),
+        row.getLocationLabel(),
+        csvToList(row.getServiceCategories()),
+        csvToList(row.getRecentJobCategories()),
+        csvToList(row.getRecentLocations()));
+  }
+
+  private List<String> csvToList(String value) {
+    if (value == null || value.isBlank()) {
+      return List.of();
+    }
+    return Arrays.stream(value.replace("{", "").replace("}", "").split(","))
+        .map(String::trim)
+        .filter(v -> !v.isBlank())
+        .toList();
   }
 
   private String resolveInternalUserId(String identifier) {
@@ -142,5 +169,24 @@ public class ConnectionsService {
       return null;
     }
     return connectionRepository.findPublicUserId(String.valueOf(userId));
+  }
+
+  private String encodeCursor(ConnectionRecord row) {
+    String value = row.requestedAt() + CURSOR_SEPARATOR + row.id();
+    return Base64.getUrlEncoder().withoutPadding().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+  }
+
+  public record ConnectionRequestInput(String targetUserId, String targetQuery) {
+  }
+
+  public record ConnectionRecord(String id, String userAId, String userBId, String requestedByUserId,
+      String status, String requestedAt, String decidedAt) {
+  }
+
+  public record ConnectionListResponse(List<ConnectionRecord> items, int limit, String nextCursor) {
+  }
+
+  public record ConnectionSearchCandidate(String userId, String displayName, String locationLabel,
+      List<String> serviceCategories, List<String> recentJobCategories, List<String> recentLocations) {
   }
 }

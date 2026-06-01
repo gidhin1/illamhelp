@@ -4,6 +4,7 @@ import com.illamhelp.api.config.AppProperties;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -27,7 +28,7 @@ public class StorageService {
     this.properties = properties;
   }
 
-  public Map<String, Object> presignedPut(String bucket, String key, String contentType, String checksumSha256) {
+  public PresignedPutTicket presignedPut(String bucket, String key, String contentType, String checksumSha256) {
     Instant expiresAt = Instant.now().plus(Duration.ofMinutes(15));
     try (S3Presigner presigner = presigner()) {
       PutObjectRequest request = PutObjectRequest.builder()
@@ -42,12 +43,14 @@ public class StorageService {
               .build())
           .url()
           .toString();
-      return Map.of("uploadUrl", url, "expiresAt", expiresAt.toString(), "requiredHeaders",
-          Map.of("Content-Type", contentType, "x-amz-meta-checksum-sha256", checksumSha256));
+      Map<String, String> requiredHeaders = new LinkedHashMap<>();
+      requiredHeaders.put("Content-Type", contentType);
+      requiredHeaders.put("x-amz-meta-checksum-sha256", checksumSha256);
+      return new PresignedPutTicket(url, expiresAt.toString(), requiredHeaders);
     }
   }
 
-  public Map<String, Object> presignedGet(String bucket, String key) {
+  public PresignedGetTicket presignedGet(String bucket, String key) {
     Instant expiresAt = Instant.now().plus(Duration.ofMinutes(15));
     try (S3Presigner presigner = presigner()) {
       GetObjectRequest request = GetObjectRequest.builder().bucket(bucket).key(key).build();
@@ -57,7 +60,7 @@ public class StorageService {
               .build())
           .url()
           .toString();
-      return Map.of("downloadUrl", url, "downloadUrlExpiresAt", expiresAt.toString());
+      return new PresignedGetTicket(url, expiresAt.toString());
     }
   }
 
@@ -70,6 +73,12 @@ public class StorageService {
   }
 
   public record UploadedObject(String contentType, Long contentLength, String checksumSha256, String etag) {
+  }
+
+  public record PresignedPutTicket(String uploadUrl, String expiresAt, Map<String, String> requiredHeaders) {
+  }
+
+  public record PresignedGetTicket(String downloadUrl, String downloadUrlExpiresAt) {
   }
 
   private S3Client client() {

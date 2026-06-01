@@ -5,9 +5,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -29,42 +27,40 @@ public class ConnectionsController {
   }
 
   @GetMapping("/connections")
-  public Map<String, Object> list(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
+  public ConnectionsService.ConnectionListResponse list(@AuthenticationPrincipal Jwt jwt, @RequestParam(required = false) Integer limit,
       @RequestParam(required = false) String cursor) {
     return service.list(CurrentUser.fromJwt(jwt).userId(), limit, cursor);
   }
 
   @GetMapping("/connections/search")
-  public List<Map<String, Object>> search(@AuthenticationPrincipal Jwt jwt,
+  public List<ConnectionsService.ConnectionSearchCandidate> search(@AuthenticationPrincipal Jwt jwt,
       @Valid @ModelAttribute ConnectionSearchRequest request) {
     return service.search(CurrentUser.fromJwt(jwt).userId(), request.q(), request.limit());
   }
 
   @PostMapping("/connections/request")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> request(@AuthenticationPrincipal Jwt jwt,
+  public ConnectionsService.ConnectionRecord request(@AuthenticationPrincipal Jwt jwt,
       @Valid @RequestBody ConnectionRequest request) {
-    Map<String, Object> body = new LinkedHashMap<>();
-    body.put("targetUserId", request.targetUserId());
-    body.put("targetQuery", request.targetQuery());
-    return service.request(CurrentUser.fromJwt(jwt).userId(), body);
+    return service.request(CurrentUser.fromJwt(jwt).userId(),
+        new ConnectionsService.ConnectionRequestInput(request.targetUserId(), request.targetQuery()));
   }
 
   @PostMapping("/connections/{id}/accept")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> accept(@AuthenticationPrincipal Jwt jwt, @PathVariable String id) {
+  public ConnectionsService.ConnectionRecord accept(@AuthenticationPrincipal Jwt jwt, @PathVariable String id) {
     return service.decide(id, CurrentUser.fromJwt(jwt).userId(), "accepted");
   }
 
   @PostMapping("/connections/{id}/decline")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> decline(@AuthenticationPrincipal Jwt jwt, @PathVariable String id) {
+  public ConnectionsService.ConnectionRecord decline(@AuthenticationPrincipal Jwt jwt, @PathVariable String id) {
     return service.decide(id, CurrentUser.fromJwt(jwt).userId(), "declined");
   }
 
   @PostMapping("/connections/{id}/block")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> block(@AuthenticationPrincipal Jwt jwt, @PathVariable String id) {
+  public ConnectionsService.ConnectionRecord block(@AuthenticationPrincipal Jwt jwt, @PathVariable String id) {
     return service.decide(id, CurrentUser.fromJwt(jwt).userId(), "blocked");
   }
 

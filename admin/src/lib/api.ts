@@ -1,5 +1,17 @@
 export type AppRole = "both" | "seeker" | "provider" | "admin" | "support";
 
+type MetadataValue =
+  | string
+  | number
+  | boolean
+  | null
+  | MetadataDto
+  | MetadataValue[];
+
+interface MetadataDto {
+  [key: string]: MetadataValue;
+}
+
 export interface ApiErrorPayload {
   statusCode?: number;
   message?: string | string[];
@@ -20,17 +32,45 @@ export interface AuthSessionResponse {
   userId: string;
   publicUserId: string;
   username: string;
+  userType: "seeker" | "provider" | "both";
   roles: AppRole[];
   accessToken: string;
   expiresIn: number;
+  refreshToken?: string;
+  refreshExpiresIn?: number;
   tokenType: string;
+  scope?: string;
 }
 
 export interface AuthenticatedUser {
   userId: string;
   publicUserId: string;
   tokenSubject: string;
+  userType: "seeker" | "provider" | "both";
   roles: AppRole[];
+}
+
+export interface MediaAssetRecord {
+  id: string;
+  ownerUserId: string;
+  jobId: string | null;
+  kind: "image" | "video";
+  bucketName: string;
+  objectKey: string;
+  contentType: string;
+  fileSizeBytes: number;
+  checksumSha256: string;
+  state:
+  | "uploaded"
+  | "scanning"
+  | "ai_reviewed"
+  | "human_review_pending"
+  | "approved"
+  | "rejected"
+  | "appeal_pending"
+  | "appeal_resolved";
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ModerationQueueItem {
@@ -62,7 +102,7 @@ export interface ModerationJobRecord {
   status: "pending" | "running" | "approved" | "rejected" | "error";
   assignedModeratorUserId: string | null;
   reasonCode: string | null;
-  details: Record<string, unknown>;
+  details: MetadataDto;
   createdAt: string;
   completedAt: string | null;
 }
@@ -79,7 +119,7 @@ export interface ModerationDetails {
     checksumSha256: string;
     state: string;
     moderationReasonCodes: string[];
-    aiScores: Record<string, unknown> | null;
+    aiScores: MetadataDto | null;
     previewUrl: string;
     previewUrlExpiresAt: string;
     createdAt: string;
@@ -133,7 +173,7 @@ export interface AdminTimelineResponse {
     purpose: string | null;
     actorUserId: string | null;
     targetUserId: string | null;
-    metadata: Record<string, unknown>;
+    metadata: MetadataDto;
     createdAt: string;
   }>;
 }
@@ -258,8 +298,8 @@ export function reviewMedia(
     notes?: string;
   },
   accessToken: string
-): Promise<ModerationDetails["media"]> {
-  return apiRequest<ModerationDetails["media"]>(
+): Promise<MediaAssetRecord> {
+  return apiRequest<MediaAssetRecord>(
     `/admin/media/${mediaId}/review`,
     {
       method: "POST",

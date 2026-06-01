@@ -42,39 +42,38 @@ public class JobsService {
     this.assignmentRevokeWindowMinutes = properties.jobAssignmentRevokeWindowMinutes();
   }
 
-  public Map<String, Object> list(String userId, Integer limit, String cursorValue) {
+  public JobPage list(String userId, Integer limit, String cursorValue) {
     int safeLimit = limit == null ? 50 : Math.max(1, Math.min(limit, 100));
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
     List<Map<String, Object>> rows = jobRepository.listVisible(userId, cursor.createdAt(), cursor.id(), safeLimit + 1);
     Map<String, Object> page = CursorPages.response(rows, safeLimit, "createdAt");
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> items = (List<Map<String, Object>>) page.get("items");
-    page.put("items", items.stream().map(this::publicizeJob).toList());
-    return page;
+    return new JobPage(items.stream().map(this::publicJobRecord).toList(), safeLimit, (String) page.get("nextCursor"));
   }
 
-  public List<Map<String, Object>> search(String userId, Map<String, Object> query) {
-    String rawQuery = searchText(query.get("q"), 160, "q");
-    String rawCategory = searchText(query.get("category"), 64, "category");
-    String rawLocationText = searchText(query.get("locationText"), 160, "locationText");
+  public List<JobRecord> search(String userId, SearchJobsRequest query) {
+    String rawQuery = searchText(query.q(), 160, "q");
+    String rawCategory = searchText(query.category(), 64, "category");
+    String rawLocationText = searchText(query.locationText(), 160, "locationText");
     String q = likePattern(rawQuery);
     String category = likePattern(rawCategory);
     String locationText = likePattern(rawLocationText);
-    Double minSeekerRating = decimal(query.get("minSeekerRating"), "minSeekerRating", 0, 5);
-    String statuses = statuses(query.get("statuses"));
-    String visibility = optionalText(query.get("visibility"));
+    Double minSeekerRating = decimal(query.minSeekerRating(), "minSeekerRating", 0, 5);
+    String statuses = statuses(query.statuses());
+    String visibility = optionalText(query.visibility());
     if (visibility != null && !SEARCH_VISIBILITIES.contains(visibility)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Unsupported job visibility: " + visibility);
     }
-    Double latitude = decimal(query.get("latitude"), "latitude", -90, 90);
-    Double longitude = decimal(query.get("longitude"), "longitude", -180, 180);
-    Double radiusKm = decimal(query.get("radiusKm"), "radiusKm", 1, 100);
+    Double latitude = decimal(query.latitude(), "latitude", -90, 90);
+    Double longitude = decimal(query.longitude(), "longitude", -180, 180);
+    Double radiusKm = decimal(query.radiusKm(), "radiusKm", 1, 100);
     if ((latitude != null || longitude != null || radiusKm != null)
         && (latitude == null || longitude == null || radiusKm == null)) {
       throw new ApiException(HttpStatus.BAD_REQUEST,
           "Latitude, longitude, and radiusKm must be provided together for geo search");
     }
-    int limit = integer(query.get("limit"), 20, 1, 50, "limit");
+    int limit = integer(query.limit(), 20, 1, 50, "limit");
     String effectiveStatuses = statuses == null ? "posted" : statuses;
     JobsSearchService.SearchResult indexed = jobsSearchService.searchJobIds(new JobsSearchService.SearchCriteria(
         rawQuery, rawCategory, rawLocationText, minSeekerRating, Arrays.asList(effectiveStatuses.split(",")),
@@ -85,11 +84,36 @@ public class JobsService {
     String[] preferredIds = indexed.available() ? indexed.ids().toArray(String[]::new) : null;
     return jobRepository.searchVisible(preferredIds, userId, q, category, locationText, minSeekerRating,
         effectiveStatuses, visibility, latitude, longitude, radiusKm, limit)
-        .stream().map(this::publicizeJob).toList();
+        .stream().map(this::publicJobRecord).toList();
+  }
+
+  public record SearchJobsRequest(
+      String q,
+      String category,
+      String locationText,
+      Double minSeekerRating,
+      String statuses,
+      String visibility,
+      Double latitude,
+      Double longitude,
+      Double radiusKm,
+      Integer limit) {
+  }
+
+  public record JobPage(List<JobRecord> items, int limit, String nextCursor) {
+  }
+
+  public record JobRecord(String id, String seekerUserId, String category, String title, String description,
+      String locationText, Double locationLatitude, Double locationLongitude, Double seekerRating, String visibility,
+      String status, String assignedProviderUserId, String acceptedApplicationId, String createdAt, String updatedAt) {
+  }
+
+  public record ApplicationRecord(String id, String jobId, String providerUserId, String status, String message,
+      String createdAt, String updatedAt) {
   }
 
   @Transactional
-  public Map<String, Object> create(String userId, CreateJobRequest request) {
+  public JobRecord create(String userId, CreateJobRequest request) {
     if ((request.locationLatitude() == null) != (request.locationLongitude() == null)) {
       throw new ApiException(HttpStatus.BAD_REQUEST,
           "locationLatitude and locationLongitude must be provided together");
@@ -99,11 +123,11 @@ public class JobsService {
         request.locationLatitude(), request.locationLongitude());
     indexAfterCommit(job);
     auditService.logEvent(userId, null, "job_created", null, Map.of("jobId", String.valueOf(job.get("id"))));
-    return publicizeJob(job);
+    return publicJobRecord(job);
   }
 
   @Transactional
-  public Map<String, Object> apply(String userId, String jobId, ApplyJobRequest request) {
+  public ApplicationRecord apply(String userId, String jobId, ApplyJobRequest request) {
     Map<String, Object> eligibility = jobRepository.applicationEligibility(userId, jobId);
     if (eligibility == null || eligibility.isEmpty()) {
       throw new ApiException(HttpStatus.NOT_FOUND, "Job not found");
@@ -123,19 +147,21 @@ public class JobsService {
         Map.of("jobId", jobId, "applicationId", String.valueOf(application.get("id"))));
     notificationService.create(seekerUserId, "job_application_received", "New application received",
         "A provider applied to your job.", Map.of("jobId", jobId, "applicationId", String.valueOf(application.get("id"))));
-    return publicizeApplication(application);
+    return publicApplicationRecord(application);
   }
 
-  public List<Map<String, Object>> listApplications(String jobId, String actorUserId) {
-    return jobRepository.listApplications(jobId, actorUserId, MAX_ARRAY_RESULTS).stream().map(this::publicizeApplication).toList();
+  public List<ApplicationRecord> listApplications(String jobId, String actorUserId) {
+    return jobRepository.listApplications(jobId, actorUserId, MAX_ARRAY_RESULTS).stream()
+        .map(this::publicApplicationRecord).toList();
   }
 
-  public List<Map<String, Object>> listMyApplications(String userId) {
-    return jobRepository.listMyApplications(userId, MAX_ARRAY_RESULTS).stream().map(this::publicizeApplication).toList();
+  public List<ApplicationRecord> listMyApplications(String userId) {
+    return jobRepository.listMyApplications(userId, MAX_ARRAY_RESULTS).stream()
+        .map(this::publicApplicationRecord).toList();
   }
 
   @Transactional
-  public Map<String, Object> acceptApplication(String applicationId, String seekerUserId) {
+  public ApplicationRecord acceptApplication(String applicationId, String seekerUserId) {
     Map<String, Object> application = applicationWithJob(applicationId);
     if (!seekerUserId.equals(String.valueOf(application.get("seeker_user_id")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Only job owner can accept applications");
@@ -159,18 +185,18 @@ public class JobsService {
         "Your job application has been accepted.", Map.of("jobId", String.valueOf(application.get("job_id")), "applicationId", applicationId));
     notificationService.create(seekerUserId, "job_application_accepted", "Provider assigned",
         "You assigned a provider. Booking can start now.", Map.of("jobId", String.valueOf(application.get("job_id")), "applicationId", applicationId));
-    return publicizeApplication(accepted);
+    return publicApplicationRecord(accepted);
   }
 
   @Transactional
-  public Map<String, Object> rejectApplication(String applicationId, String seekerUserId, String reason) {
+  public ApplicationRecord rejectApplication(String applicationId, String seekerUserId, String reason) {
     Map<String, Object> application = applicationWithJob(applicationId);
     if (!seekerUserId.equals(String.valueOf(application.get("seeker_user_id")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Only job owner can reject applications");
     }
     String status = String.valueOf(application.get("status"));
     if ("rejected".equals(status)) {
-      return publicizeApplication(jobRepository.applicationById(applicationId));
+      return publicApplicationRecord(jobRepository.applicationById(applicationId));
     }
     if ("withdrawn".equals(status)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Cannot reject an application already withdrawn");
@@ -185,18 +211,18 @@ public class JobsService {
             "reason", normalizedReason(reason)));
     notificationService.create(String.valueOf(application.get("provider_user_id")), "job_application_rejected", "Application rejected",
         "Your job application was not selected.", Map.of("jobId", String.valueOf(application.get("job_id")), "applicationId", applicationId));
-    return publicizeApplication(updated);
+    return publicApplicationRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> withdrawApplication(String applicationId, String providerUserId) {
+  public ApplicationRecord withdrawApplication(String applicationId, String providerUserId) {
     Map<String, Object> application = applicationWithJob(applicationId);
     if (!providerUserId.equals(String.valueOf(application.get("provider_user_id")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Only applicant can withdraw this application");
     }
     String status = String.valueOf(application.get("status"));
     if ("withdrawn".equals(status)) {
-      return publicizeApplication(jobRepository.applicationById(applicationId));
+      return publicApplicationRecord(jobRepository.applicationById(applicationId));
     }
     if ("accepted".equals(status)) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Accepted application cannot be withdrawn directly. Use booking cancel.");
@@ -208,7 +234,7 @@ public class JobsService {
     requireChanged(updated, "Application is no longer active");
     auditService.logEvent(providerUserId, String.valueOf(application.get("seeker_user_id")), "job_application_withdrawn", null,
         Map.of("jobId", String.valueOf(application.get("job_id")), "applicationId", applicationId));
-    return publicizeApplication(updated);
+    return publicApplicationRecord(updated);
   }
 
   private Map<String, Object> setApplicationStatus(String applicationId, String status) {
@@ -216,7 +242,7 @@ public class JobsService {
   }
 
   @Transactional
-  public Map<String, Object> startBooking(String jobId, String actorUserId) {
+  public JobRecord startBooking(String jobId, String actorUserId) {
     Map<String, Object> job = job(jobId);
     if (!"accepted".equals(String.valueOf(job.get("status")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Only accepted jobs can be started");
@@ -228,25 +254,25 @@ public class JobsService {
     auditService.logEvent(actorUserId, String.valueOf(job.get("seeker_user_id")), "booking_started", null, Map.of("jobId", jobId));
     notificationService.create(String.valueOf(job.get("seeker_user_id")), "job_booking_started", "Booking started",
         "Your assigned provider started the booking.", Map.of("jobId", jobId));
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> completeBooking(String jobId, String actorUserId) {
+  public JobRecord completeBooking(String jobId, String actorUserId) {
     Map<String, Object> updated = ownerTransition(jobId, actorUserId, "in_progress", "completed", "Only in-progress jobs can be completed", "Only job owner can complete this booking");
     auditService.logEvent(actorUserId, String.valueOf(job(jobId).get("assigned_provider_user_id")), "booking_completed", null, Map.of("jobId", jobId));
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> markPaymentDone(String jobId, String actorUserId) {
+  public JobRecord markPaymentDone(String jobId, String actorUserId) {
     Map<String, Object> updated = ownerTransition(jobId, actorUserId, "completed", "payment_done", "Payment can be marked done only after job completion", "Only job owner can mark payment done");
     auditService.logEvent(actorUserId, String.valueOf(job(jobId).get("assigned_provider_user_id")), "booking_payment_marked_done", null, Map.of("jobId", jobId));
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> markPaymentReceived(String jobId, String actorUserId) {
+  public JobRecord markPaymentReceived(String jobId, String actorUserId) {
     Map<String, Object> job = job(jobId);
     if (!"payment_done".equals(String.valueOf(job.get("status")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Payment can be received only after owner marks payment done");
@@ -256,18 +282,18 @@ public class JobsService {
     }
     Map<String, Object> updated = setJobStatus(jobId, "payment_done", "payment_received");
     auditService.logEvent(actorUserId, String.valueOf(job.get("seeker_user_id")), "booking_payment_received", null, Map.of("jobId", jobId));
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> closeBooking(String jobId, String actorUserId) {
+  public JobRecord closeBooking(String jobId, String actorUserId) {
     Map<String, Object> updated = ownerTransition(jobId, actorUserId, "payment_received", "closed", "Job can be closed only after payment is received", "Only job owner can close this booking");
     auditService.logEvent(actorUserId, String.valueOf(job(jobId).get("assigned_provider_user_id")), "booking_closed", null, Map.of("jobId", jobId));
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> revokeAssignment(String jobId, String actorUserId, String reason) {
+  public JobRecord revokeAssignment(String jobId, String actorUserId, String reason) {
     Map<String, Object> job = job(jobId);
     if (!"accepted".equals(String.valueOf(job.get("status")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Assignment can be revoked only while the job is accepted and before work starts");
@@ -293,17 +319,17 @@ public class JobsService {
         "A job assignment was revoked before work started.", Map.of("jobId", jobId));
     notificationService.create(actorUserId, "job_application_accepted", "Assignment revoked",
         "Assignment was revoked. You can pick another applicant.", Map.of("jobId", jobId));
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   @Transactional
-  public Map<String, Object> cancelBooking(String jobId, String actorUserId, String reason) {
+  public JobRecord cancelBooking(String jobId, String actorUserId, String reason) {
     Map<String, Object> job = job(jobId);
     if ("completed".equals(String.valueOf(job.get("status")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Completed booking cannot be cancelled");
     }
     if ("cancelled".equals(String.valueOf(job.get("status")))) {
-      return publicizeJob(jobRepository.findIndexableJob(jobId));
+      return publicJobRecord(jobRepository.findIndexableJob(jobId));
     }
     if (!List.of("posted", "accepted", "in_progress").contains(String.valueOf(job.get("status")))) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "Job cannot be cancelled from current state");
@@ -329,7 +355,7 @@ public class JobsService {
       notificationService.create(target, "job_booking_cancelled", "Booking cancelled",
           "A booking was cancelled.", Map.of("jobId", jobId));
     }
-    return publicizeJob(updated);
+    return publicJobRecord(updated);
   }
 
   private Map<String, Object> ownerTransition(String jobId, String actorUserId, String fromStatus, String toStatus, String stateMessage, String authMessage) {
@@ -406,6 +432,57 @@ public class JobsService {
         ? application.get("providerPublicUserId") : publicUserId(application.get("providerUserId")));
     publicApplication.remove("providerPublicUserId");
     return publicApplication;
+  }
+
+  private JobRecord publicJobRecord(Map<String, Object> job) {
+    return jobRecord(publicizeJob(job));
+  }
+
+  private ApplicationRecord publicApplicationRecord(Map<String, Object> application) {
+    return applicationRecord(publicizeApplication(application));
+  }
+
+  static JobRecord jobRecord(Map<String, Object> job) {
+    return new JobRecord(
+        string(job, "id"),
+        string(job, "seekerUserId"),
+        string(job, "category"),
+        string(job, "title"),
+        string(job, "description"),
+        string(job, "locationText"),
+        doubleValue(job, "locationLatitude"),
+        doubleValue(job, "locationLongitude"),
+        doubleValue(job, "seekerRating"),
+        string(job, "visibility"),
+        string(job, "status"),
+        string(job, "assignedProviderUserId"),
+        string(job, "acceptedApplicationId"),
+        string(job, "createdAt"),
+        string(job, "updatedAt"));
+  }
+
+  static ApplicationRecord applicationRecord(Map<String, Object> application) {
+    return new ApplicationRecord(
+        string(application, "id"),
+        string(application, "jobId"),
+        string(application, "providerUserId"),
+        string(application, "status"),
+        string(application, "message"),
+        string(application, "createdAt"),
+        string(application, "updatedAt"));
+  }
+
+  private static String string(Map<String, Object> row, String key) {
+    Object value = row.get(key);
+    return value == null ? null : String.valueOf(value);
+  }
+
+  private static Double doubleValue(Map<String, Object> row, String key) {
+    Object value = row.get(key);
+    if (value == null) {
+      return null;
+    }
+    return value instanceof Number number ? number.doubleValue() : Double.valueOf(String.valueOf(value));
   }
 
   private String publicUserId(Object userId) {

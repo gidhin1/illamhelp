@@ -6,9 +6,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -18,7 +16,6 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -32,33 +29,32 @@ public class AdminMediaController {
   }
 
   @GetMapping("/admin/media/moderation-queue")
-  public List<Map<String, Object>> queue(@Valid @ModelAttribute ModerationQueueRequest request) {
+  public List<MediaModerationService.ModerationQueueItem> queue(@Valid @ModelAttribute ModerationQueueRequest request) {
     return moderationService.listModerationQueue(request.stage(), request.status(),
         request.limit() == null ? 50 : request.limit());
   }
 
   @GetMapping("/admin/media/{mediaId}/moderation")
-  public Map<String, Object> details(@PathVariable String mediaId) {
+  public MediaModerationService.ModerationDetails details(@PathVariable String mediaId) {
     return moderationService.getModerationDetails(mediaId);
   }
 
   @PostMapping("/admin/media/moderation/process")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Integer> process(@AuthenticationPrincipal Jwt jwt,
+  public MediaModerationService.ProcessModerationResult process(@AuthenticationPrincipal Jwt jwt,
       @Valid @RequestBody(required = false) ProcessModerationRequest request) {
-    Map<String, Object> body = request == null || request.limit() == null ? null : Map.of("limit", request.limit());
-    return moderationService.processPendingJobs(CurrentUser.fromJwt(jwt).userId(), body);
+    MediaModerationService.ProcessModerationInput input = request == null
+        ? null
+        : new MediaModerationService.ProcessModerationInput(request.limit());
+    return moderationService.processPendingJobs(CurrentUser.fromJwt(jwt).userId(), input);
   }
 
   @PostMapping("/admin/media/{mediaId}/review")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> review(@AuthenticationPrincipal Jwt jwt, @PathVariable String mediaId,
+  public MediaService.MediaAssetRecord review(@AuthenticationPrincipal Jwt jwt, @PathVariable String mediaId,
       @Valid @RequestBody ReviewMediaRequest request) {
-    Map<String, Object> body = new LinkedHashMap<>();
-    body.put("decision", request.decision());
-    body.put("reasonCode", request.reasonCode());
-    body.put("notes", request.notes());
-    return moderationService.reviewMedia(CurrentUser.fromJwt(jwt).userId(), mediaId, body);
+    return moderationService.reviewMedia(CurrentUser.fromJwt(jwt).userId(), mediaId,
+        new MediaModerationService.ReviewMediaInput(request.decision(), request.reasonCode(), request.notes()));
   }
 
   public record ModerationQueueRequest(

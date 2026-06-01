@@ -50,7 +50,7 @@ class JobsTests {
         .thenReturn(Map.of("id", "j", "seekerUserId", "owner"));
     when(repository.findPublicUserId("owner")).thenReturn("member_owner");
 
-    assertThat(service.create("owner", request)).containsEntry("seekerUserId", "member_owner");
+    assertThat(service.create("owner", request).seekerUserId()).isEqualTo("member_owner");
     verify(search).indexJob(Map.of("id", "j", "seekerUserId", "owner"));
     verify(audit).logEvent("owner", null, "job_created", null, Map.of("jobId", "j"));
   }
@@ -68,10 +68,8 @@ class JobsTests {
         org.mockito.ArgumentMatchers.eq(25.28), org.mockito.ArgumentMatchers.eq(51.53),
         org.mockito.ArgumentMatchers.eq(10.0), org.mockito.ArgumentMatchers.eq(50))).thenReturn(List.of());
 
-    assertThat(service.search("actor", Map.of(
-        "q", "Plumber", "category", "CARE", "locationText", "Doha", "minSeekerRating", "4.2",
-        "statuses", "posted,accepted", "visibility", "public", "latitude", "25.28",
-        "longitude", "51.53", "radiusKm", "10", "limit", "50"))).isEmpty();
+    assertThat(service.search("actor", new JobsService.SearchJobsRequest(
+        "Plumber", "CARE", "Doha", 4.2, "posted,accepted", "public", 25.28, 51.53, 10.0, 50))).isEmpty();
 
     verify(repository).searchVisible(aryEq(new String[]{"job-one", "job-two"}), org.mockito.ArgumentMatchers.eq("actor"),
         org.mockito.ArgumentMatchers.eq("%plumber%"), org.mockito.ArgumentMatchers.eq("%care%"),
@@ -90,9 +88,11 @@ class JobsTests {
     when(repository.searchVisible(null, "actor", null, null, null, null, "posted", null, null, null, null, 20))
         .thenReturn(List.of());
 
-    assertThat(service.search("actor", Map.of())).isEmpty();
+    assertThat(service.search("actor", new JobsService.SearchJobsRequest(
+        null, null, null, null, null, null, null, null, null, null))).isEmpty();
     verify(repository).searchVisible(null, "actor", null, null, null, null, "posted", null, null, null, null, 20);
-    assertThatThrownBy(() -> service.search("actor", Map.of("latitude", "25.28")))
+    assertThatThrownBy(() -> service.search("actor", new JobsService.SearchJobsRequest(
+        null, null, null, null, null, null, 25.28, null, null, null)))
         .isInstanceOf(ApiException.class)
         .hasMessage("Latitude, longitude, and radiusKm must be provided together for geo search");
   }
@@ -104,7 +104,8 @@ class JobsTests {
     when(search.searchJobIds(any())).thenReturn(new JobsSearchService.SearchResult(true, List.of()));
     JobsService service = new JobsService(repository, mock(AuditService.class), mock(NotificationService.class), search, properties());
 
-    assertThat(service.search("actor", Map.of("q", "nothing nearby"))).isEmpty();
+    assertThat(service.search("actor", new JobsService.SearchJobsRequest(
+        "nothing nearby", null, null, null, null, null, null, null, null, null))).isEmpty();
     verifyNoInteractions(repository);
   }
 
@@ -130,7 +131,7 @@ class JobsTests {
     when(repository.acceptAuthorized("a", "owner")).thenReturn(Map.of("providerUserId", "p"));
     when(repository.findPublicUserId("p")).thenReturn("provider");
 
-    assertThat(service.acceptApplication("a", "owner")).containsEntry("providerUserId", "provider");
+    assertThat(service.acceptApplication("a", "owner").providerUserId()).isEqualTo("provider");
     verify(repository).rejectOtherApplications("j", "a");
     verify(repository).acceptAuthorized("a", "owner");
     verify(notifications, org.mockito.Mockito.times(2)).create(any(), any(), any(), any(), any());
@@ -148,8 +149,8 @@ class JobsTests {
         "id", "application", "providerUserId", "provider"));
     when(repository.findPublicUserId("provider")).thenReturn("member_provider");
 
-    assertThat(service.apply("provider", "job", new JobsService.ApplyJobRequest("Available")))
-        .containsEntry("providerUserId", "member_provider");
+    assertThat(service.apply("provider", "job", new JobsService.ApplyJobRequest("Available")).providerUserId())
+        .isEqualTo("member_provider");
     verify(audit).logEvent("provider", "owner", "job_application_submitted", null,
         Map.of("jobId", "job", "applicationId", "application"));
     verify(notifications).create("owner", "job_application_received", "New application received",
@@ -219,10 +220,10 @@ class JobsTests {
     JobsService service = new JobsService(repository, mock(AuditService.class), mock(NotificationService.class),
         mock(JobsSearchService.class), properties());
 
-    @SuppressWarnings("unchecked")
-    Map<String, Object> item = (Map<String, Object>) ((List<?>) service.list("actor", 10, null).get("items")).getFirst();
+    JobsService.JobRecord item = service.list("actor", 10, null).items().getFirst();
 
-    assertThat(item).containsEntry("seekerUserId", "member").containsEntry("assignedProviderUserId", "provider");
+    assertThat(item.seekerUserId()).isEqualTo("member");
+    assertThat(item.assignedProviderUserId()).isEqualTo("provider");
     verify(repository, never()).findPublicUserId(any());
   }
 
@@ -236,10 +237,11 @@ class JobsTests {
     JobsService service = new JobsService(repository, mock(AuditService.class), mock(NotificationService.class),
         mock(JobsSearchService.class), properties());
 
-    Map<String, Object> page = service.list("actor", 1, cursor);
+    JobsService.JobPage page = service.list("actor", 1, cursor);
 
-    assertThat(page).containsEntry("limit", 1).containsEntry("nextCursor", null);
-    assertThat((List<?>) page.get("items")).isEmpty();
+    assertThat(page.limit()).isEqualTo(1);
+    assertThat(page.nextCursor()).isNull();
+    assertThat(page.items()).isEmpty();
     verify(repository).listVisible("actor", "2026-05-26T10:00:00Z", "anchor", 2);
   }
 
@@ -254,8 +256,8 @@ class JobsTests {
     when(repository.setApplicationStatus("a", "rejected")).thenReturn(Map.of("providerUserId", "p"));
     when(repository.findPublicUserId("p")).thenReturn("provider");
 
-    assertThat(service.rejectApplication("a", "owner", "  quote is too high  "))
-        .containsEntry("providerUserId", "provider");
+    assertThat(service.rejectApplication("a", "owner", "  quote is too high  ").providerUserId())
+        .isEqualTo("provider");
     verify(audit).logEvent("owner", "p", "job_application_rejected", null,
         Map.of("jobId", "j", "applicationId", "a", "reason", "quote is too high"));
 
@@ -278,8 +280,8 @@ class JobsTests {
     when(repository.reopenJob("j")).thenReturn(Map.of("seekerUserId", "owner"));
     when(repository.findPublicUserId("owner")).thenReturn("seeker");
 
-    assertThat(service.revokeAssignment("j", "owner", " another provider "))
-        .containsEntry("seekerUserId", "seeker");
+    assertThat(service.revokeAssignment("j", "owner", " another provider ").seekerUserId())
+        .isEqualTo("seeker");
     verify(repository).updateAcceptedApplicationStatus("application", "rejected");
     verify(audit).logEvent("owner", "provider", "job_assignment_revoked", null,
         Map.of("jobId", "j", "revokedApplicationId", "application", "reason", "another provider"));
@@ -310,11 +312,11 @@ class JobsTests {
         Map.of("id", "j", "status", invocation.getArgument(2), "seekerPublicUserId", "owner",
             "assignedProviderPublicUserId", "provider"));
 
-    assertThat(service.startBooking("j", "provider")).containsEntry("status", "in_progress");
-    assertThat(service.completeBooking("j", "owner")).containsEntry("status", "completed");
-    assertThat(service.markPaymentDone("j", "owner")).containsEntry("status", "payment_done");
-    assertThat(service.markPaymentReceived("j", "provider")).containsEntry("status", "payment_received");
-    assertThat(service.closeBooking("j", "owner")).containsEntry("status", "closed");
+    assertThat(service.startBooking("j", "provider").status()).isEqualTo("in_progress");
+    assertThat(service.completeBooking("j", "owner").status()).isEqualTo("completed");
+    assertThat(service.markPaymentDone("j", "owner").status()).isEqualTo("payment_done");
+    assertThat(service.markPaymentReceived("j", "provider").status()).isEqualTo("payment_received");
+    assertThat(service.closeBooking("j", "owner").status()).isEqualTo("closed");
 
     verify(repository).transitionJobStatus("j", "accepted", "in_progress");
     verify(repository).transitionJobStatus("j", "in_progress", "completed");
@@ -337,7 +339,7 @@ class JobsTests {
     when(repository.transitionJobStatus("j", "in_progress", "cancelled")).thenReturn(
         Map.of("status", "cancelled", "seekerPublicUserId", "owner", "assignedProviderPublicUserId", "provider"));
 
-    assertThat(service.cancelBooking("j", "provider", "Unable to attend")).containsEntry("status", "cancelled");
+    assertThat(service.cancelBooking("j", "provider", "Unable to attend").status()).isEqualTo("cancelled");
 
     verify(repository).updateAcceptedApplicationStatus("application", "withdrawn");
     verify(audit).logEvent("provider", "owner", "booking_cancelled", null,
@@ -361,7 +363,7 @@ class JobsTests {
     when(repository.transitionJobStatus("j", "posted", "cancelled")).thenReturn(
         Map.of("status", "cancelled", "seekerPublicUserId", "owner"));
 
-    assertThat(service.cancelBooking("j", "owner", "Schedule changed")).containsEntry("status", "cancelled");
+    assertThat(service.cancelBooking("j", "owner", "Schedule changed").status()).isEqualTo("cancelled");
 
     Map<String, Object> metadata = new java.util.LinkedHashMap<>();
     metadata.put("jobId", "j");
@@ -382,8 +384,9 @@ class JobsTests {
     when(repository.setApplicationStatus("a", "withdrawn")).thenReturn(Map.of(
         "providerPublicUserId", "member_provider", "status", "withdrawn"));
 
-    assertThat(service.withdrawApplication("a", "provider"))
-        .containsEntry("providerUserId", "member_provider").containsEntry("status", "withdrawn");
+    JobsService.ApplicationRecord withdrawn = service.withdrawApplication("a", "provider");
+    assertThat(withdrawn.providerUserId()).isEqualTo("member_provider");
+    assertThat(withdrawn.status()).isEqualTo("withdrawn");
     verify(audit).logEvent("provider", "owner", "job_application_withdrawn", null,
         Map.of("jobId", "j", "applicationId", "a"));
 

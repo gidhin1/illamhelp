@@ -1,8 +1,6 @@
 package com.illamhelp.api.health;
 
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import org.springframework.boot.health.actuate.endpoint.HealthDescriptor;
 import org.springframework.boot.health.actuate.endpoint.HealthEndpoint;
 import org.springframework.boot.health.contributor.Status;
@@ -20,18 +18,21 @@ public class HealthController {
   }
 
   @GetMapping("/health")
-  public ResponseEntity<Map<String, Object>> health() {
+  public ResponseEntity<HealthResponse> health() {
     HealthDescriptor actuatorHealth = healthEndpoint.health();
     return healthResponse(actuatorHealth.getStatus());
   }
 
-  ResponseEntity<Map<String, Object>> healthResponse(Status dependencyStatus) {
+  ResponseEntity<HealthResponse> healthResponse(Status dependencyStatus) {
     boolean ready = Status.UP.equals(dependencyStatus);
-    Map<String, Object> response = new LinkedHashMap<>();
-    response.put("status", ready ? "ok" : "error");
-    response.put("service", "illamhelp-api");
-    response.put("timestamp", Instant.now().toString());
-    response.put("dependencyStatus", dependencyStatus.getCode());
+    HealthResponse response = new HealthResponse(
+        ready ? "ok" : "error",
+        "illamhelp-api",
+        Instant.now().toString(),
+        dependencyStatus.getCode());
     return ResponseEntity.status(ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE).body(response);
+  }
+
+  public record HealthResponse(String status, String service, String timestamp, String dependencyStatus) {
   }
 }

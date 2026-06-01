@@ -24,9 +24,10 @@ class AdminOversightControllerTest {
     AdminOversightController controller = new AdminOversightController(repository, mock(ProfilesService.class),
         mock(VerificationService.class), new ObjectMapper());
 
-    Map<String, Object> response = controller.timeline(new AdminOversightController.TimelineRequest("public", null));
-    Map<?, ?> event = (Map<?, ?>) ((List<?>) response.get("auditEvents")).getFirst();
-    assertThat(((Map<?, ?>) event.get("metadata")).get("requestId")).isEqualTo("r");
+    AdminOversightController.TimelineResponse response =
+        controller.timeline(new AdminOversightController.TimelineRequest("public", null));
+    AdminOversightController.AuditTimelineEvent event = response.auditEvents().getFirst();
+    assertThat(((Map<?, ?>) event.metadata()).get("requestId")).isEqualTo("r");
   }
 
   @Test
@@ -38,9 +39,6 @@ class AdminOversightControllerTest {
     controller.verifyMember("u", new AdminOversightController.VerifyMemberRequest(true));
     controller.reviewVerification("r", new AdminOversightController.VerificationReviewRequest("approved", null), jwt("admin"));
     verify(profiles).setVerified("u", true);
-    Map<String, Object> review = new java.util.LinkedHashMap<>();
-    review.put("decision", "approved");
-    review.put("notes", null);
-    verify(verification).review("r", "admin", review);
+    verify(verification).review("r", "admin", new VerificationService.ReviewVerificationInput("approved", null));
   }
 }

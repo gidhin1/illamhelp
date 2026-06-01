@@ -31,27 +31,30 @@ class NotificationTests {
   void normalizesJsonDataAndPaginatesRepositoryResult() {
     NotificationRepository repository = mock(NotificationRepository.class);
     when(repository.listForUser("u1", true, null, null, 101))
-        .thenReturn(List.of(Map.of("id", "n", "createdAt", "2026-05-26T10:00:00Z",
-            "data", "{\"verificationRequestId\":\"r1\"}", "type", "verification_approved")));
+        .thenReturn(List.of(row("n", "u1", "verification_approved", "title", "body",
+            "{\"verificationRequestId\":\"r1\"}", false, null, "2026-05-26T10:00:00Z")));
     when(repository.countUnread("u1")).thenReturn(1);
     NotificationService service = new NotificationService(repository, new ObjectMapper());
 
-    Map<String, Object> response = service.list("u1", true, 999, null);
-    Map<?, ?> item = (Map<?, ?>) ((List<?>) response.get("items")).getFirst();
+    NotificationService.NotificationListResponse response = service.list("u1", true, 999, null);
+    NotificationService.NotificationRecord item = response.items().getFirst();
 
-    assertThat(response).containsEntry("unreadCount", 1).containsEntry("limit", 100);
-    assertThat(((Map<?, ?>) item.get("data")).get("verificationRequestId")).isEqualTo("r1");
+    assertThat(response.unreadCount()).isEqualTo(1);
+    assertThat(response.limit()).isEqualTo(100);
+    assertThat(item.data().get("verificationRequestId")).isEqualTo("r1");
   }
 
   @Test
   void serializesCreationDataAndNormalizesReadPayload() {
     NotificationRepository repository = mock(NotificationRepository.class);
-    when(repository.insert("u", "type", "title", "body", "{\"id\":\"1\"}")).thenReturn(Map.of("data", "{\"id\":\"1\"}"));
-    when(repository.markRead("u", "n")).thenReturn(Map.of("data", "invalid"));
+    when(repository.insert("u", "type", "title", "body", "{\"id\":\"1\"}"))
+        .thenReturn(row("n1", "u", "type", "title", "body", "{\"id\":\"1\"}", false, null, "2026-05-26T10:00:00Z"));
+    when(repository.markRead("u", "n"))
+        .thenReturn(row("n", "u", "type", "title", "body", "invalid", true, "2026-05-26T10:00:00Z", "2026-05-26T09:00:00Z"));
     NotificationService service = new NotificationService(repository, new ObjectMapper());
 
-    assertThat(((Map<?, ?>) service.create("u", "type", "title", "body", Map.of("id", "1")).get("data")).get("id")).isEqualTo("1");
-    assertThat((Map<?, ?>) service.markRead("u", "n").get("data")).isEmpty();
+    assertThat(service.create("u", "type", "title", "body", Map.of("id", "1")).data().get("id")).isEqualTo("1");
+    assertThat(service.markRead("u", "n").data()).isEmpty();
   }
 
   @Test
@@ -64,9 +67,42 @@ class NotificationTests {
     when(repository.countUnread("u")).thenReturn(0);
     NotificationService service = new NotificationService(repository, new ObjectMapper());
 
-    Map<String, Object> response = service.list("u", false, 1, cursor);
+    NotificationService.NotificationListResponse response = service.list("u", false, 1, cursor);
 
-    assertThat(response).containsEntry("nextCursor", null).containsEntry("unreadCount", 0);
+    assertThat(response.nextCursor()).isNull();
+    assertThat(response.unreadCount()).isEqualTo(0);
     verify(repository).listForUser("u", false, "2026-05-26T10:00:00Z", "anchor", 2);
+  }
+
+  private static NotificationRepository.NotificationRow row(
+      String id,
+      String userId,
+      String type,
+      String title,
+      String body,
+      String data,
+      boolean read,
+      String readAt,
+      String createdAt) {
+    return new NotificationRepository.NotificationRow() {
+      @Override
+      public String getId() { return id; }
+      @Override
+      public String getUserId() { return userId; }
+      @Override
+      public String getType() { return type; }
+      @Override
+      public String getTitle() { return title; }
+      @Override
+      public String getBody() { return body; }
+      @Override
+      public String getData() { return data; }
+      @Override
+      public boolean getRead() { return read; }
+      @Override
+      public String getReadAt() { return readAt; }
+      @Override
+      public String getCreatedAt() { return createdAt; }
+    };
   }
 }

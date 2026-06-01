@@ -103,7 +103,6 @@ class MediaModerationServiceTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
   void returnsModerationDetailsWithPreviewUrlNamesExpectedByAdminClient() {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     StorageService storage = mock(StorageService.class);
@@ -112,11 +111,12 @@ class MediaModerationServiceTest {
     when(repository.findModerationMedia("media")).thenReturn(Map.of("bucketName", "quarantine", "objectKey", "file"));
     when(repository.listModerationJobs("media")).thenReturn(List.of());
     when(storage.presignedGet("quarantine", "file")).thenReturn(
-        Map.of("downloadUrl", "signed", "downloadUrlExpiresAt", "expires"));
+        new StorageService.PresignedGetTicket("signed", "expires"));
 
-    Map<String, Object> media = (Map<String, Object>) service.getModerationDetails("media").get("media");
+    MediaModerationService.ModerationMedia media = service.getModerationDetails("media").media();
 
-    assertThat(media).containsEntry("previewUrl", "signed").containsEntry("previewUrlExpiresAt", "expires");
+    assertThat(media.previewUrl()).isEqualTo("signed");
+    assertThat(media.previewUrlExpiresAt()).isEqualTo("expires");
   }
 
   @Test
@@ -144,11 +144,12 @@ class MediaModerationServiceTest {
         org.mockito.ArgumentMatchers.eq("admin"), org.mockito.ArgumentMatchers.isNull(), anyString())).thenReturn(1);
     when(repository.updateHumanReviewState("media", "approved", null)).thenReturn(Map.of("ownerUserId", "owner"));
 
-    assertThat(service.reviewMedia("admin", "media", Map.of("decision", "approved")))
-        .containsEntry("ownerUserId", "owner");
+    assertThat(service.reviewMedia("admin", "media", new MediaModerationService.ReviewMediaInput("approved", null, null))
+        .ownerUserId()).isEqualTo("owner");
     verify(notifications).create(org.mockito.ArgumentMatchers.eq("owner"),
         org.mockito.ArgumentMatchers.eq("media_approved"), anyString(), anyString(), any());
-    assertThatThrownBy(() -> service.reviewMedia("admin", "media", Map.of("decision", "perhaps")))
+    assertThatThrownBy(() -> service.reviewMedia("admin", "media",
+        new MediaModerationService.ReviewMediaInput("perhaps", null, null)))
         .isInstanceOf(ApiException.class).hasMessage("Unsupported media review decision");
   }
 
@@ -161,7 +162,8 @@ class MediaModerationServiceTest {
     when(repository.completeHumanReviewJob(org.mockito.ArgumentMatchers.eq("review"), org.mockito.ArgumentMatchers.eq("approved"),
         org.mockito.ArgumentMatchers.eq("admin"), org.mockito.ArgumentMatchers.isNull(), anyString())).thenReturn(0);
 
-    assertThatThrownBy(() -> service.reviewMedia("admin", "media", Map.of("decision", "approved")))
+    assertThatThrownBy(() -> service.reviewMedia("admin", "media",
+        new MediaModerationService.ReviewMediaInput("approved", null, null)))
         .isInstanceOf(ApiException.class).hasMessage("Media review was already completed");
     verifyNoInteractions(notifications);
   }
@@ -176,8 +178,10 @@ class MediaModerationServiceTest {
     MediaModerationService service = service(repository, mock(NotificationService.class),
         mock(AuditService.class), mock(StorageService.class), worker);
 
-    assertThat(service.processPendingJobs("admin", Map.of("limit", 10)))
-        .containsEntry("selected", 1).containsEntry("processed", 1);
+    MediaModerationService.ProcessModerationResult result =
+        service.processPendingJobs("admin", new MediaModerationService.ProcessModerationInput(10));
+    assertThat(result.selected()).isEqualTo(1);
+    assertThat(result.processed()).isEqualTo(1);
     verify(worker, org.mockito.Mockito.times(2)).processNext();
   }
 
