@@ -45,8 +45,7 @@ describe("admin API client", () => {
     await reviewVerification("verification", { decision: "rejected", notes: "Mismatch" }, "token");
 
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: "POST",
-      body: JSON.stringify({ limit: 3 })
+      method: "POST"
     });
     expect(fetchMock.mock.calls[1][1]).toMatchObject({
       method: "POST",
@@ -72,7 +71,7 @@ describe("admin API client", () => {
     await fetchMemberTimeline("  member/name  ", "admin-token", 50);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      "http://localhost:4000/api/v1/admin/media/moderation-queue?status=pending&limit=25"
+      "http://localhost:9091/media.v1.AdminMediaService/ListModerationQueue"
     );
     expect(fetchMock.mock.calls[1][0]).toBe(
       "http://localhost:4000/api/v1/admin/oversight/timeline?memberId=member%2Fname&limit=50"
@@ -100,10 +99,9 @@ describe("admin API client", () => {
       message: "Request failed with 401"
     });
 
-    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:4000/api/v1/admin/media/media-1/review");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:9091/media.v1.AdminMediaService/ReviewMedia");
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
-      method: "POST",
-      body: JSON.stringify({ decision: "rejected", reasonCode: "unsafe", notes: "Mismatch" })
+      method: "POST"
     });
     expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "illamhelp:auth-expired" }));
   });

@@ -2,12 +2,10 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 
 import { PageShell } from "@/components/PageShell";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
-import { DataTable } from "@/components/ui/DataTable";
 import {
   Banner,
   Button,
@@ -15,7 +13,8 @@ import {
   EmptyState,
   Field,
   SelectInput,
-  TextArea
+  TextArea,
+  TextInput
 } from "@/components/ui/primitives";
 import {
   ModerationDetails,
@@ -29,10 +28,42 @@ import {
 
 const statusOptions = ["pending", "running", "approved", "rejected", "error"] as const;
 
+type QueueSortOrder = "oldest" | "newest";
+
+function shortId(value: string): string {
+  return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  }).format(new Date(value));
+}
+
+function purposeLabel(purpose: ModerationQueueItem["purpose"]): string {
+  return purpose.replaceAll("_", " ");
+}
+
+function privacyState(item: ModerationQueueItem): string {
+  if (item.purpose === "verification_document") return "Private verification document";
+  if (item.purpose === "profile") return "Profile media";
+  return "Job media";
+}
+
+function nextModerationAction(item: ModerationQueueItem): string {
+  if (item.status === "pending" || item.status === "running") return "Run or inspect checks";
+  if (item.mediaState === "human_review_pending") return "Approve or reject";
+  return "Review decision history";
+}
+
 function ModerationContent(): React.JSX.Element {
   const { accessToken } = useSession();
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
+  const [queueSearch, setQueueSearch] = useState("");
+  const [queueSortOrder, setQueueSortOrder] = useState<QueueSortOrder>("oldest");
   const [details, setDetails] = useState<ModerationDetails | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
@@ -50,6 +81,38 @@ function ModerationContent(): React.JSX.Element {
       reviewed: queue.filter((item) => item.status === "approved" || item.status === "rejected").length
     };
   }, [queue]);
+
+  const visibleQueue = useMemo(() => {
+    const query = queueSearch.trim().toLowerCase();
+    return queue
+      .filter((item) => {
+        if (!query) return true;
+        return [
+          item.ownerUserId,
+          item.mediaId,
+          item.purpose,
+          item.kind,
+          item.status,
+          item.mediaState,
+          item.reasonCode ?? ""
+        ].some((value) => value.toLowerCase().includes(query));
+      })
+      .sort((a, b) => {
+        const left = new Date(a.moderationCreatedAt).getTime();
+        const right = new Date(b.moderationCreatedAt).getTime();
+        return queueSortOrder === "oldest" ? left - right : right - left;
+      });
+  }, [queue, queueSearch, queueSortOrder]);
+
+  const queueGroups = useMemo(() => {
+    const labels: Array<ModerationQueueItem["purpose"]> = ["verification_document", "profile", "job"];
+    return labels
+      .map((purpose) => ({
+        purpose,
+        items: visibleQueue.filter((item) => item.purpose === purpose)
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [visibleQueue]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -176,52 +239,21 @@ function ModerationContent(): React.JSX.Element {
     }
   }
 
-  const queueColumns: ColumnDef<ModerationQueueItem>[] = [
-    {
-      accessorKey: "kind",
-      header: "Type",
-      cell: ({ row }) => <span style={{ fontWeight: 600, textTransform: "capitalize", color: "var(--ink)" }}>{row.original.kind}</span>
-    },
-    {
-      accessorKey: "mediaState",
-      header: "State",
-      cell: ({ row }) => <span className="pill">{row.original.mediaState.replaceAll("_", " ")}</span>
-    },
-    {
-      accessorKey: "status",
-      header: "Job Status",
-      cell: ({ row }) => <span className="muted-text" style={{ textTransform: "capitalize" }}>{row.original.status}</span>
-    },
-    {
-      id: "actions",
-      header: "Action",
-      cell: ({ row }) => (
-        <Button
-          variant={selectedMediaId === row.original.mediaId ? "primary" : "ghost"}
-          style={{ padding: "4px 8px", fontSize: "0.8rem", width: "100%" }}
-          onClick={() => setSelectedMediaId(row.original.mediaId)}
-        >
-          {selectedMediaId === row.original.mediaId ? "Reviewing" : "Select"}
-        </Button>
-      )
-    }
-  ];
-
   return (
-    <div className="stack" style={{ gap: 0, height: "100vh" }}>
-      <div className="top-header">
-        <div>
-           <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Content Safety</div>
-           <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Moderation Queue</h1>
+    <div className="stack admin-review-page">
+      <div className="admin-review-topbar">
+        <div className="admin-review-title-block">
+           <span className="admin-review-kicker">Content Safety</span>
+           <h1 className="display-title admin-review-title">Moderation Queue</h1>
         </div>
-        <div className="section-actions">
+        <div className="admin-review-actions">
            <Button type="button" variant="secondary" data-testid="moderation-process-pending" disabled={submitting} onClick={() => void onProcessPending()}>
              Run Machine Checks
            </Button>
         </div>
       </div>
 
-      <div style={{ padding: "var(--spacing-xl)", flex: 1, minHeight: 0 }}>
+      <div className="admin-review-shell">
         {banner && <div style={{ marginBottom: "var(--spacing-md)" }}><Banner tone={banner.tone}>{banner.message}</Banner></div>}
         {processingResult && (
            <div style={{ marginBottom: "var(--spacing-md)" }}>
@@ -229,40 +261,90 @@ function ModerationContent(): React.JSX.Element {
            </div>
         )}
 
-        <div className="moderation-layout">
-          {/* Master List */}
-          <Card className="stack moderation-panel" style={{ display: "flex", flexDirection: "column", padding: 0 }}>
-            <div style={{ padding: "var(--spacing-md)", borderBottom: "1px solid var(--line)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center", position: "sticky", top: 0, zIndex: 10 }}>
+        <div className="admin-review-layout moderation-layout">
+          <Card className="stack admin-review-panel moderation-panel" style={{ padding: 0 }}>
+            <div className="admin-review-panel-header">
                <div>
-                  <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>Queue items</h3>
-                  <div className="muted-text" style={{ fontSize: "0.85rem" }}>
-                    {queueSummary.total} total · {queueSummary.pending} pending · {queueSummary.reviewed} reviewed
+                  <h3>Queue items</h3>
+                  <div className="muted-text">
+                    {visibleQueue.length} shown · {queueSummary.total} total · {queueSummary.pending} pending · {queueSummary.reviewed} reviewed
                   </div>
                </div>
                <Field label="Status">
-                   <SelectInput data-testid="moderation-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: "0.85rem" }}>
+                   <SelectInput data-testid="moderation-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="admin-review-status-select">
                      {statusOptions.map((opt) => <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>)}
                    </SelectInput>
                </Field>
             </div>
+            <div className="admin-review-queue-tools">
+              <Field label="Find media or member">
+                <TextInput
+                  data-testid="moderation-queue-search"
+                  value={queueSearch}
+                  onChange={(event) => setQueueSearch(event.target.value)}
+                  placeholder="Member ID, media ID, purpose, status"
+                />
+              </Field>
+              <Field label="Order">
+                <SelectInput
+                  data-testid="moderation-sort-order"
+                  value={queueSortOrder}
+                  onChange={(event) => setQueueSortOrder(event.target.value as QueueSortOrder)}
+                >
+                  <option value="oldest">Oldest first</option>
+                  <option value="newest">Newest first</option>
+                </SelectInput>
+              </Field>
+            </div>
 
-            <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+            <div className="admin-review-list-wrap">
                {loadingQueue && (
-                  <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)" }}>Loading...</div>
+                  <div className="admin-review-loading">Loading queue...</div>
                )}
-               {!loadingQueue && queue.length === 0 ? (
+               {!loadingQueue && visibleQueue.length === 0 ? (
                   <div style={{ padding: "var(--spacing-xl)" }}>
-                     <EmptyState title="No items found" body="Try another filter or run machine checks to pull new items." />
+                     <EmptyState title="No items found" body="Try another filter, clear search, or run machine checks to pull new items." />
                   </div>
                ) : (
-                  <DataTable ariaLabel="Moderation queue" columns={queueColumns} data={queue} />
+                  <div className="admin-review-list" role="list" aria-label="Moderation queue">
+                    {queueGroups.map((group) => (
+                      <div key={group.purpose} className="admin-review-list-group" role="group" aria-label={purposeLabel(group.purpose)}>
+                        <div className="admin-review-group-label">{purposeLabel(group.purpose)} · {group.items.length}</div>
+                        {group.items.map((item) => {
+                          const selected = selectedMediaId === item.mediaId;
+                          return (
+                            <button
+                              key={item.mediaId}
+                              type="button"
+                              className={`admin-review-list-item ${selected ? "selected" : ""}`}
+                              aria-pressed={selected}
+                              onClick={() => setSelectedMediaId(item.mediaId)}
+                            >
+                              <span className="admin-review-list-row">
+                                <strong>Member {shortId(item.ownerUserId)}</strong>
+                                <span className="pill">{item.mediaState.replaceAll("_", " ")}</span>
+                              </span>
+                              <span className="admin-review-id">Media ID: {shortId(item.mediaId)}</span>
+                              <span className="muted-text" style={{ textTransform: "capitalize" }}>{privacyState(item)} · {item.kind}</span>
+                              <span className="muted-text">{nextModerationAction(item)} · queued {formatDate(item.moderationCreatedAt)}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
                )}
             </div>
           </Card>
 
-          {/* Details Panel */}
-          <Card className="stack moderation-panel moderation-details-panel" data-testid="moderation-details-panel" style={{ borderLeft: "4px solid var(--brand)", padding: "var(--spacing-lg)" }}>
-            <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem", paddingBottom: "10px", borderBottom: "1px solid var(--line)" }}>Review Details</h3>
+          <Card className="stack admin-review-panel admin-review-detail-panel moderation-panel moderation-details-panel" data-testid="moderation-details-panel">
+            <div className="admin-review-detail-header">
+              <div>
+                <span className="pill">Manual review</span>
+                <h3>Review details</h3>
+              </div>
+              {details ? <span className="admin-review-id">Member {shortId(details.media.ownerUserId)} · Media {shortId(details.media.id)}</span> : null}
+            </div>
             
             {loadingDetails && <p className="muted-text">Loading Details...</p>}
             
@@ -270,18 +352,28 @@ function ModerationContent(): React.JSX.Element {
                 <EmptyState title="Select an item" body="Choose a queue item to inspect AI scores and moderation history." />
             ) : details ? (
               <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
-                {/* Media Spec */}
-                <div className="data-row" data-testid="moderation-media-summary" style={{ padding: "8px 12px", background: "var(--surface)" }}>
-                  <div className="data-title" style={{ fontSize: "1rem" }}>{details.media.kind.toUpperCase()} file</div>
-                  <div className="grid two" style={{ gap: "4px" }}>
-                     <div className="data-meta" style={{ fontSize: "0.8rem" }}>Type: {details.media.contentType}</div>
-                     <div className="data-meta" style={{ fontSize: "0.8rem" }}>Size: {(details.media.fileSizeBytes / 1024).toFixed(1)} KB</div>
+                <div className="admin-review-facts" data-testid="moderation-media-summary" aria-label="Media review details">
+                  <div>
+                    <span className="muted-text">Human identity</span>
+                    <strong>Member {shortId(details.media.ownerUserId)}</strong>
+                    <span>Owner ID: {details.media.ownerUserId}</span>
+                  </div>
+                  <div>
+                    <span className="muted-text">Privacy state</span>
+                    <strong>{details.media.purpose.replaceAll("_", " ")}</strong>
+                    <span>{details.media.state.replaceAll("_", " ")}</span>
+                  </div>
+                  <div>
+                    <span className="muted-text">Media file</span>
+                    <strong>{(details.media.fileSizeBytes / 1024).toFixed(1)} KB</strong>
+                    <span>{details.media.kind.toUpperCase()} · {details.media.contentType}</span>
                   </div>
                 </div>
 
-                {/* Media Preview Component */}
-                <div data-testid="moderation-media-preview" style={{ background: "#000", borderRadius: "12px", display: "flex", justifyContent: "center", alignItems: "center", minHeight: "200px", padding: 8 }}>
-                  {details.media.kind === "image" ? (
+                <div className="admin-review-preview" data-testid="moderation-media-preview">
+                  {!details.media.previewUrl ? (
+                    <Banner tone="info">Preview is not available for this media.</Banner>
+                  ) : details.media.kind === "image" ? (
                     <Image
                       data-testid="moderation-preview-image"
                       src={details.media.previewUrl}
@@ -289,50 +381,48 @@ function ModerationContent(): React.JSX.Element {
                       width={1200}
                       height={800}
                       unoptimized
-                      style={{ maxWidth: "100%", maxHeight: "250px", height: "auto", width: "auto", borderRadius: "8px" }}
+                      style={{ maxWidth: "100%", maxHeight: "320px", height: "auto", width: "auto", borderRadius: "var(--radius-sm)" }}
                     />
                   ) : (
                     <video
                       data-testid="moderation-preview-video"
                       controls
                       preload="metadata"
-                      style={{ width: "100%", maxHeight: "250px", borderRadius: "8px" }}
+                      style={{ width: "100%", maxHeight: "320px", borderRadius: "var(--radius-sm)" }}
                     >
                       <source src={details.media.previewUrl} type={details.media.contentType} />
                     </video>
                   )}
                 </div>
 
-                {/* Form Elements */}
-                <div className="stack" style={{ gap: "var(--spacing-md)", background: "var(--surface-2)", padding: "16px", borderRadius: "var(--radius-md)", border: "1px solid var(--line)" }}>
-                    <Field label="Policy Rationale Code">
+                <div className="stack admin-review-form">
+                    <Field label="Review reason">
                       <SelectInput data-testid="moderation-reason-code" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)}>
-                        <option value="policy_manual_review">policy_manual_review</option>
-                        <option value="policy_safe_service_media">policy_safe_service_media</option>
-                        <option value="policy_prohibited_content">policy_prohibited_content</option>
-                        <option value="policy_unrelated_media">policy_unrelated_media</option>
+                        <option value="policy_manual_review">Manual review</option>
+                        <option value="policy_safe_service_media">Safe service media</option>
+                        <option value="policy_prohibited_content">Prohibited content</option>
+                        <option value="policy_unrelated_media">Unrelated media</option>
                       </SelectInput>
                     </Field>
 
                     <Field label="Moderator Notes" hint="Optional internal notes">
-                      <TextArea data-testid="moderation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Rationale..." style={{ minHeight: "60px" }} />
+                      <TextArea data-testid="moderation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Rationale..." style={{ minHeight: "88px" }} />
                     </Field>
 
-                    <div style={{ display: "flex", gap: "8px", paddingTop: "8px" }}>
+                    <div className="admin-review-decision-actions">
                       <Button type="button" data-testid="moderation-approve" disabled={submitting} onClick={() => void onReview("approved")} style={{ flex: 1 }}>
                         Approve
                       </Button>
-                      <Button type="button" variant="secondary" data-testid="moderation-reject" disabled={submitting} onClick={() => void onReview("rejected")} style={{ flex: 1, color: "var(--danger)" }}>
+                      <Button type="button" variant="secondary" data-testid="moderation-reject" disabled={submitting} onClick={() => void onReview("rejected")} style={{ flex: 1, color: "var(--error-text)" }}>
                         Reject
                       </Button>
                     </div>
                 </div>
 
-                {/* Machine Job History */}
                 <div className="stack" style={{ gap: "8px" }}>
-                  <h4 style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Job Log</h4>
+                  <h4 style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Job log</h4>
                   {details.moderationJobs.map((job) => (
-                    <div key={job.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", padding: "8px 12px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", fontSize: "0.8rem", border: "1px solid var(--line)" }}>
+                    <div key={job.id} className="admin-review-job-log-row">
                       <div>
                         <div style={{ fontWeight: 600, color: "var(--ink)", textTransform: "capitalize" }}>{job.stage}</div>
                         {job.reasonCode ? <div className="muted-text">Reason: {job.reasonCode}</div> : null}

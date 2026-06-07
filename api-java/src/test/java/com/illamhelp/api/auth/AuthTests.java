@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withCreatedEntity;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.illamhelp.api.common.ApiException;
@@ -25,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -36,12 +38,12 @@ class AuthTests {
     ProfilesService profiles = mock(ProfilesService.class);
     AuthController controller = new AuthController(auth, profiles, properties());
     var register = new AuthController.RegisterRequest("member", "password", "First", "Last", "m@test.io", "1234", "both");
-    when(auth.login("u", "p")).thenReturn(Map.of("accessToken", "token"));
-    when(auth.register(register)).thenReturn(Map.of("userId", "u1"));
+    when(auth.login("u", "p")).thenReturn(authSession("u", "member", "both", List.of("both"), "token"));
+    when(auth.register(register)).thenReturn(authSession("u1", "member", "both", List.of("both"), "token"));
 
-    assertThat(controller.login(new AuthController.LoginRequest("u", "p"))).containsEntry("accessToken", "token");
-    assertThat(controller.register(register)).containsEntry("userId", "u1");
-    assertThat(controller.logout(new AuthController.RefreshRequest("refresh"))).containsEntry("success", true);
+    assertThat(controller.login(new AuthController.LoginRequest("u", "p")).accessToken()).isEqualTo("token");
+    assertThat(controller.register(register).userId()).isEqualTo("u1");
+    assertThat(controller.logout(new AuthController.RefreshRequest("refresh")).success()).isTrue();
     assertThat(controller.me(jwt("u1")).userId()).isEqualTo("u1");
     verify(auth).login("u", "p");
     verify(profiles).upsertFromRegistration("u1", "First", "Last", "m@test.io", "1234");
@@ -102,10 +104,11 @@ class AuthTests {
             {"access_token":"%s","refresh_token":"refresh","expires_in":300,"refresh_expires_in":600}
             """.formatted(token), MediaType.APPLICATION_JSON));
 
-    Map<String, Object> session = service.login("provider.name", "secret");
+    KeycloakAuthService.AuthSession session = service.login("provider.name", "secret");
 
-    assertThat(session).containsEntry("userId", "user-1").containsEntry("userType", "provider");
-    assertThat(session.get("roles")).isEqualTo(List.of("provider"));
+    assertThat(session.userId()).isEqualTo("user-1");
+    assertThat(session.userType()).isEqualTo("provider");
+    assertThat(session.roles()).isEqualTo(List.of("provider"));
     verify(users).syncUserFromToken("user-1", List.of("provider"), "provider.name");
     server.verify();
   }
@@ -144,12 +147,37 @@ class AuthTests {
             {"access_token":"%s","refresh_token":"refresh","expires_in":300,"token_type":"Bearer"}
             """.formatted(token), MediaType.APPLICATION_JSON));
 
-    Map<String, Object> session = service.register(request);
+    KeycloakAuthService.AuthSession session = service.register(request);
 
-    assertThat(session).containsEntry("userId", "created-user")
-        .containsEntry("username", "new.member").containsEntry("userType", "both");
-    assertThat(session.get("roles")).isEqualTo(List.of("both"));
+    assertThat(session.userId()).isEqualTo("created-user");
+    assertThat(session.username()).isEqualTo("new.member");
+    assertThat(session.userType()).isEqualTo("both");
+    assertThat(session.roles()).isEqualTo(List.of("both"));
     verify(users).syncUserFromToken("created-user", List.of("both"), "new.member");
+    server.verify();
+  }
+
+  @Test
+  void keycloakRegistrationMapsDuplicateAccountToClearConflictMessage() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    KeycloakAuthService service = new KeycloakAuthService(
+        properties(), mock(AuthUserService.class), builder, new ObjectMapper());
+    var request = new AuthController.RegisterRequest(
+        "member", "StrongPass#2026", "First", "Last", "member@example.com", null, "both");
+
+    server.expect(requestTo("http://localhost:8080/realms/master/protocol/openid-connect/token"))
+        .andExpect(method(HttpMethod.POST))
+        .andRespond(withSuccess("{\"access_token\":\"admin-token\"}", MediaType.APPLICATION_JSON));
+    server.expect(requestTo("http://localhost:8080/admin/realms/illamhelp/users"))
+        .andExpect(method(HttpMethod.POST))
+        .andRespond(withStatus(HttpStatus.CONFLICT).body("{\"errorMessage\":\"User exists\"}"));
+
+    assertThatThrownBy(() -> service.register(request))
+        .isInstanceOf(ApiException.class)
+        .hasMessage("User ID or email is already registered")
+        .extracting("status")
+        .isEqualTo(HttpStatus.CONFLICT);
     server.verify();
   }
 
@@ -170,8 +198,9 @@ class AuthTests {
         .andExpect(method(HttpMethod.POST))
         .andRespond(withSuccess());
 
-    assertThat(service.refresh("refresh-token")).containsEntry("username", "public_name")
-        .containsEntry("userType", "seeker");
+    KeycloakAuthService.AuthSession refreshed = service.refresh("refresh-token");
+    assertThat(refreshed.username()).isEqualTo("public_name");
+    assertThat(refreshed.userType()).isEqualTo("seeker");
     service.logout("refresh-token");
 
     verify(users).syncUserFromToken("refreshed-user", List.of("seeker"), "public_name");
@@ -215,5 +244,11 @@ class AuthTests {
         """));
 
     assertThat(roles).containsExactly("support");
+  }
+
+  private KeycloakAuthService.AuthSession authSession(
+      String userId, String username, String userType, List<String> roles, String accessToken) {
+    return new KeycloakAuthService.AuthSession(
+        userId, username, username, userType, roles, accessToken, 300L, "refresh", 600L, "Bearer", null);
   }
 }

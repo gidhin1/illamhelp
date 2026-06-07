@@ -1,7 +1,6 @@
 package com.illamhelp.api.profiles;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -21,13 +20,13 @@ public interface ProfileRepository extends JpaRepository<ProfileEntity, UUID> {
         (SELECT count(*)::int FROM pii_consent_grants WHERE (owner_user_id = cast(:userId as uuid) OR grantee_user_id = cast(:userId as uuid)) AND status = 'active') AS "activeConsentGrants",
         (SELECT count(*)::int FROM media_assets WHERE owner_user_id = cast(:userId as uuid)) AS "totalMedia"
       """, nativeQuery = true)
-  Map<String, Object> dashboardMetrics(@Param("userId") String userId);
+  DashboardMetricsRow dashboardMetrics(@Param("userId") String userId);
 
   @Query(value = """
-      SELECT id, title, category, status::text, location_text AS "locationText", created_at AS "createdAt"
+      SELECT id::text AS id, title, category, status::text, location_text AS "locationText", created_at::text AS "createdAt"
       FROM jobs WHERE seeker_user_id = cast(:userId as uuid) ORDER BY created_at DESC LIMIT 3
       """, nativeQuery = true)
-  List<Map<String, Object>> recentJobs(@Param("userId") String userId);
+  List<RecentJobRow> recentJobs(@Param("userId") String userId);
 
   @Modifying
   @Query(value = """
@@ -52,7 +51,7 @@ public interface ProfileRepository extends JpaRepository<ProfileEntity, UUID> {
       SELECT pii_email_encrypted, pii_phone_encrypted, pii_alternate_phone_encrypted, pii_full_address_encrypted
       FROM profiles WHERE user_id = cast(:userId as uuid)
       """, nativeQuery = true)
-  Map<String, Object> existingPii(@Param("userId") String userId);
+  ExistingPiiRow existingPii(@Param("userId") String userId);
 
   @Modifying
   @Query(value = """
@@ -74,15 +73,89 @@ public interface ProfileRepository extends JpaRepository<ProfileEntity, UUID> {
   void setUserVerified(@Param("userId") String userId, @Param("verified") boolean verified);
 
   @Query(value = """
-      SELECT u.id AS user_id, u.username, p.first_name, p.last_name,
+      SELECT u.id::text AS "userId", u.username, p.first_name, p.last_name,
              trim(concat(p.first_name, ' ', coalesce(p.last_name, ''))) AS display_name,
              p.city, p.area, p.service_categories, p.rating_average, p.rating_count,
              u.email_masked, u.phone_masked, u.verified, p.pii_email_encrypted, p.pii_phone_encrypted,
              p.pii_alternate_phone_encrypted, p.pii_full_address_encrypted
       FROM users u LEFT JOIN profiles p ON p.user_id = u.id WHERE u.id = cast(:userId as uuid)
       """, nativeQuery = true)
-  Map<String, Object> profileRow(@Param("userId") String userId);
+  ProfileRow profileRow(@Param("userId") String userId);
 
   @Query(value = "SELECT id::text FROM users WHERE lower(username) = lower(:identifier) LIMIT 1", nativeQuery = true)
   String findInternalUserIdByUsername(@Param("identifier") String identifier);
+
+  interface DashboardMetricsRow {
+    Integer getTotalJobs();
+
+    Integer getTotalConnections();
+
+    Integer getPendingConnections();
+
+    Integer getConsentRequests();
+
+    Integer getActiveConsentGrants();
+
+    Integer getTotalMedia();
+  }
+
+  interface RecentJobRow {
+    String getId();
+
+    String getTitle();
+
+    String getCategory();
+
+    String getStatus();
+
+    String getLocationText();
+
+    String getCreatedAt();
+  }
+
+  interface ExistingPiiRow {
+    byte[] getPiiEmailEncrypted();
+
+    byte[] getPiiPhoneEncrypted();
+
+    byte[] getPiiAlternatePhoneEncrypted();
+
+    byte[] getPiiFullAddressEncrypted();
+  }
+
+  interface ProfileRow {
+    String getUserId();
+
+    String getUsername();
+
+    String getFirstName();
+
+    String getLastName();
+
+    String getDisplayName();
+
+    String getCity();
+
+    String getArea();
+
+    String[] getServiceCategories();
+
+    Double getRatingAverage();
+
+    Integer getRatingCount();
+
+    Boolean getVerified();
+
+    String getEmailMasked();
+
+    String getPhoneMasked();
+
+    byte[] getPiiEmailEncrypted();
+
+    byte[] getPiiPhoneEncrypted();
+
+    byte[] getPiiAlternatePhoneEncrypted();
+
+    byte[] getPiiFullAddressEncrypted();
+  }
 }

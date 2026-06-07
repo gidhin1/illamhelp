@@ -2,9 +2,21 @@ import { defineConfig, devices } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const mobileBaseUrl = process.env.PW_MOBILE_BASE_URL ?? "http://localhost:3102";
-const apiBaseOrigin = process.env.PW_MOBILE_API_BASE_ORIGIN ?? "http://localhost:4012";
-const apiBaseUrl = process.env.PW_MOBILE_API_BASE_URL ?? `${apiBaseOrigin}/api/v1`;
+import { pickBaseUrl, pickServerTarget } from "./server-targets";
+
+const apiTarget = pickServerTarget(
+  process.env.PW_MOBILE_API_BASE_ORIGIN,
+  "http://localhost:4000",
+  "http://localhost:4012"
+);
+const mobileTarget = pickBaseUrl(
+  process.env.PW_MOBILE_BASE_URL,
+  "http://localhost:3002",
+  apiTarget.reuseExistingServer ? "http://localhost:3002" : "http://localhost:3102"
+);
+const mobileBaseUrl = mobileTarget.baseUrl;
+const apiBaseOrigin = apiTarget.baseUrl;
+const apiBaseUrl = process.env.PW_MOBILE_API_BASE_URL ?? `${apiBaseOrigin.replace(/\/$/, "")}/api/v1`;
 const playwrightAuthRateLimitMax = process.env.PW_AUTH_RATE_LIMIT_MAX ?? "2000";
 const apiPort = new URL(apiBaseOrigin).port || "4012";
 const mobilePort = new URL(mobileBaseUrl).port || "3102";
@@ -62,17 +74,17 @@ export default defineConfig({
   webServer: [
     {
       command: `PORT="${apiPort}" NODE_ENV=test AUTH_RATE_LIMIT_MAX="${playwrightAuthRateLimitMax}" CORS_ORIGINS="${corsOrigins}" STRICT_ORIGIN_CHECK=true mvn -f api-java/pom.xml spring-boot:run`,
-      url: `${apiBaseOrigin}/api/v1/health`,
+      url: apiTarget.healthUrl,
       timeout: 240_000,
       cwd: repoRoot,
-      reuseExistingServer
+      reuseExistingServer: reuseExistingServer || apiTarget.reuseExistingServer
     },
     {
       command: `CI=1 EXPO_PUBLIC_API_BASE_URL="${apiBaseUrl}" corepack pnpm --filter @illamhelp/mobile exec expo start --web --port "${mobilePort}"`,
       url: mobileBaseUrl,
       timeout: 240_000,
       cwd: repoRoot,
-      reuseExistingServer
+      reuseExistingServer: reuseExistingServer || mobileTarget.reuseExistingServer
     }
   ],
   projects: [

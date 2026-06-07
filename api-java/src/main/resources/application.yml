@@ -8,6 +8,9 @@ server:
 spring:
   application:
     name: illamhelp-api
+  grpc:
+    server:
+      port: ${GRPC_PORT:9090}
   config:
     import:
       - optional:file:../.env[.properties]

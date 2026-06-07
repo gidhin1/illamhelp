@@ -175,7 +175,11 @@ Rules:
 - Avoid decorative cards that explain what the interface does.
 - Use responsive lists/tables and a one-column layout under 720px.
 - Use `lucide-react` or the approved project icon source for icons. Do not use emoji icons.
-- Motion is limited to 100-200ms color, opacity, and state transitions. Respect reduced motion.
+- Product motion is allowed when it provides feedback, continuity, spatial explanation, or state change.
+- Use the shared motion contract: press `140ms`, state `180ms`, enter `240ms`, exit `160ms`, drawer `280ms`.
+- Movement should animate transform and opacity first. Avoid animating layout properties.
+- Keyboard-triggered actions should not wait on animation. Respect reduced motion by removing translate/scale/pulse movement while keeping readable color and opacity changes.
+- Landing and first-time explanatory surfaces may use richer motion; authenticated task flows stay faster and quieter.
 
 ### Mobile
 

@@ -15,7 +15,6 @@ import com.illamhelp.api.common.ApiException;
 import com.illamhelp.api.consent.ConsentService;
 import com.illamhelp.api.notifications.NotificationService;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -36,11 +35,7 @@ class ProfileTests {
     verify(profiles).getOwnProfile("u");
     verify(profiles).dashboard("u");
     verify(profiles).updateOwnProfile("u", update);
-    Map<String, Object> submission = new LinkedHashMap<>();
-    submission.put("documentType", "identity");
-    submission.put("documentMediaIds", List.of("m"));
-    submission.put("notes", null);
-    verify(verification).submit("u", submission);
+    verify(verification).submit("u", new VerificationService.SubmitVerificationInput("identity", List.of("m"), null));
   }
 
   @Test
@@ -66,28 +61,32 @@ class ProfileTests {
     service.upsertFromRegistration("u", "First", "Last", "me@example.com", "+974 5555 1234");
     verify(repository).upsertRegistrationProfile(eq("u"), eq("First"), eq("Last"), any(String[].class),
         email.capture(), phone.capture());
-    Map<String, Object> row = profileRow();
-    row.put("pii_email_encrypted", email.getValue());
-    row.put("pii_phone_encrypted", phone.getValue());
+    ProfileRepository.ProfileRow row = mock(ProfileRepository.ProfileRow.class);
+    mockDefaultProfileRow(row);
+    when(row.getPiiEmailEncrypted()).thenReturn(email.getValue());
+    when(row.getPiiPhoneEncrypted()).thenReturn(phone.getValue());
     when(repository.profileRow("u")).thenReturn(row);
 
-    Map<?, ?> contact = (Map<?, ?>) service.getOwnProfile("u").get("contact");
+    ProfilesService.ProfileContact contact = service.getOwnProfile("u").contact();
 
-    assertThat(contact.get("email")).isEqualTo("me@example.com");
-    assertThat(contact.get("phone")).isEqualTo("+974 5555 1234");
+    assertThat(contact.email()).isEqualTo("me@example.com");
+    assertThat(contact.phone()).isEqualTo("+974 5555 1234");
   }
 
   @Test
   void returnsOwnProfileAndRejectsMissingProfile() {
     ProfileRepository repository = mock(ProfileRepository.class);
     ProfilesService service = new ProfilesService(repository, mock(ConsentService.class), properties());
-    when(repository.profileRow("u")).thenReturn(profileRow());
+    ProfileRepository.ProfileRow ownRow = profileRow();
+    when(repository.profileRow("u")).thenReturn(ownRow);
 
-    Map<String, Object> profile = service.getOwnProfile("u");
+    ProfilesService.ProfileRecord profile = service.getOwnProfile("u");
 
-    assertThat(profile).containsEntry("userId", "member").containsEntry("firstName", "First");
-    assertThat(((Map<?, ?>) profile.get("contact")).get("email")).isEqualTo("email@example.com");
-    when(repository.profileRow("missing")).thenReturn(Map.of());
+    assertThat(profile.userId()).isEqualTo("member");
+    assertThat(profile.firstName()).isEqualTo("First");
+    assertThat(profile.contact().email()).isEqualTo("email@example.com");
+    ProfileRepository.ProfileRow missingRow = mockMissingProfileRow();
+    when(repository.profileRow("missing")).thenReturn(missingRow);
     assertThatThrownBy(() -> service.getOwnProfile("missing")).isInstanceOf(ApiException.class);
   }
 
@@ -97,29 +96,31 @@ class ProfileTests {
     ConsentService consent = mock(ConsentService.class);
     ProfilesService service = new ProfilesService(repository, consent, properties());
     when(repository.findInternalUserIdByUsername("member")).thenReturn("owner");
-    when(repository.profileRow("owner")).thenReturn(profileRow());
-    when(consent.canView(eq("viewer"), any())).thenReturn(Map.of("allowed", false));
-    when(consent.canView("viewer", Map.of("ownerUserId", "owner", "field", "email")))
-        .thenReturn(Map.of("allowed", true));
+    ProfileRepository.ProfileRow ownerRow = profileRow();
+    when(repository.profileRow("owner")).thenReturn(ownerRow);
+    when(consent.canView(eq("viewer"), any(ConsentService.CanViewInput.class)))
+        .thenReturn(new ConsentService.CanViewResponse(false));
+    when(consent.canView("viewer", new ConsentService.CanViewInput("owner", "email")))
+        .thenReturn(new ConsentService.CanViewResponse(true));
 
-    Map<?, ?> contact = (Map<?, ?>) service.getProfileForViewer("member", "viewer").get("contact");
+    ProfilesService.ProfileContact contact = service.getProfileForViewer("member", "viewer").contact();
 
-    assertThat(contact.get("email")).isEqualTo("email@example.com");
-    assertThat(contact.get("phone")).isNull();
-    verify(consent).canView("viewer", Map.of("ownerUserId", "owner", "field", "phone"));
+    assertThat(contact.email()).isEqualTo("email@example.com");
+    assertThat(contact.phone()).isNull();
+    verify(consent).canView("viewer", new ConsentService.CanViewInput("owner", "phone"));
   }
 
   @Test
   void malformedEncryptedContactIsNotExposed() {
     ProfileRepository repository = mock(ProfileRepository.class);
     ProfilesService service = new ProfilesService(repository, mock(ConsentService.class), properties());
-    Map<String, Object> row = profileRow();
-    row.put("pii_email_encrypted", "v1:invalid".getBytes());
+    ProfileRepository.ProfileRow row = profileRow();
+    when(row.getPiiEmailEncrypted()).thenReturn("v1:invalid".getBytes());
     when(repository.profileRow("u")).thenReturn(row);
 
-    Map<?, ?> contact = (Map<?, ?>) service.getOwnProfile("u").get("contact");
+    ProfilesService.ProfileContact contact = service.getOwnProfile("u").contact();
 
-    assertThat(contact.get("email")).isNull();
+    assertThat(contact.email()).isNull();
   }
 
   @Test
@@ -130,14 +131,23 @@ class ProfileTests {
     NotificationService notifications = mock(NotificationService.class);
     VerificationService service = new VerificationService(repository, audit, profiles, notifications);
     when(repository.activeForUser("u")).thenReturn(List.of());
+    VerificationRequestRepository.VerificationRecordRow inserted = verificationRecordRow("r", "u", "identity", "pending", "2026-05-26T10:00:00Z");
     when(repository.insertRequest(org.mockito.ArgumentMatchers.eq("u"), any(String[].class), org.mockito.ArgumentMatchers.eq("identity"),
         org.mockito.ArgumentMatchers.isNull()))
-        .thenReturn(Map.of("id", "r", "documentType", "identity"));
-    assertThat(service.submit("u", Map.of("documentMediaIds", List.of("m")))).containsEntry("id", "r");
+        .thenReturn(inserted);
+    VerificationService.VerificationRecord submitted =
+        service.submit("u", new VerificationService.SubmitVerificationInput("identity", List.of("m"), null));
+    assertThat(submitted.id()).isEqualTo("r");
 
-    when(repository.findReviewTarget("r")).thenReturn(Map.of("userId", "u", "status", "pending"));
-    when(repository.reviewUpdate("r", "admin", "approved", null)).thenReturn(Map.of("status", "approved"));
-    assertThat(service.review("r", "admin", Map.of("decision", "approved"))).containsEntry("status", "approved");
+    VerificationRequestRepository.ReviewTargetRow pendingTarget = reviewTarget("r", "u", "pending");
+    when(repository.findReviewTarget("r")).thenReturn(pendingTarget);
+    VerificationRequestRepository.VerificationRecordRow approvedRow =
+        verificationRecordRow("r", "u", "identity", "approved", "2026-05-26T10:00:00Z");
+    when(repository.reviewUpdate("r", "admin", "approved", null))
+        .thenReturn(approvedRow);
+    VerificationService.VerificationRecord reviewed =
+        service.review("r", "admin", new VerificationService.ReviewVerificationInput("approved", null));
+    assertThat(reviewed.status()).isEqualTo("approved");
     verify(profiles).setVerified("u", true);
     verify(notifications).create(org.mockito.ArgumentMatchers.eq("u"), org.mockito.ArgumentMatchers.eq("verification_approved"),
         any(), any(), any());
@@ -148,7 +158,7 @@ class ProfileTests {
     VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
     VerificationService service = new VerificationService(repository, mock(AuditService.class),
         mock(ProfilesService.class), mock(NotificationService.class));
-    when(repository.latestForUser("u")).thenReturn(Map.of());
+    when(repository.latestForUser("u")).thenReturn(null);
 
     assertThat(service.getMyVerification("u")).isNull();
   }
@@ -158,14 +168,16 @@ class ProfileTests {
     VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
     VerificationService service = new VerificationService(repository, mock(AuditService.class),
         mock(ProfilesService.class), mock(NotificationService.class));
-    when(repository.listForAdmin("pending", null, null, 2)).thenReturn(List.of(
-        Map.of("id", "r1", "createdAt", "2026-05-26T10:00:00Z"),
-        Map.of("id", "r2", "createdAt", "2026-05-26T09:00:00Z")));
+    VerificationRequestRepository.VerificationRecordRow row1 =
+        verificationRecordRow("r1", "u1", "identity", "pending", "2026-05-26T10:00:00Z");
+    VerificationRequestRepository.VerificationRecordRow row2 =
+        verificationRecordRow("r2", "u2", "identity", "pending", "2026-05-26T09:00:00Z");
+    when(repository.listForAdmin("pending", null, null, 2)).thenReturn(List.of(row1, row2));
 
-    Map<String, Object> page = service.listForAdmin("pending", 1, null);
+    VerificationService.VerificationPage page = service.listForAdmin("pending", 1, null);
 
-    assertThat((List<?>) page.get("items")).hasSize(1);
-    assertThat(page.get("nextCursor")).isNotNull();
+    assertThat(page.items()).hasSize(1);
+    assertThat(page.nextCursor()).isNotNull();
     verify(repository).listForAdmin("pending", null, null, 2);
   }
 
@@ -176,12 +188,13 @@ class ProfileTests {
     VerificationService service = new VerificationService(repository, mock(AuditService.class),
         mock(ProfilesService.class), notifications);
 
-    assertThatThrownBy(() -> service.review("missing", "admin", Map.of("decision", "approved")))
+    assertThatThrownBy(() -> service.review("missing", "admin", new VerificationService.ReviewVerificationInput("approved", null)))
         .isInstanceOf(ApiException.class).hasMessage("Verification request not found");
 
-    when(repository.findReviewTarget("r")).thenReturn(Map.of("userId", "u", "status", "pending"));
-    when(repository.reviewUpdate("r", "admin", "approved", null)).thenReturn(Map.of());
-    assertThatThrownBy(() -> service.review("r", "admin", Map.of("decision", "approved")))
+    VerificationRequestRepository.ReviewTargetRow pendingTarget = reviewTarget("r", "u", "pending");
+    when(repository.findReviewTarget("r")).thenReturn(pendingTarget);
+    when(repository.reviewUpdate("r", "admin", "approved", null)).thenReturn(null);
+    assertThatThrownBy(() -> service.review("r", "admin", new VerificationService.ReviewVerificationInput("approved", null)))
         .isInstanceOf(ApiException.class).hasMessage("Verification request was already reviewed");
     org.mockito.Mockito.verifyNoInteractions(notifications);
   }
@@ -197,16 +210,51 @@ class ProfileTests {
     assertThat(response).isEqualTo(NullNode.getInstance());
   }
 
-  private Map<String, Object> profileRow() {
-    Map<String, Object> row = new LinkedHashMap<>();
-    row.put("username", "member");
-    row.put("first_name", "First");
-    row.put("last_name", "Last");
-    row.put("display_name", "First Last");
-    row.put("pii_email_encrypted", "email@example.com".getBytes());
-    row.put("pii_phone_encrypted", "5555".getBytes());
-    row.put("pii_alternate_phone_encrypted", null);
-    row.put("pii_full_address_encrypted", null);
+  private ProfileRepository.ProfileRow profileRow() {
+    ProfileRepository.ProfileRow row = mock(ProfileRepository.ProfileRow.class);
+    mockDefaultProfileRow(row);
+    return row;
+  }
+
+  private ProfileRepository.ProfileRow mockMissingProfileRow() {
+    ProfileRepository.ProfileRow row = mock(ProfileRepository.ProfileRow.class);
+    when(row.getFirstName()).thenReturn(null);
+    return row;
+  }
+
+  private void mockDefaultProfileRow(ProfileRepository.ProfileRow row) {
+    when(row.getUsername()).thenReturn("member");
+    when(row.getFirstName()).thenReturn("First");
+    when(row.getLastName()).thenReturn("Last");
+    when(row.getDisplayName()).thenReturn("First Last");
+    when(row.getPiiEmailEncrypted()).thenReturn("email@example.com".getBytes());
+    when(row.getPiiPhoneEncrypted()).thenReturn("5555".getBytes());
+    when(row.getPiiAlternatePhoneEncrypted()).thenReturn(null);
+    when(row.getPiiFullAddressEncrypted()).thenReturn(null);
+  }
+
+  private VerificationRequestRepository.ReviewTargetRow reviewTarget(String id, String userId, String status) {
+    VerificationRequestRepository.ReviewTargetRow row = mock(VerificationRequestRepository.ReviewTargetRow.class);
+    when(row.getId()).thenReturn(id);
+    when(row.getUserId()).thenReturn(userId);
+    when(row.getStatus()).thenReturn(status);
+    return row;
+  }
+
+  private VerificationRequestRepository.VerificationRecordRow verificationRecordRow(
+      String id, String userId, String documentType, String status, String createdAt) {
+    VerificationRequestRepository.VerificationRecordRow row = mock(VerificationRequestRepository.VerificationRecordRow.class);
+    when(row.getId()).thenReturn(id);
+    when(row.getUserId()).thenReturn(userId);
+    when(row.getDocumentMediaIds()).thenReturn(new String[]{"m"});
+    when(row.getDocumentType()).thenReturn(documentType);
+    when(row.getStatus()).thenReturn(status);
+    when(row.getNotes()).thenReturn(null);
+    when(row.getReviewerUserId()).thenReturn(null);
+    when(row.getReviewerNotes()).thenReturn(null);
+    when(row.getReviewedAt()).thenReturn(null);
+    when(row.getCreatedAt()).thenReturn(createdAt);
+    when(row.getUpdatedAt()).thenReturn(createdAt);
     return row;
   }
 }

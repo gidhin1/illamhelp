@@ -22,6 +22,7 @@ CREATE TYPE connection_status AS ENUM ('pending', 'accepted', 'declined', 'block
 CREATE TYPE pii_request_status AS ENUM ('pending', 'approved', 'rejected', 'cancelled');
 CREATE TYPE pii_grant_status AS ENUM ('active', 'revoked');
 CREATE TYPE media_kind AS ENUM ('image', 'video');
+CREATE TYPE media_purpose AS ENUM ('profile', 'job', 'verification_document');
 CREATE TYPE media_state AS ENUM (
   'uploaded',
   'scanning',
@@ -207,7 +208,9 @@ CREATE TABLE pii_consent_grants (
 CREATE TABLE media_assets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  profile_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
   job_id UUID REFERENCES jobs(id) ON DELETE SET NULL,
+  purpose media_purpose NOT NULL,
   kind media_kind NOT NULL,
   bucket_name TEXT NOT NULL,
   object_key TEXT NOT NULL,
@@ -218,7 +221,12 @@ CREATE TABLE media_assets (
   ai_scores JSONB,
   moderation_reason_codes TEXT[] NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT chk_media_assets_profile_binding CHECK (
+    (purpose = 'profile'::media_purpose AND profile_user_id IS NOT NULL AND job_id IS NULL)
+    OR (purpose = 'verification_document'::media_purpose AND profile_user_id IS NOT NULL AND job_id IS NULL)
+    OR (purpose = 'job'::media_purpose AND job_id IS NOT NULL)
+  )
 );
 
 CREATE TABLE moderation_jobs (
@@ -413,6 +421,10 @@ CREATE INDEX idx_media_assets_owner_state ON media_assets (owner_user_id, state)
 CREATE INDEX idx_media_assets_owner_created_at_desc ON media_assets (owner_user_id, created_at DESC, id DESC);
 CREATE INDEX idx_media_assets_approved_owner_created_at_desc
   ON media_assets (owner_user_id, created_at DESC, id DESC) WHERE state = 'approved';
+CREATE INDEX idx_media_assets_purpose_profile_state_created
+  ON media_assets (purpose, profile_user_id, state, created_at DESC, id DESC);
+CREATE INDEX idx_media_assets_purpose_job_state_created
+  ON media_assets (purpose, job_id, state, created_at DESC, id DESC);
 CREATE INDEX idx_moderation_jobs_media_stage ON moderation_jobs (media_asset_id, stage, status);
 CREATE INDEX idx_moderation_jobs_pending_queue
   ON moderation_jobs (stage, created_at ASC, id) WHERE status = 'pending';

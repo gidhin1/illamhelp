@@ -27,7 +27,7 @@ async function registerAccount(page: Page): Promise<void> {
 
 async function openPostedJobs(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Open navigation menu" }).click();
-  await page.getByRole("button", { name: "Jobs", exact: true }).click();
+  await page.getByTestId("drawer-nav-jobs-toggle").click();
   await page.getByRole("button", { name: "Posted by me", exact: true }).click();
   await expect(page.getByText("Create job", { exact: true })).toBeVisible();
 }
@@ -44,10 +44,12 @@ test("mobile registration validates a short user id in the UI", async ({ page })
 test("mobile registration opens authenticated navigation and supports sign out", async ({ page }) => {
   await registerAccount(page);
   await expect(page.getByRole("button", { name: "Home" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "People" })).toBeVisible();
+  await expect(page.getByTestId("tab-jobs-discover")).toBeVisible();
+  await expect(page.getByTestId("tab-privacy")).toBeVisible();
   await expect(page.getByTestId("tab-profile")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Verify" })).toBeVisible();
   await page.getByRole("button", { name: "Open navigation menu" }).click();
+  await expect(page.getByTestId("drawer-nav-people")).toBeVisible();
+  await expect(page.getByTestId("drawer-nav-verify")).toBeVisible();
   await page.getByRole("button", { name: "Sign out" }).click();
 
   await expect(page.getByRole("tab", { name: "Sign in" })).toBeVisible();
@@ -94,13 +96,14 @@ test("mobile profile edits contact and service details through visible controls"
 
 test("mobile verification form validates missing media IDs", async ({ page }) => {
   await registerAccount(page);
-  await page.getByTestId("tab-verify").click();
+  await page.getByRole("button", { name: "Open navigation menu" }).click();
+  await page.getByTestId("drawer-nav-verify").click();
 
   await expect(page.getByText("Get verified")).toBeVisible();
   await expect(page.getByText("No verification request yet.")).toBeVisible();
   await page.getByTestId("verification-submit").click();
   await expect(page.getByTestId("verification-error-banner")).toContainText(
-    "Enter at least one document media ID."
+    "Upload at least one private document before submitting verification."
   );
 });
 
@@ -109,6 +112,7 @@ test("mobile navigation drawer opens and closes from explicit controls", async (
 
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await expect(page.getByRole("button", { name: "Close navigation menu" })).toBeVisible();
+  await expect(page.getByTestId("app-drawer-scrim")).toBeVisible();
   await expect(page.getByTestId("drawer-signout")).toBeVisible();
   await expect(page.getByTestId("theme-system")).toBeVisible();
 

@@ -28,8 +28,10 @@ export function DataTable<TData, TValue>({
     getPaginationRowModel: getPaginationRowModel(),
   });
 
+  const rows = table.getRowModel().rows;
+
   return (
-    <div className="table-wrapper">
+    <div className="table-wrapper" aria-label={ariaLabel}>
       <div className="table-container">
         <table aria-label={ariaLabel} className="data-table">
           <thead>
@@ -51,8 +53,8 @@ export function DataTable<TData, TValue>({
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
+            {rows.length ? (
+              rows.map((row) => (
                 <tr
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
@@ -73,6 +75,28 @@ export function DataTable<TData, TValue>({
             )}
           </tbody>
         </table>
+      </div>
+      <div className="table-card-list">
+        {rows.length ? (
+          rows.map((row) => (
+            <article key={row.id} className="table-card-row motion-row-change">
+              {row.getVisibleCells().map((cell) => {
+                const header = cell.column.columnDef.header;
+                const label = typeof header === "string" ? header : cell.column.id;
+                return (
+                  <div key={cell.id} className="table-card-field">
+                    <span className="table-card-label">{label}</span>
+                    <span className="table-card-value">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </span>
+                  </div>
+                );
+              })}
+            </article>
+          ))
+        ) : (
+          <div className="table-empty">No results.</div>
+        )}
       </div>
       <div className="table-pagination">
         <button

@@ -22,18 +22,20 @@ public class MediaMutationService {
   }
 
   @Transactional
-  public void recordUploadTicket(String userId, String mediaId, String jobId, String kind, String bucket,
-      String objectKey, String contentType, Long fileSizeBytes, String checksumSha256, String moderationDetails) {
-    mediaAssetRepository.insertAsset(mediaId, userId, jobId, kind, bucket, objectKey, contentType,
+  public void recordUploadTicket(String userId, String mediaId, String profileUserId, String jobId, String purpose,
+      String kind, String bucket, String objectKey, String contentType, Long fileSizeBytes, String checksumSha256,
+      String moderationDetails) {
+    mediaAssetRepository.insertAsset(mediaId, userId, profileUserId, jobId, purpose, kind, bucket, objectKey, contentType,
         fileSizeBytes, checksumSha256);
     mediaAssetRepository.enqueueTechnicalValidation(mediaId, moderationDetails);
-    auditService.logEvent(userId, null, "media_upload_ticket_created", null, Map.of("mediaId", mediaId, "kind", kind));
+    auditService.logEvent(userId, null, "media_upload_ticket_created", null,
+        Map.of("mediaId", mediaId, "kind", kind, "purpose", purpose));
     internalEventsService.mediaUploadTicketIssued(userId, mediaId, bucket, objectKey, kind, contentType,
         fileSizeBytes == null ? 0 : fileSizeBytes, checksumSha256 == null ? "" : checksumSha256);
   }
 
   @Transactional
-  public Map<String, Object> recordVerifiedCompletion(String userId, String mediaId, String normalizedEtag) {
+  public MediaService.MediaAssetRecord recordVerifiedCompletion(String userId, String mediaId, String normalizedEtag) {
     Map<String, Object> asset = mediaAssetRepository.completeUpload(userId, mediaId);
     if (asset == null || asset.isEmpty()) {
       throw new ApiException(HttpStatus.CONFLICT, "Media upload was already completed");
@@ -41,6 +43,6 @@ public class MediaMutationService {
     auditService.logEvent(userId, null, "media_upload_completed", null,
         Map.of("mediaId", mediaId, "verifiedByHead", true));
     internalEventsService.mediaUploadCompleted(userId, mediaId, normalizedEtag, true);
-    return asset;
+    return MediaService.mediaAssetRecord(asset);
   }
 }

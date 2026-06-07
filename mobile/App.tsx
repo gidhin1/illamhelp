@@ -1,6 +1,7 @@
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { Keyboard, SafeAreaView, Text, View } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import {
@@ -204,12 +205,14 @@ function AppContent(): JSX.Element {
 
 export default function App(): JSX.Element {
   return (
-    <RootErrorBoundary>
-      <SafeAreaProvider>
-        <AppThemeProvider>
-          <AppContent />
-        </AppThemeProvider>
-      </SafeAreaProvider>
-    </RootErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <RootErrorBoundary>
+        <SafeAreaProvider>
+          <AppThemeProvider>
+            <AppContent />
+          </AppThemeProvider>
+        </SafeAreaProvider>
+      </RootErrorBoundary>
+    </GestureHandlerRootView>
   );
 }

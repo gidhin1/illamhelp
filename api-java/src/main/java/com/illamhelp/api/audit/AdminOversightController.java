@@ -48,43 +48,64 @@ public class AdminOversightController {
   }
 
   @GetMapping("/admin/oversight/timeline")
-  public Map<String, Object> timeline(@Valid @ModelAttribute TimelineRequest request) {
+  public TimelineResponse timeline(@Valid @ModelAttribute TimelineRequest request) {
     String memberId = request.memberId();
     int safeLimit = request.limit() == null ? 50 : request.limit();
     Map<String, Object> member = memberId.matches(UUID_PATTERN)
         ? auditEventRepository.memberById(memberId)
         : auditEventRepository.memberByUsername(memberId);
     String userId = String.valueOf(member.get("userId"));
-    List<Map<String, Object>> accessRequests = auditEventRepository.accessRequests(userId, safeLimit);
-    List<Map<String, Object>> consentGrants = auditEventRepository.consentGrants(userId, safeLimit);
-    List<Map<String, Object>> auditEvents = auditEventRepository.timelineEvents(userId, safeLimit).stream()
-        .map(this::normalizeMetadata).toList();
-    return Map.of("member", member, "accessRequests", accessRequests, "consentGrants", consentGrants, "auditEvents", auditEvents);
+    List<AccessRequestRecord> accessRequests = auditEventRepository.accessRequests(userId, safeLimit).stream()
+        .map(AdminOversightController::accessRequestRecord).toList();
+    List<ConsentGrantRecord> consentGrants = auditEventRepository.consentGrants(userId, safeLimit).stream()
+        .map(AdminOversightController::consentGrantRecord).toList();
+    List<AuditTimelineEvent> auditEvents = auditEventRepository.timelineEvents(userId, safeLimit).stream()
+        .map(this::normalizeMetadata)
+        .map(AdminOversightController::auditTimelineEvent)
+        .toList();
+    return new TimelineResponse(memberRecord(member), accessRequests, consentGrants, auditEvents);
   }
 
   @PatchMapping("/admin/oversight/members/{userId}/verify")
-  public Map<String, Object> verifyMember(@PathVariable String userId, @Valid @RequestBody VerifyMemberRequest request) {
+  public ProfilesService.ProfileRecord verifyMember(@PathVariable String userId, @Valid @RequestBody VerifyMemberRequest request) {
     return profilesService.setVerified(userId, request.verified());
   }
 
   @GetMapping("/admin/oversight/verifications")
-  public Map<String, Object> verifications(@Valid @ModelAttribute VerificationListRequest request) {
+  public VerificationService.VerificationPage verifications(@Valid @ModelAttribute VerificationListRequest request) {
     return verificationService.listForAdmin(request.status(), request.limit(), request.cursor());
   }
 
   @PostMapping("/admin/oversight/verifications/{id}/review")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> reviewVerification(
+  public VerificationService.VerificationRecord reviewVerification(
       @PathVariable String id,
       @Valid @RequestBody VerificationReviewRequest request,
       @AuthenticationPrincipal Jwt jwt) {
-    Map<String, Object> body = new LinkedHashMap<>();
-    body.put("decision", request.decision());
-    body.put("notes", request.notes());
-    return verificationService.review(id, CurrentUser.fromJwt(jwt).userId(), body);
+    return verificationService.review(id, CurrentUser.fromJwt(jwt).userId(),
+        new VerificationService.ReviewVerificationInput(request.decision(), request.notes()));
   }
 
   public record TimelineRequest(@NotBlank String memberId, @Min(1) @Max(200) Integer limit) {
+  }
+
+  public record TimelineResponse(MemberRecord member, List<AccessRequestRecord> accessRequests,
+      List<ConsentGrantRecord> consentGrants, List<AuditTimelineEvent> auditEvents) {
+  }
+
+  public record MemberRecord(String userId, String publicUserId, String role, String createdAt, String updatedAt) {
+  }
+
+  public record AccessRequestRecord(String id, String requesterUserId, String ownerUserId, Object requestedFields,
+      String purpose, String status, String createdAt, String resolvedAt) {
+  }
+
+  public record ConsentGrantRecord(String id, String ownerUserId, String granteeUserId, Object grantedFields,
+      String purpose, String status, String grantedAt, String expiresAt, String revokedAt, String revokeReason) {
+  }
+
+  public record AuditTimelineEvent(String id, String eventType, String purpose, String actorUserId,
+      String targetUserId, Object metadata, String createdAt) {
   }
 
   public record VerifyMemberRequest(@NotNull Boolean verified) {
@@ -112,5 +133,32 @@ public class AdminOversightController {
       normalized.put("metadata", Map.of());
     }
     return normalized;
+  }
+
+  private static MemberRecord memberRecord(Map<String, Object> row) {
+    return new MemberRecord(string(row, "userId"), string(row, "publicUserId"), string(row, "role"),
+        string(row, "createdAt"), string(row, "updatedAt"));
+  }
+
+  private static AccessRequestRecord accessRequestRecord(Map<String, Object> row) {
+    return new AccessRequestRecord(string(row, "id"), string(row, "requesterUserId"), string(row, "ownerUserId"),
+        row.get("requestedFields"), string(row, "purpose"), string(row, "status"), string(row, "createdAt"),
+        string(row, "resolvedAt"));
+  }
+
+  private static ConsentGrantRecord consentGrantRecord(Map<String, Object> row) {
+    return new ConsentGrantRecord(string(row, "id"), string(row, "ownerUserId"), string(row, "granteeUserId"),
+        row.get("grantedFields"), string(row, "purpose"), string(row, "status"), string(row, "grantedAt"),
+        string(row, "expiresAt"), string(row, "revokedAt"), string(row, "revokeReason"));
+  }
+
+  private static AuditTimelineEvent auditTimelineEvent(Map<String, Object> row) {
+    return new AuditTimelineEvent(string(row, "id"), string(row, "eventType"), string(row, "purpose"),
+        string(row, "actorUserId"), string(row, "targetUserId"), row.get("metadata"), string(row, "createdAt"));
+  }
+
+  private static String string(Map<String, Object> row, String key) {
+    Object value = row.get(key);
+    return value == null ? null : String.valueOf(value);
   }
 }

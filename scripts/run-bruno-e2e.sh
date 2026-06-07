@@ -436,6 +436,19 @@ export SEEKER_ACCESS_TOKEN="${SEEKER_TOKEN}"
 export PROVIDER_ACCESS_TOKEN="${PROVIDER_TOKEN}"
 export ADMIN_ACCESS_TOKEN="${ADMIN_TOKEN}"
 
+MEDIA_ID="${MEDIA_ID:-}"
+if [[ "${RUN_TAGS}" == *"e2e"* && -z "${MEDIA_ID}" ]]; then
+  MEDIA_ID="$(
+    SEEKER_ACCESS_TOKEN="${SEEKER_TOKEN}" \
+      node "${ROOT_DIR}/scripts/create-bruno-verification-media.mjs"
+  )"
+  if [[ -z "${MEDIA_ID}" ]]; then
+    echo "ERROR: gRPC media fixture creation did not return a media id." >&2
+    exit 1
+  fi
+  echo "Created verification document media fixture: ${MEDIA_ID}"
+fi
+
 if [[ ! -f "${COLLECTION_DIR}/bruno.json" ]]; then
   echo "ERROR: Invalid Bruno collection directory: ${COLLECTION_DIR}"
   echo "Expected file not found: ${COLLECTION_DIR}/bruno.json"
@@ -480,7 +493,8 @@ fi
     --env-var "baseUrl=${BASE_URL}" \
     --env-var "seekerAccessToken=${SEEKER_TOKEN}" \
     --env-var "providerAccessToken=${PROVIDER_TOKEN}" \
-    --env-var "adminAccessToken=${ADMIN_TOKEN}"
+    --env-var "adminAccessToken=${ADMIN_TOKEN}" \
+    --env-var "mediaId=${MEDIA_ID}"
 )
 
 echo "Bruno E2E completed."

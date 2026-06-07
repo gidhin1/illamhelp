@@ -1,23 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PageShell } from "@/components/PageShell";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
-import { DataTable } from "@/components/ui/DataTable";
 import {
     Banner,
     Button,
     Card,
     EmptyState,
     Field,
-    TextArea
+    SelectInput,
+    TextArea,
+    TextInput
 } from "@/components/ui/primitives";
 import {
     formatDate,
+    getModerationDetails,
     listVerifications,
+    ModerationDetails,
     reviewVerification,
     VerificationRecord
 } from "@/lib/api";
@@ -30,6 +32,27 @@ const STATUS_OPTS = [
   { value: "", label: "All Records" }
 ];
 
+type VerificationSortOrder = "oldest" | "newest";
+
+function shortId(value: string): string {
+    return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
+}
+
+function statusLabel(status: VerificationRecord["status"]): string {
+    return status.replaceAll("_", " ");
+}
+
+function statusColor(status: VerificationRecord["status"]): string {
+    if (status === "pending") return "var(--warning-text)";
+    if (status === "approved") return "var(--success-text)";
+    if (status === "rejected") return "var(--error-text)";
+    return "var(--ink)";
+}
+
+function documentTypeLabel(documentType: string): string {
+    return documentType.replaceAll("_", " ");
+}
+
 export default function VerificationsPage(): React.JSX.Element {
     const { accessToken } = useSession();
     const [items, setItems] = useState<VerificationRecord[]>([]);
@@ -37,8 +60,12 @@ export default function VerificationsPage(): React.JSX.Element {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState("pending");
+    const [queueSearch, setQueueSearch] = useState("");
+    const [queueSortOrder, setQueueSortOrder] = useState<VerificationSortOrder>("oldest");
     const [reviewingId, setReviewingId] = useState<string | null>(null);
     const [reviewNotesById, setReviewNotesById] = useState<Record<string, string>>({});
+    const [previewByMediaId, setPreviewByMediaId] = useState<Record<string, ModerationDetails>>({});
+    const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -78,9 +105,36 @@ export default function VerificationsPage(): React.JSX.Element {
         }
     };
 
+    const onPreviewDocument = async (mediaId: string): Promise<void> => {
+        if (!accessToken) return;
+        if (previewByMediaId[mediaId]) {
+            return;
+        }
+        setPreviewLoadingId(mediaId);
+        setError(null);
+        try {
+            const details = await getModerationDetails(mediaId, accessToken);
+            setPreviewByMediaId((previous) => ({ ...previous, [mediaId]: details }));
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to load document preview");
+        } finally {
+            setPreviewLoadingId(null);
+        }
+    };
+
     useEffect(() => {
         void loadVerifications();
     }, [loadVerifications]);
+
+    useEffect(() => {
+        if (items.length === 0) {
+            setReviewingId(null);
+            return;
+        }
+        if (!reviewingId || !items.some((item) => item.id === reviewingId)) {
+            setReviewingId(items[0].id);
+        }
+    }, [items, reviewingId]);
 
     const onReview = async (
         requestId: string,
@@ -100,7 +154,7 @@ export default function VerificationsPage(): React.JSX.Element {
             setItems((prev) =>
                 prev.map((item) => (item.id === updated.id ? updated : item))
             );
-            setReviewingId(null);
+            setReviewingId(updated.id);
             setReviewNotesById((prev) => {
                 const next = { ...prev };
                 delete next[requestId];
@@ -114,108 +168,57 @@ export default function VerificationsPage(): React.JSX.Element {
         }
     };
 
-    const columns: ColumnDef<VerificationRecord>[] = [
-      {
-        accessorKey: "status",
-        header: "Status",
-        cell: ({ row }) => {
-          const s = row.original.status;
-          let color = "var(--ink)";
-          if (s === "pending") color = "var(--warning-text)";
-          if (s === "approved") color = "var(--success-text)";
-          if (s === "rejected") color = "var(--error-text)";
-          return <span className="pill" style={{ color }}>{s.replaceAll("_", " ")}</span>;
-        }
-      },
-      {
-        accessorKey: "userId",
-        header: "Member ID",
-        cell: ({ row }) => <span style={{ fontWeight: 600, color: "var(--ink)", fontFamily: "monospace", fontSize: "0.9rem" }}>{row.original.userId}</span>
-      },
-      {
-        accessorKey: "documentType",
-        header: "KYC Type",
-        cell: ({ row }) => <span style={{ textTransform: "capitalize" }}>{row.original.documentType.replaceAll("_", " ")}</span>
-      },
-      {
-        accessorKey: "createdAt",
-        header: "Submitted",
-        cell: ({ row }) => <span className="muted-text">{formatDate(row.original.createdAt).split(",")[0]}</span>
-      },
-      {
-        id: "actions",
-        header: "Review",
-        cell: ({ row }) => {
-          const item = row.original;
-          const isReviewing = reviewingId === item.id;
-          const reviewNotes = reviewNotesById[item.id] ?? "";
-          if (item.status === "approved" || item.status === "rejected") {
-             return <Button variant="ghost" disabled style={{ padding: "4px 8px", fontSize: "0.8rem" }}>Completed</Button>;
-          }
-          if (!isReviewing) {
-             return (
-               <Button
-                 data-testid={`verification-review-${item.id}`}
-                 style={{ padding: "4px 8px", fontSize: "0.8rem" }}
-                 onClick={() => {
-                     setReviewingId(item.id);
-                     setReviewNotesById((prev) => ({ ...prev, [item.id]: prev[item.id] ?? "" }));
-                 }}
-               >
-                 Start Review
-               </Button>
-             );
-          }
-          return (
-             <div className="stack" style={{ gap: "8px", minWidth: "220px", background: "var(--surface)", padding: "12px", borderRadius: "var(--radius-md)", border: "1px solid var(--brand)", position: "absolute", right: "20px", marginTop: "-10px", zIndex: 10, boxShadow: "var(--shadow)" }}>
-                <Field label="Decision Notes (Audit)">
-                   <TextArea
-                     value={reviewNotes}
-                     onChange={(e) => setReviewNotesById((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                     placeholder="Rationale..."
-                     style={{ minHeight: "60px", fontSize: "0.8rem", padding: "8px" }}
-                   />
-                </Field>
-                <div style={{ display: "flex", gap: "8px" }}>
-                   <Button data-testid={`verification-approve-${item.id}`} disabled={actionLoading} onClick={() => void onReview(item.id, reviewNotes, "approved")} style={{ flex: 1, padding: "4px", fontSize: "0.8rem" }}>
-                     Approve
-                   </Button>
-                   <Button variant="secondary" data-testid={`verification-reject-${item.id}`} disabled={actionLoading} onClick={() => void onReview(item.id, reviewNotes, "rejected")} style={{ flex: 1, padding: "4px", fontSize: "0.8rem", color: "var(--danger)" }}>
-                     Reject
-                   </Button>
-                </div>
-                <Button variant="ghost" onClick={() => { setReviewingId(null); setReviewNotesById((prev) => { const next = { ...prev }; delete next[item.id]; return next; }); }} style={{ padding: "4px", fontSize: "0.8rem" }}>
-                   Cancel
-                </Button>
-             </div>
-          );
-        }
-      }
-    ];
+    const selectedRequest = useMemo(
+        () => items.find((item) => item.id === reviewingId) ?? null,
+        [items, reviewingId]
+    );
+    const visibleItems = useMemo(() => {
+        const query = queueSearch.trim().toLowerCase();
+        return items
+            .filter((item) => {
+                if (!query) return true;
+                return [
+                    item.userId,
+                    item.id,
+                    item.status,
+                    item.documentType,
+                    item.documentMediaIds.join(" ")
+                ].some((value) => value.toLowerCase().includes(query));
+            })
+            .sort((a, b) => {
+                const left = new Date(a.createdAt).getTime();
+                const right = new Date(b.createdAt).getTime();
+                return queueSortOrder === "oldest" ? left - right : right - left;
+            });
+    }, [items, queueSearch, queueSortOrder]);
+    const visibleGroups = useMemo(() => {
+        const statuses: VerificationRecord["status"][] = ["pending", "under_review", "approved", "rejected"];
+        return statuses
+            .map((status) => ({
+                status,
+                items: visibleItems.filter((item) => item.status === status)
+            }))
+            .filter((group) => group.items.length > 0);
+    }, [visibleItems]);
+    const selectedReviewNotes = selectedRequest ? reviewNotesById[selectedRequest.id] ?? "" : "";
+    const selectedHasDocuments = (selectedRequest?.documentMediaIds.length ?? 0) > 0;
+    const selectedIsComplete = selectedRequest?.status === "approved" || selectedRequest?.status === "rejected";
+    const rejectionNotesTooShort = selectedReviewNotes.trim().length < 8;
 
     return (
         <PageShell>
           <RequireAdminSession>
-             <div className="stack" style={{ gap: 0 }}>
-               <div className="top-header">
-                 <div>
-                    <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Trust & Safety</div>
-                    <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Verification Processing</h1>
+             <div className="stack admin-review-page">
+               <div className="admin-review-topbar">
+                 <div className="admin-review-title-block">
+                    <span className="admin-review-kicker">Trust & Safety</span>
+                    <h1 className="display-title admin-review-title">Verification Processing</h1>
                  </div>
-                 <div className="section-actions" role="group" aria-label="Verification status" style={{ display: "flex", gap: "8px", background: "var(--surface)", padding: "4px", borderRadius: "var(--radius-md)", border: "1px solid var(--line)" }}>
+                 <div className="admin-review-segmented" role="group" aria-label="Verification status">
                     {STATUS_OPTS.map((opt) => (
                         <button
                           key={opt.value}
-                          style={{
-                              padding: "6px 12px",
-                              borderRadius: "var(--radius-sm)",
-                              border: "none",
-                              background: statusFilter === opt.value ? "var(--surface-hover)" : "transparent",
-                              color: statusFilter === opt.value ? "var(--ink)" : "var(--muted)",
-                              fontWeight: statusFilter === opt.value ? 600 : 500,
-                              fontSize: "0.85rem",
-                              cursor: "pointer"
-                          }}
+                          className={statusFilter === opt.value ? "active" : ""}
                           onClick={() => setStatusFilter(opt.value)}
                           aria-pressed={statusFilter === opt.value}
                         >
@@ -225,38 +228,244 @@ export default function VerificationsPage(): React.JSX.Element {
                  </div>
                </div>
 
-                <div style={{ padding: "var(--spacing-xl)" }}>
+                <div className="admin-review-shell">
                         <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
                             {error ? <Banner tone="error">{error}</Banner> : null}
                             {successMessage ? <Banner tone="success">{successMessage}</Banner> : null}
 
-                            <Card className="stack" style={{ padding: 0, overflow: "hidden" }}>
-                                <div style={{ padding: "var(--spacing-md)", borderBottom: "1px solid var(--line)", background: "var(--surface)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                  <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.1rem" }}>Current Queue</h3>
-                                  <span className="pill">{items.length} Loaded</span>
-                                </div>
-                                {loading ? (
-                                    <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }}><p className="muted-text">Loading...</p></div>
-                                ) : items.length === 0 ? (
-                                    <div style={{ padding: "var(--spacing-xl)" }}>
-                                      <EmptyState
-                                          title="No verification requests"
-                                          body="No requests match the current queue parameters."
-                                      />
+                            <div className="verification-workspace admin-review-layout">
+                                <Card className="verification-queue-panel admin-review-panel stack" style={{ padding: 0, overflow: "hidden" }}>
+                                    <div className="verification-panel-header admin-review-panel-header">
+                                      <h3>Current Queue</h3>
+                                      <span className="pill">{visibleItems.length} Shown</span>
                                     </div>
-                                ) : (
-                                    <div style={{ position: "relative" }}>
-                                      <DataTable ariaLabel="Verification requests" columns={columns} data={items} />
-                                      {nextCursor ? (
-                                        <div style={{ padding: "var(--spacing-md)", display: "flex", justifyContent: "center" }}>
-                                          <Button variant="secondary" disabled={loading} onClick={() => void loadMoreVerifications()}>
-                                            {loading ? "Loading..." : "Load more requests"}
-                                          </Button>
+                                    <div className="admin-review-queue-tools">
+                                      <Field label="Find applicant">
+                                        <TextInput
+                                          data-testid="verification-queue-search"
+                                          value={queueSearch}
+                                          onChange={(event) => setQueueSearch(event.target.value)}
+                                          placeholder="Member ID, request ID, status, document type"
+                                        />
+                                      </Field>
+                                      <Field label="Order">
+                                        <SelectInput
+                                          data-testid="verification-sort-order"
+                                          value={queueSortOrder}
+                                          onChange={(event) => setQueueSortOrder(event.target.value as VerificationSortOrder)}
+                                        >
+                                          <option value="oldest">Oldest first</option>
+                                          <option value="newest">Newest first</option>
+                                        </SelectInput>
+                                      </Field>
+                                    </div>
+                                    {loading ? (
+                                        <div style={{ padding: "var(--spacing-xl)", textAlign: "center" }}><p className="muted-text">Loading verification requests...</p></div>
+                                    ) : visibleItems.length === 0 ? (
+                                        <div style={{ padding: "var(--spacing-xl)" }}>
+                                          <EmptyState
+                                              title="No verification requests"
+                                              body="No requests match the current queue parameters. Clear search or choose another status."
+                                          />
                                         </div>
+                                    ) : (
+                                        <div className="verification-queue-list" role="list" aria-label="Verification requests">
+                                          {visibleGroups.map((group) => (
+                                            <div key={group.status} className="admin-review-list-group" role="group" aria-label={statusLabel(group.status)}>
+                                              <div className="admin-review-group-label">{statusLabel(group.status)} · {group.items.length}</div>
+                                              {group.items.map((item) => {
+                                                const selected = selectedRequest?.id === item.id;
+                                                const complete = item.status === "approved" || item.status === "rejected";
+                                                return (
+                                                  <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    className={`verification-queue-item ${selected ? "selected" : ""}`}
+                                                    aria-pressed={selected}
+                                                    data-testid={`verification-review-${item.id}`}
+                                                    onClick={() => {
+                                                        setReviewingId(item.id);
+                                                        setReviewNotesById((prev) => ({ ...prev, [item.id]: prev[item.id] ?? "" }));
+                                                    }}
+                                                  >
+                                                    <span className="verification-queue-row">
+                                                      <strong>Member {shortId(item.userId)}</strong>
+                                                      <span className="pill" style={{ color: statusColor(item.status) }}>{statusLabel(item.status)}</span>
+                                                    </span>
+                                                    <span className="verification-queue-id">Member ID: {item.userId}</span>
+                                                    <span className="verification-queue-id">Request ID: {shortId(item.id)}</span>
+                                                    <span className="muted-text">Private verification · {item.documentMediaIds.length} document{item.documentMediaIds.length === 1 ? "" : "s"}</span>
+                                                    <span className="muted-text">{complete ? "Review decision history" : "Preview documents, then approve or reject"} · submitted {formatDate(item.createdAt).split(",")[0]}</span>
+                                                    {complete ? <span className="verification-completed-label">Decision recorded</span> : null}
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                          ))}
+                                          {nextCursor ? (
+                                            <div style={{ padding: "var(--spacing-md)", display: "flex", justifyContent: "center" }}>
+                                              <Button variant="secondary" disabled={loading} onClick={() => void loadMoreVerifications()}>
+                                                {loading ? "Loading..." : "Load more requests"}
+                                              </Button>
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                    )}
+                                </Card>
+
+                                <Card className="verification-review-panel admin-review-panel admin-review-detail-panel stack" data-testid="verification-review-panel">
+                                  {selectedRequest ? (
+                                    <>
+                                      <div className="verification-review-header">
+                                        <div>
+                                          <div className="pill" style={{ color: statusColor(selectedRequest.status), marginBottom: "8px" }}>
+                                            {statusLabel(selectedRequest.status)}
+                                          </div>
+                                          <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem" }}>Member {shortId(selectedRequest.userId)}</h3>
+                                        </div>
+                                        {selectedIsComplete ? <span className="verification-completed-label">Completed</span> : null}
+                                      </div>
+
+                                      <div className="verification-facts" aria-label="Verification request details">
+                                        <div>
+                                          <span className="muted-text">Applicant</span>
+                                          <strong>Member {shortId(selectedRequest.userId)}</strong>
+                                          <span className="verification-queue-id">Member ID: {selectedRequest.userId}</span>
+                                        </div>
+                                        <div>
+                                          <span className="muted-text">Privacy state</span>
+                                          <strong>Private verification</strong>
+                                          <span>{selectedRequest.documentMediaIds.length} document{selectedRequest.documentMediaIds.length === 1 ? "" : "s"}</span>
+                                        </div>
+                                        <div>
+                                          <span className="muted-text">Next safe action</span>
+                                          <strong>{selectedIsComplete ? "Review decision history" : "Preview, then decide"}</strong>
+                                          <span>{documentTypeLabel(selectedRequest.documentType)}</span>
+                                        </div>
+                                        <div>
+                                          <span className="muted-text">Submitted</span>
+                                          <strong>{formatDate(selectedRequest.createdAt)}</strong>
+                                        </div>
+                                        {selectedRequest.reviewedAt ? (
+                                          <div>
+                                            <span className="muted-text">Reviewed</span>
+                                            <strong>{formatDate(selectedRequest.reviewedAt)}</strong>
+                                          </div>
+                                        ) : null}
+                                      </div>
+
+                                      {selectedRequest.notes ? (
+                                        <Banner tone="info">{selectedRequest.notes}</Banner>
                                       ) : null}
-                                    </div>
-                                )}
-                            </Card>
+
+                                      <div className="stack">
+                                        <div>
+                                          <h4>Private documents</h4>
+                                          <p className="muted-text">Document previews are fetched only for this selected verification request.</p>
+                                        </div>
+                                        {selectedRequest.documentMediaIds.length === 0 ? (
+                                          <Banner tone="error">No private documents are attached to this verification request.</Banner>
+                                        ) : (
+                                          <div className="verification-evidence-grid">
+                                            {selectedRequest.documentMediaIds.map((mediaId) => {
+                                              const details = previewByMediaId[mediaId];
+                                              return (
+                                                <div key={mediaId} className="verification-document-preview">
+                                                  <div className="muted-text" style={{ fontSize: "0.8rem", wordBreak: "break-all" }}>Private document ID: {mediaId}</div>
+                                                  {details ? (
+                                                    <div data-testid={`verification-document-preview-${mediaId}`}>
+                                                      {details.media.kind === "image" ? (
+                                                        // eslint-disable-next-line @next/next/no-img-element
+                                                        <img src={details.media.previewUrl} alt="Private verification document preview" />
+                                                      ) : (
+                                                        <video controls preload="metadata">
+                                                          <source src={details.media.previewUrl} type={details.media.contentType} />
+                                                        </video>
+                                                      )}
+                                                    </div>
+                                                  ) : null}
+                                                  <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    disabled={previewLoadingId === mediaId}
+                                                    onClick={() => void onPreviewDocument(mediaId)}
+                                                  >
+                                                    {previewLoadingId === mediaId ? "Loading..." : details ? "Preview loaded" : "Preview document"}
+                                                  </Button>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="verification-checklist" aria-label="Verification review safeguards">
+                                        <span>Private document purpose only</span>
+                                        <span>Document preview opened in review context</span>
+                                        <span>Rejected requests require decision notes</span>
+                                      </div>
+
+                                      <Field
+                                        label="Decision notes"
+                                        hint={selectedIsComplete ? "This request already has a recorded decision." : "Required for rejection. Keep it specific enough for audit and applicant support."}
+                                      >
+                                        <TextArea
+                                          value={selectedReviewNotes}
+                                          disabled={selectedIsComplete || actionLoading}
+                                          onChange={(e) => setReviewNotesById((prev) => ({ ...prev, [selectedRequest.id]: e.target.value }))}
+                                          placeholder="Decision rationale..."
+                                          style={{ minHeight: "110px" }}
+                                        />
+                                      </Field>
+
+                                      {selectedRequest.reviewerNotes ? (
+                                        <Banner tone="info">Recorded review note: {selectedRequest.reviewerNotes}</Banner>
+                                      ) : null}
+
+                                      <div className="verification-decision-actions">
+                                        <Button
+                                          data-testid={`verification-approve-${selectedRequest.id}`}
+                                          disabled={actionLoading || selectedIsComplete || !selectedHasDocuments}
+                                          onClick={() => void onReview(selectedRequest.id, selectedReviewNotes, "approved")}
+                                        >
+                                          {actionLoading ? "Saving..." : "Approve verification"}
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          data-testid={`verification-reject-${selectedRequest.id}`}
+                                          disabled={actionLoading || selectedIsComplete || !selectedHasDocuments || rejectionNotesTooShort}
+                                          onClick={() => void onReview(selectedRequest.id, selectedReviewNotes, "rejected")}
+                                          style={{ color: "var(--error-text)" }}
+                                        >
+                                          Reject verification
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          disabled={selectedIsComplete || selectedReviewNotes.length === 0}
+                                          onClick={() => {
+                                            if (!selectedRequest) return;
+                                            setReviewNotesById((prev) => {
+                                              const next = { ...prev };
+                                              delete next[selectedRequest.id];
+                                              return next;
+                                            });
+                                          }}
+                                        >
+                                          Clear notes
+                                        </Button>
+                                      </div>
+                                      {!selectedHasDocuments ? <p className="field-error">A request without private documents cannot be approved or rejected from this screen.</p> : null}
+                                      {!selectedIsComplete && rejectionNotesTooShort ? <p className="field-hint">Add at least 8 characters before rejecting this request.</p> : null}
+                                    </>
+                                  ) : (
+                                    <EmptyState
+                                      title="Select a verification request"
+                                      body="Choose a request from the queue to review private documents and record a decision."
+                                    />
+                                  )}
+                                </Card>
+                            </div>
                         </div>
                 </div>
             </div>

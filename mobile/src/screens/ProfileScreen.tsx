@@ -1,20 +1,28 @@
 
 import {
   AuthenticatedUser, completeMediaUpload, createMediaUploadTicket,
-  formatDate, getMyProfile, listMyMediaPage, listPublicApprovedMediaPage, MediaAssetRecord, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
+  getMyProfile, listMyMediaPage, listPublicApprovedMediaPage, MediaAssetRecord, MediaKind, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
 } from "../api";
 
 import {
-  randomHex, formatBytes, buildProfileForm,
+  randomHex, buildProfileForm,
   parseServiceCategories, shouldForceSignOut, asError, ProfileFormState
 } from "../utils";
 
 import {} from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { MediaPreviewList } from "../MediaPreviewList";
+import {
+  approvedMedia,
+  MediaUploadPanel,
+  pendingReviewMedia,
+  PickedMediaFile
+} from "../MediaUploadPanel";
 import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
@@ -45,7 +53,8 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     avatarText: {
       color: colors.ink,
       fontSize: 26,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 31
     },
     headerName: {
       color: colors.ink,
@@ -55,7 +64,8 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     headerHandle: {
       color: colors.muted,
-      fontSize: 14
+      fontSize: 14,
+      lineHeight: 20
     },
     metaRow: {
       flexDirection: "row",
@@ -73,9 +83,16 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     metaChipLabel: {
       color: colors.ink,
       fontSize: 12,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 16
     }
   });
+}
+
+function inferMediaKind(contentType: string): MediaKind | null {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  return null;
 }
 
 export function ProfileScreen({
@@ -102,6 +119,7 @@ export function ProfileScreen({
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaSuccess, setMediaSuccess] = useState<string | null>(null);
+  const [pickedProfileMediaFile, setPickedProfileMediaFile] = useState<PickedMediaFile | null>(null);
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
   const [publicMediaCursor, setPublicMediaCursor] = useState<string | null>(null);
@@ -119,7 +137,7 @@ export function ProfileScreen({
     setPublicGalleryLoading(true);
     setPublicGalleryError(null);
     try {
-      const page = await listPublicApprovedMediaPage(normalizedOwnerId);
+      const page = await listPublicApprovedMediaPage(normalizedOwnerId, accessToken);
       setPublicMediaAssets(page.items);
       setPublicMediaCursor(page.nextCursor);
     } catch (requestError) {
@@ -129,22 +147,24 @@ export function ProfileScreen({
     } finally {
       setPublicGalleryLoading(false);
     }
-  }, []);
+  }, [accessToken]);
 
   const loadProfile = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const [record, mediaPage] = await Promise.all([
-        getMyProfile(accessToken),
-        listMyMediaPage(accessToken)
-      ]);
+      const record = await getMyProfile(accessToken);
       setProfile(record);
       setForm(buildProfileForm(record));
+      setPublicGalleryOwner(record.userId);
+      const [mediaPage, publicMediaPage] = await Promise.all([
+        listMyMediaPage(accessToken).catch(() => ({ items: [], nextCursor: null })),
+        listPublicApprovedMediaPage(record.userId, accessToken).catch(() => ({ items: [], nextCursor: null }))
+      ]);
       setMediaAssets(mediaPage.items);
       setMediaCursor(mediaPage.nextCursor);
-      setPublicGalleryOwner(record.userId);
-      await loadPublicGallery(record.userId);
+      setPublicMediaAssets(publicMediaPage.items);
+      setPublicMediaCursor(publicMediaPage.nextCursor);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load profile");
       setError(message);
@@ -165,7 +185,7 @@ export function ProfileScreen({
 
   const loadMorePublicMedia = async (): Promise<void> => {
     if (!publicMediaCursor) return;
-    const page = await listPublicApprovedMediaPage(publicGalleryOwner.trim().toLowerCase(), publicMediaCursor);
+    const page = await listPublicApprovedMediaPage(publicGalleryOwner.trim().toLowerCase(), accessToken, publicMediaCursor);
     setPublicMediaAssets((previous) => [...previous, ...page.items]);
     setPublicMediaCursor(page.nextCursor);
   };
@@ -210,20 +230,56 @@ export function ProfileScreen({
     }
   }, [accessToken, form, onSessionInvalid]);
 
-  const onUploadDemoMedia = useCallback(async (): Promise<void> => {
+  const onPickProfileMedia = useCallback(async (): Promise<void> => {
+    setMediaError(null);
+    setMediaSuccess(null);
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["image/*", "video/*"],
+      multiple: false,
+      copyToCacheDirectory: true
+    });
+    if (result.canceled) {
+      return;
+    }
+    const asset = result.assets[0];
+    if (!asset?.mimeType || !asset.size) {
+      setMediaError("Choose an image or video with a readable file size.");
+      return;
+    }
+    if (!inferMediaKind(asset.mimeType)) {
+      setMediaError("Only profile photos and videos are supported.");
+      return;
+    }
+    setPickedProfileMediaFile({
+      uri: asset.uri,
+      name: asset.name || `profile-media-${Date.now()}`,
+      mimeType: asset.mimeType,
+      size: asset.size
+    });
+  }, []);
+
+  const onUploadProfileMedia = useCallback(async (): Promise<void> => {
+    if (!pickedProfileMediaFile) {
+      setMediaError("Choose a profile photo or video first.");
+      return;
+    }
+    const kind = inferMediaKind(pickedProfileMediaFile.mimeType);
+    if (!kind) {
+      setMediaError("Only profile photos and videos are supported.");
+      return;
+    }
     setMediaUploading(true);
     setMediaError(null);
     setMediaSuccess(null);
     try {
-      const contentType = "image/jpeg";
-      const body = `IllamHelp service proof ${Date.now()}`;
       const ticket = await createMediaUploadTicket(
         {
-          kind: "image",
-          contentType,
-          fileSizeBytes: body.length,
+          kind,
+          purpose: "profile",
+          contentType: pickedProfileMediaFile.mimeType,
+          fileSizeBytes: pickedProfileMediaFile.size,
           checksumSha256: randomHex(64),
-          originalFileName: `service-proof-${Date.now()}.jpg`
+          originalFileName: pickedProfileMediaFile.name
         },
         accessToken
       );
@@ -231,7 +287,11 @@ export function ProfileScreen({
       const uploadResponse = await fetch(ticket.uploadUrl, {
         method: "PUT",
         headers: ticket.requiredHeaders,
-        body
+        body: {
+          uri: pickedProfileMediaFile.uri,
+          name: pickedProfileMediaFile.name,
+          type: pickedProfileMediaFile.mimeType
+        } as unknown as RequestInit["body"]
       });
 
       if (!uploadResponse.ok) {
@@ -249,7 +309,8 @@ export function ProfileScreen({
         completed,
         ...previous.filter((item) => item.id !== completed.id)
       ]);
-      setMediaSuccess("Upload received. Review started.");
+      setPickedProfileMediaFile(null);
+      setMediaSuccess("Profile media uploaded. It will appear after review.");
     } catch (requestError) {
       const message = asError(requestError, "Unable to upload media");
       setMediaError(message);
@@ -259,7 +320,7 @@ export function ProfileScreen({
     } finally {
       setMediaUploading(false);
     }
-  }, [accessToken, onSessionInvalid]);
+  }, [accessToken, onSessionInvalid, pickedProfileMediaFile]);
 
   return (
     <ScrollView
@@ -402,35 +463,28 @@ export function ProfileScreen({
         </Text>
       </SectionCard>
       <SectionCard title="Professional media">
-        <Text style={styles.cardBody}>
-          Upload service-related photos/videos only. Each upload goes through AI and human review
-          before public display.
-        </Text>
-        {mediaError ? <Banner tone="error" message={mediaError} testID="profile-media-error" /> : null}
-        {mediaSuccess ? (
-          <Banner tone="success" message={mediaSuccess} testID="profile-media-success" />
-        ) : null}
-        <AppButton
-          label={mediaUploading ? "Uploading..." : "Upload sample proof"}
-          onPress={() => {
-            void onUploadDemoMedia();
-          }}
-          disabled={mediaUploading}
+        <MediaUploadPanel
+          title="Profile photos and videos"
+          description="Show work examples and service proof. Approved media is visible to accepted connections."
+          pickLabel="Add profile media"
+          uploadLabel="Upload profile media"
+          pickedFile={pickedProfileMediaFile}
+          pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
+          uploading={mediaUploading}
+          error={mediaError}
+          success={mediaSuccess}
           testID="profile-media-upload"
+          onPick={() => {
+            void onPickProfileMedia();
+          }}
+          onClear={() => setPickedProfileMediaFile(null)}
+          onUpload={() => {
+            void onUploadProfileMedia();
+          }}
         />
         {mediaAssets.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No media uploaded yet.</Text>
         ) : null}
-        {mediaAssets.map((asset) => (
-          <View key={asset.id} style={styles.dataRow}>
-            <Text style={styles.dataTitle}>{asset.objectKey.split("/").slice(-1)[0]}</Text>
-            <Text style={styles.dataMeta}>
-              {asset.kind} · {asset.state.replace(/_/g, " ")}
-            </Text>
-            <Text style={styles.dataMeta}>{formatBytes(asset.fileSizeBytes)}</Text>
-            <Text style={styles.dataMeta}>{formatDate(asset.createdAt)}</Text>
-          </View>
-        ))}
         {mediaCursor ? (
           <AppButton
             label="Load more media"
@@ -450,7 +504,7 @@ export function ProfileScreen({
           <Banner tone="error" message={publicGalleryError} testID="profile-public-media-error" />
         ) : null}
         <InputField
-          label="Member ID"
+          label="Member to preview"
           value={publicGalleryOwner}
           onChangeText={setPublicGalleryOwner}
           placeholder="anita_worker_01"
@@ -464,27 +518,11 @@ export function ProfileScreen({
           disabled={publicGalleryLoading}
           testID="profile-public-load"
         />
-        {publicMediaAssets.length === 0 ? (
-          <Text style={styles.cardBodyMuted} testID="profile-public-empty">
-            No approved media yet.
-          </Text>
-        ) : null}
-        {publicMediaAssets.map((asset) => (
-          <View key={asset.id} style={styles.dataRow} testID="profile-public-item">
-            <Text style={styles.dataTitle}>
-              {asset.kind} · {formatBytes(asset.fileSizeBytes)}
-            </Text>
-            <Text style={styles.dataMeta}>{formatDate(asset.createdAt)}</Text>
-            <AppButton
-              label="Open approved file"
-              onPress={() => {
-                void Linking.openURL(asset.downloadUrl);
-              }}
-              variant="ghost"
-              testID={`profile-public-open-${asset.id}`}
-            />
-          </View>
-        ))}
+        <MediaPreviewList
+          items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
+          emptyText="No approved profile media yet."
+          testID="profile-public"
+        />
         {publicMediaCursor ? (
           <AppButton
             label="Load more approved media"

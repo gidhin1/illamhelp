@@ -22,13 +22,20 @@ export interface RegisterFormState {
 
 import {} from "../theme";
 import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard, AuthMode } from "../components";
+import { AppButton, Banner, InputField, SectionCard, AuthMode, MotionView } from "../components";
 import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
     authFrame: {
-      gap: 14
+      gap: 14,
+      backgroundColor: colors.brand,
+      borderColor: colors.brand,
+      shadowColor: colors.shadow,
+      shadowOpacity: 0.14,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: 4
     },
     logoMark: {
       width: 56,
@@ -36,9 +43,9 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderRadius: 12,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.surface,
+      backgroundColor: colors.onStrong,
       borderWidth: 1,
-      borderColor: colors.line
+      borderColor: "rgba(255,255,255,0.42)"
     },
     logoText: {
       color: colors.brand,
@@ -46,15 +53,56 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       fontWeight: "700"
     },
     display: {
-      color: colors.ink,
-      fontSize: 32,
-      lineHeight: 38,
+      color: colors.onStrong,
+      fontSize: 30,
+      lineHeight: 36,
       fontWeight: "700"
     },
     body: {
-      color: colors.muted,
+      color: "rgba(255,255,255,0.86)",
       fontSize: 16,
       lineHeight: 24
+    },
+    heroPill: {
+      alignSelf: "flex-start",
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      backgroundColor: "rgba(255,255,255,0.14)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.28)",
+      color: colors.onStrong,
+      overflow: "hidden",
+      fontSize: 12,
+      fontWeight: "700"
+    },
+    trustRail: {
+      gap: 8
+    },
+    trustSignal: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      minHeight: 44,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: "rgba(255,255,255,0.12)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.24)"
+    },
+    signalDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.onStrong
+    },
+    trustSignalText: {
+      flex: 1,
+      color: colors.onStrong,
+      fontSize: 13,
+      fontWeight: "700",
+      lineHeight: 18
     },
     legal: {
       color: colors.muted,
@@ -99,16 +147,24 @@ export function AuthScreen({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        <View style={[styles.authHero, localStyles.authFrame]}>
+        <MotionView style={[styles.authHero, localStyles.authFrame]} variant="rise">
           <View style={localStyles.logoMark}>
             <Text style={localStyles.logoText}>I</Text>
           </View>
-          <Text style={styles.pill}>Built for homes in Kerala and Tamil Nadu</Text>
+          <Text style={localStyles.heroPill}>Built for homes in Kerala and Tamil Nadu</Text>
           <Text style={localStyles.display}>Trusted help for everyday life.</Text>
           <Text style={localStyles.body}>
             Discover skilled people, post work, manage privacy, and build a trusted local network from one modern member experience.
           </Text>
-        </View>
+          <View style={localStyles.trustRail} accessibilityLabel="IllamHelp safety highlights">
+            {["Private contact sharing", "Profile and media review", "Jobs with clear next steps"].map((label) => (
+              <View key={label} style={localStyles.trustSignal}>
+                <View style={localStyles.signalDot} />
+                <Text style={localStyles.trustSignalText}>{label}</Text>
+              </View>
+            ))}
+          </View>
+        </MotionView>
 
         <View style={styles.modeSwitch}>
           <Pressable
@@ -148,6 +204,7 @@ export function AuthScreen({
           <SectionCard
             title="Sign in"
             subtitle="Use your username/email and password."
+            motion="rise"
           >
             <InputField
               label="Username / Email"
@@ -181,6 +238,7 @@ export function AuthScreen({
           <SectionCard
             title="Create account"
             subtitle="Create your account and start posting work or offering services."
+            motion="rise"
           >
             <InputField
               label="First name"

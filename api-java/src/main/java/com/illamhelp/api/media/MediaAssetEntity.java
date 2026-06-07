@@ -19,6 +19,11 @@ public class MediaAssetEntity {
   @Column(name = "job_id")
   private UUID jobId;
 
+  private String purpose;
+
+  @Column(name = "profile_user_id")
+  private UUID profileUserId;
+
   private String kind;
 
   @Column(name = "bucket_name")

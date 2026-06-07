@@ -3,7 +3,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 
+import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
+import { PersonSummary, personLabel } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
 import { DataTable } from "@/components/ui/DataTable";
@@ -25,9 +27,13 @@ import {
   ConnectionRecord,
   declineConnection,
   formatDate,
+  getProfileByUserId,
   listConnections,
+  listPublicApprovedMediaPage,
+  ProfileRecord,
   requestConnection,
-  searchConnections
+  searchConnections,
+  PublicMediaAssetRecord
 } from "@/lib/api";
 
 export default function ConnectionsPage(): JSX.Element {
@@ -44,6 +50,8 @@ export default function ConnectionsPage(): JSX.Element {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<ConnectionSearchCandidate[]>([]);
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
+  const [profileMediaByUserId, setProfileMediaByUserId] = useState<Record<string, PublicMediaAssetRecord[]>>({});
 
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -101,6 +109,72 @@ export default function ConnectionsPage(): JSX.Element {
     () => connections.filter((connection) => connection.status === "accepted"),
     [connections]
   );
+
+  useEffect(() => {
+    if (!accessToken || !currentUserId || acceptedConnections.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        acceptedConnections.map(async (connection) => {
+          const otherUserId =
+            connection.userAId === currentUserId ? connection.userBId : connection.userAId;
+          try {
+            const page = await listPublicApprovedMediaPage(otherUserId, accessToken);
+            return [otherUserId, page.items.filter((asset) => asset.purpose === "profile")] as const;
+          } catch {
+            return [otherUserId, []] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfileMediaByUserId(Object.fromEntries(entries));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptedConnections, accessToken, currentUserId]);
+
+  useEffect(() => {
+    if (!accessToken || connections.length === 0) return;
+    const otherUserIds = Array.from(
+      new Set(
+        connections
+          .map((connection) =>
+            connection.userAId === currentUserId ? connection.userBId : connection.userAId
+          )
+          .filter((userId): userId is string => Boolean(userId))
+      )
+    );
+    const missing = otherUserIds.filter((userId) => !profilesByUserId[userId]);
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        missing.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, connections, currentUserId, profilesByUserId]);
 
   const submitConnectionRequest = async (payload: { targetUserId?: string; targetQuery?: string; }): Promise<void> => {
     if (!accessToken) return;
@@ -208,11 +282,31 @@ export default function ConnectionsPage(): JSX.Element {
   const columns: ColumnDef<ConnectionRecord>[] = [
     {
       id: "otherUser",
-      header: "Connected Person",
+      header: "Person",
       cell: ({ row }) => {
         const connection = row.original;
         const otherUserId = connection.userAId === user?.publicUserId ? connection.userBId : connection.userAId;
-        return <div style={{ fontWeight: 600, color: "var(--ink)" }}>{otherUserId}</div>;
+        return (
+          <PersonSummary
+            userId={otherUserId}
+            profile={profilesByUserId[otherUserId]}
+            compact
+          />
+        );
+      }
+    },
+    {
+      id: "profileMedia",
+      header: "Profile media",
+      cell: ({ row }) => {
+        const connection = row.original;
+        const otherUserId = connection.userAId === user?.publicUserId ? connection.userBId : connection.userAId;
+        const mediaCount = profileMediaByUserId[otherUserId]?.length ?? 0;
+        return connection.status === "accepted" ? (
+          <span className="muted-text">{mediaCount} approved</span>
+        ) : (
+          <span className="muted-text">Only after acceptance</span>
+        );
       }
     },
     {
@@ -222,7 +316,14 @@ export default function ConnectionsPage(): JSX.Element {
     },
     {
       accessorKey: "requestedByUserId",
-      header: "Requested By",
+      header: "Request started by",
+      cell: ({ row }) => (
+        <PersonSummary
+          userId={row.original.requestedByUserId}
+          profile={profilesByUserId[row.original.requestedByUserId]}
+          compact
+        />
+      )
     },
     {
       accessorKey: "requestedAt",
@@ -264,7 +365,7 @@ export default function ConnectionsPage(): JSX.Element {
           <SectionHeader
             eyebrow="People"
             title="Connect with people you trust"
-            subtitle="Search by name, member ID, service, or location."
+            subtitle="Find people by name, service, location, or member ID."
             actions={
               <Button type="button" variant="ghost" onClick={() => void loadConnections()}>
                 Refresh
@@ -296,7 +397,7 @@ export default function ConnectionsPage(): JSX.Element {
                 <form onSubmit={onRequestConnection} className="grid two" style={{ alignItems: "flex-end" }}>
                   <Field
                     label="Find a person"
-                    hint="Name, member ID, service type, location, or a mix of these."
+                    hint="Use a name, service type, location, or member ID."
                   >
                     <TextInput
                       value={targetQuery}
@@ -325,8 +426,14 @@ export default function ConnectionsPage(): JSX.Element {
                     <div className="grid two">
                       {searchResults.map((candidate) => (
                         <Card key={candidate.userId} className="stack">
-                          <div style={{ fontWeight: 700, color: "var(--ink)" }}>{candidate.displayName}</div>
-                          <div className="muted-text">ID: {candidate.userId}</div>
+                          <PersonSummary
+                            userId={candidate.userId}
+                            label={candidate.displayName}
+                            meta={[
+                              candidate.locationLabel,
+                              candidate.serviceCategories.slice(0, 2).join(", ") || null
+                            ].filter(Boolean).join(" · ")}
+                          />
                           {candidate.locationLabel ? <div className="muted-text">Location: {candidate.locationLabel}</div> : null}
                           {candidate.serviceCategories.length > 0 ? (
                             <div className="muted-text">Services: {candidate.serviceCategories.join(", ")}</div>
@@ -375,7 +482,11 @@ export default function ConnectionsPage(): JSX.Element {
                           return (
                             <div key={connection.id} className="card soft stack" style={{ gap: "var(--spacing-sm)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
-                                <strong style={{ color: "var(--ink)" }}>{otherUserId}</strong>
+                                <PersonSummary
+                                  userId={otherUserId}
+                                  profile={profilesByUserId[otherUserId]}
+                                  compact
+                                />
                                 <StatusLabel tone="warning">pending</StatusLabel>
                               </div>
                               <div className="muted-text">Requested {formatDate(connection.requestedAt)}</div>
@@ -409,13 +520,22 @@ export default function ConnectionsPage(): JSX.Element {
                           return (
                             <div key={connection.id} className="card soft stack" style={{ gap: "var(--spacing-sm)" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
-                                <strong style={{ color: "var(--ink)" }}>{otherUserId}</strong>
+                                <PersonSummary
+                                  userId={otherUserId}
+                                  profile={profilesByUserId[otherUserId]}
+                                  compact
+                                />
                                 <StatusLabel tone="success">accepted</StatusLabel>
                               </div>
                               <div className="muted-text">Connected {formatDate(connection.requestedAt)}</div>
+                              <MediaPreviewGrid
+                                items={profileMediaByUserId[otherUserId] ?? []}
+                                emptyText="No approved profile media yet."
+                                testId={`connection-profile-media-${otherUserId}`}
+                              />
                               <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
                                 <Button type="button" variant="ghost" onClick={() => void onBlock(connection.id)}>
-                                  Block
+                                  Block {personLabel(profilesByUserId[otherUserId])}
                                 </Button>
                               </div>
                             </div>

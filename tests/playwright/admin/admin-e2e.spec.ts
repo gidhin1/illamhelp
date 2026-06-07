@@ -51,6 +51,18 @@ async function waitForAuthResponse(
   }
 }
 
+async function poll<T>(action: () => Promise<T | undefined>, timeoutMs = 10_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const value = await action();
+    if (value !== undefined) {
+      return value;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("Timed out while polling data.");
+}
+
 type AuthSession = {
   userId: string;
   accessToken: string;
@@ -293,13 +305,15 @@ test("admin moderation page renders queue controls and stable states", async ({ 
 
   await expect(page.getByRole("heading", { name: /Moderation Queue/i })).toBeVisible();
   await expect(page.getByTestId("moderation-status-filter")).toBeVisible();
-  await expect(page.getByTestId("moderation-process-pending")).toBeVisible();
+  const processPendingButton = page.getByTestId("moderation-process-pending");
+  await expect(processPendingButton).toBeVisible();
+  await expect(processPendingButton).toHaveClass(/motion-press/);
   await expect(page.getByTestId("moderation-details-panel")).toBeVisible();
 
   await page.getByTestId("moderation-status-filter").selectOption("pending");
   await waitForAnyVisible(
     [
-      page.getByRole("table", { name: /Moderation queue/i }).first(),
+      page.getByRole("list", { name: /Moderation queue/i }).first(),
       page.getByText("No items found").first(),
       page.getByText("Loading queue...").first()
     ],
@@ -320,7 +334,7 @@ test("admin moderation status filter cycles through queue states safely", async 
     await statusFilter.selectOption(state);
     await waitForAnyVisible(
       [
-        page.getByRole("table", { name: /Moderation queue/i }).first(),
+        page.getByRole("list", { name: /Moderation queue/i }).first(),
         page.getByText("No items found").first(),
         page.getByText("Loading queue...").first()
       ],
@@ -390,7 +404,18 @@ test("admin portal E2E verification lifecycle: member submit -> admin review -> 
     const memberUserId = memberSession.userId;
 
     await clickWebNav(memberPage, "Verify");
-    await memberPage.getByLabel("Document media IDs").fill("11111111-1111-4111-8111-111111111111");
+    await memberPage
+      .locator("input[type='file']")
+      .setInputFiles({
+        name: "verification-document.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=",
+          "base64"
+        )
+      });
+    await memberPage.getByRole("button", { name: "Upload Document" }).click();
+    await expect(memberPage.getByText("Document uploaded privately for verification.").first()).toBeVisible();
     await memberPage.getByLabel("Notes for Reviewer (optional)").fill(submissionNote);
     await memberPage.getByRole("button", { name: "Submit Verification" }).click();
     await expect(
@@ -402,24 +427,26 @@ test("admin portal E2E verification lifecycle: member submit -> admin review -> 
     await clickAdminNav(adminPage, "Verifications");
     await adminPage.getByRole("button", { name: /^All Records$/i }).first().click();
 
-    const verificationRow = await test.step("wait for verification row", async () => {
-      const deadline = Date.now() + 10_000;
-      while (Date.now() < deadline) {
-        const row = adminPage.getByRole("row").filter({ hasText: memberUserId }).first();
-        if (await row.isVisible().catch(() => false)) {
-          return row;
+    const verificationRequest = await test.step("wait for verification request", async () =>
+      poll(async () => {
+        const request = adminPage
+          .getByRole("list", { name: "Verification requests" })
+          .getByRole("button")
+          .filter({ hasText: memberUserId })
+          .first();
+        if (await request.isVisible().catch(() => false)) {
+          return request;
         }
         await adminPage.getByRole("button", { name: /^Pending$/i }).first().click().catch(() => undefined);
-        await adminPage.waitForTimeout(300);
         await adminPage.getByRole("button", { name: /^All Records$/i }).first().click().catch(() => undefined);
-        await adminPage.waitForTimeout(500);
-      }
-      throw new Error("Verification row did not appear in admin portal.");
-    });
+        return undefined;
+      }, 10_000)
+    );
 
-    await verificationRow.getByRole("button", { name: /Start Review/i }).click();
-    await adminPage.getByLabel("Decision Notes (Audit)").fill(reviewNote);
-    await adminPage.getByRole("button", { name: /^Approve$/i }).click();
+    await verificationRequest.click();
+    await expect(adminPage.getByTestId("verification-review-panel").getByText(memberUserId).first()).toBeVisible();
+    await adminPage.getByLabel("Decision notes").fill(reviewNote);
+    await adminPage.getByRole("button", { name: /^Approve verification$/i }).click();
     await expect(adminPage.getByText(/Verification approved successfully\./i).first()).toBeVisible();
 
     await signOutIfVisible(memberPage);

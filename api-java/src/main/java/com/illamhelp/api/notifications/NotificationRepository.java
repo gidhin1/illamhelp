@@ -1,7 +1,6 @@
 package com.illamhelp.api.notifications;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -15,23 +14,23 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
         VALUES (cast(:userId as uuid), cast(:type as notification_type), :title, :body, cast(:data as jsonb))
         RETURNING id, user_id, type, title, body, data, read, read_at, created_at
       )
-      SELECT id, user_id AS "userId", type::text, title, body, data::text AS data,
-             read, read_at AS "readAt", created_at AS "createdAt"
+      SELECT id::text AS id, user_id::text AS "userId", type::text, title, body, data::text AS data,
+             read, read_at::text AS "readAt", created_at::text AS "createdAt"
       FROM created
       """, nativeQuery = true)
-  Map<String, Object> insert(@Param("userId") String userId, @Param("type") String type,
+  NotificationRow insert(@Param("userId") String userId, @Param("type") String type,
       @Param("title") String title, @Param("body") String body, @Param("data") String data);
 
   @Query(value = """
-      SELECT id, user_id AS "userId", type::text, title, body, data::text AS data,
-             read, read_at AS "readAt", created_at AS "createdAt"
+      SELECT id::text AS id, user_id::text AS "userId", type::text, title, body, data::text AS data,
+             read, read_at::text AS "readAt", created_at::text AS "createdAt"
       FROM notifications
       WHERE user_id = cast(:userId as uuid) AND (:unreadOnly = false OR read = false)
         AND (cast(:cursorCreatedAt as text) IS NULL
           OR (created_at, id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
       ORDER BY created_at DESC, id DESC LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listForUser(@Param("userId") String userId, @Param("unreadOnly") boolean unreadOnly,
+  List<NotificationRow> listForUser(@Param("userId") String userId, @Param("unreadOnly") boolean unreadOnly,
       @Param("cursorCreatedAt") String cursorCreatedAt, @Param("cursorId") String cursorId, @Param("limit") int limit);
 
   @Query(value = "SELECT count(*) FROM notifications WHERE user_id = cast(:userId as uuid) AND read = false", nativeQuery = true)
@@ -43,10 +42,10 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
         WHERE id = cast(:id as uuid) AND user_id = cast(:userId as uuid)
         RETURNING id, user_id, type, title, body, data, read, read_at, created_at
       )
-      SELECT id, user_id AS "userId", type::text, title, body, data::text AS data,
-             read, read_at AS "readAt", created_at AS "createdAt" FROM changed
+      SELECT id::text AS id, user_id::text AS "userId", type::text, title, body, data::text AS data,
+             read, read_at::text AS "readAt", created_at::text AS "createdAt" FROM changed
       """, nativeQuery = true)
-  Map<String, Object> markRead(@Param("userId") String userId, @Param("id") String notificationId);
+  NotificationRow markRead(@Param("userId") String userId, @Param("id") String notificationId);
 
   @Modifying
   @Query(value = """
@@ -54,4 +53,24 @@ public interface NotificationRepository extends JpaRepository<NotificationEntity
       WHERE user_id = cast(:userId as uuid) AND read = false
       """, nativeQuery = true)
   int markAllRead(@Param("userId") String userId);
+
+  interface NotificationRow {
+    String getId();
+
+    String getUserId();
+
+    String getType();
+
+    String getTitle();
+
+    String getBody();
+
+    String getData();
+
+    boolean getRead();
+
+    String getReadAt();
+
+    String getCreatedAt();
+  }
 }

@@ -2,25 +2,40 @@
 import {
   acceptJobApplication, applyToJob,
   AuthenticatedUser, cancelBooking, closeBooking, completeBooking,
-  createJob, formatDate, getProfileByUserId, JobApplicationRecord, JobRecord, listJobApplications, listJobsPage, listMyJobApplications,
+  completeMediaUpload,
+  createJob, createMediaUploadTicket, formatDate, getProfileByUserId, JobApplicationRecord, JobRecord, listJobApplications, listJobMediaPage, listJobsPage, listMyJobApplications,
   markPaymentDone,
-  markPaymentReceived, ProfileRecord, rejectJobApplication,
+  markPaymentReceived, MediaKind, ProfileRecord, PublicMediaAssetRecord, rejectJobApplication,
   revokeJobAssignment,
   startBooking, withdrawJobApplication
 } from "../api";
 
 import {
-  validateJobPayload, shouldForceSignOut, asError, CreateJobPayload
+  validateJobPayload, shouldForceSignOut, asError, CreateJobPayload, randomHex
 } from "../utils";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { MediaPreviewList } from "../MediaPreviewList";
+import {
+  approvedMedia,
+  MediaUploadPanel,
+  pendingReviewMedia,
+  PickedMediaFile
+} from "../MediaUploadPanel";
 
 function isPendingJobApplicationStatus(status: JobApplicationRecord["status"]): boolean {
   return status === "applied" || status === "shortlisted";
+}
+
+function inferMediaKind(contentType: string): MediaKind | null {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  return null;
 }
 
 function latestApplicationByJob(
@@ -51,6 +66,8 @@ export function JobsScreen({
 }): JSX.Element {
   const currentUserId = user.publicUserId;
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [jobMediaByJobId, setJobMediaByJobId] = useState<Record<string, PublicMediaAssetRecord[]>>({});
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [myApplicationsByJob, setMyApplicationsByJob] = useState<
     Record<string, JobApplicationRecord>
@@ -79,6 +96,8 @@ export function JobsScreen({
     Record<string, boolean>
   >({});
   const [ownJobManagerVisible, setOwnJobManagerVisible] = useState(false);
+  const [jobMediaUploading, setJobMediaUploading] = useState(false);
+  const [pickedJobMediaFile, setPickedJobMediaFile] = useState<PickedMediaFile | null>(null);
 
   const [selectedOwnJobId, setSelectedOwnJobId] = useState<string | null>(null);
   const [selectedOwnJobApplications, setSelectedOwnJobApplications] = useState<
@@ -136,6 +155,26 @@ export function JobsScreen({
   const selectedOwnJob = useMemo(
     () => jobs.find((job) => job.id === selectedOwnJobId) ?? null,
     [jobs, selectedOwnJobId]
+  );
+  const personName = useCallback(
+    (userId: string | null | undefined): string => {
+      if (!userId) return "Not assigned yet";
+      return profilesByUserId[userId]?.displayName || `Member ${userId}`;
+    },
+    [profilesByUserId]
+  );
+  const personMeta = useCallback(
+    (userId: string | null | undefined): string => {
+      if (!userId) return "No provider has been assigned yet.";
+      const profile = profilesByUserId[userId];
+      if (!profile) return `Member ID: ${userId}`;
+      return [
+        [profile.city, profile.area].filter(Boolean).join(", "),
+        profile.serviceCategories.slice(0, 2).join(", "),
+        `Member ID: ${profile.userId}`
+      ].filter(Boolean).join(" · ");
+    },
+    [profilesByUserId]
   );
   const showPostedSection = section === "posted";
   const showAssignedSection = section === "assigned";
@@ -203,6 +242,17 @@ export function JobsScreen({
       setJobs(jobRows.items);
       setNextCursor(jobRows.nextCursor);
       setMyApplicationsByJob(latestApplicationByJob(myApplicationRows));
+      const mediaEntries = await Promise.all(
+        jobRows.items.map(async (job) => {
+          try {
+            const page = await listJobMediaPage(job.id, accessToken);
+            return [job.id, page.items.filter((asset) => asset.purpose === "job")] as const;
+          } catch {
+            return [job.id, []] as const;
+          }
+        })
+      );
+      setJobMediaByJobId(Object.fromEntries(mediaEntries));
       await loadOwnJobApplicantCounts(jobRows.items);
     } catch (requestError) {
       const message = asError(requestError, "Unable to load jobs");
@@ -223,6 +273,17 @@ export function JobsScreen({
       const page = await listJobsPage(accessToken, nextCursor);
       setJobs((previous) => [...previous, ...page.items]);
       setNextCursor(page.nextCursor);
+      const mediaEntries = await Promise.all(
+        page.items.map(async (job) => {
+          try {
+            const mediaPage = await listJobMediaPage(job.id, accessToken);
+            return [job.id, mediaPage.items.filter((asset) => asset.purpose === "job")] as const;
+          } catch {
+            return [job.id, []] as const;
+          }
+        })
+      );
+      setJobMediaByJobId((previous) => ({ ...previous, ...Object.fromEntries(mediaEntries) }));
     } catch (requestError) {
       const message = asError(requestError, "Unable to load more jobs");
       setError(message);
@@ -260,6 +321,39 @@ export function JobsScreen({
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        jobs
+          .flatMap((job) => [job.seekerUserId, job.assignedProviderUserId])
+          .filter((userId): userId is string => Boolean(userId))
+      )
+    ).filter((userId) => !profilesByUserId[userId]);
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        ids.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, jobs, profilesByUserId]);
 
   useEffect(() => {
     if (!selectedOwnJobId) {
@@ -426,6 +520,92 @@ export function JobsScreen({
     });
   };
 
+  const onPickJobMedia = async (): Promise<void> => {
+    setJobActionError(null);
+    setJobActionSuccess(null);
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["image/*", "video/*"],
+      multiple: false,
+      copyToCacheDirectory: true
+    });
+    if (result.canceled) {
+      return;
+    }
+    const asset = result.assets[0];
+    if (!asset?.mimeType || !asset.size) {
+      setJobActionError("Choose an image or video with a readable file size.");
+      return;
+    }
+    if (!inferMediaKind(asset.mimeType)) {
+      setJobActionError("Only job photos and videos are supported.");
+      return;
+    }
+    setPickedJobMediaFile({
+      uri: asset.uri,
+      name: asset.name || `job-media-${Date.now()}`,
+      mimeType: asset.mimeType,
+      size: asset.size
+    });
+  };
+
+  const onUploadPickedJobMedia = async (jobId: string): Promise<void> => {
+    if (!pickedJobMediaFile) {
+      setJobActionError("Choose a job photo or video first.");
+      return;
+    }
+    const kind = inferMediaKind(pickedJobMediaFile.mimeType);
+    if (!kind) {
+      setJobActionError("Only job photos and videos are supported.");
+      return;
+    }
+    setJobMediaUploading(true);
+    setJobActionError(null);
+    setJobActionSuccess(null);
+    try {
+      const ticket = await createMediaUploadTicket(
+        {
+          kind,
+          purpose: "job",
+          jobId,
+          contentType: pickedJobMediaFile.mimeType,
+          fileSizeBytes: pickedJobMediaFile.size,
+          checksumSha256: randomHex(64),
+          originalFileName: pickedJobMediaFile.name
+        },
+        accessToken
+      );
+      const uploadResponse = await fetch(ticket.uploadUrl, {
+        method: "PUT",
+        headers: ticket.requiredHeaders,
+        body: {
+          uri: pickedJobMediaFile.uri,
+          name: pickedJobMediaFile.name,
+          type: pickedJobMediaFile.mimeType
+        } as unknown as RequestInit["body"]
+      });
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      }
+      const etag = uploadResponse.headers.get("etag")?.replace(/"/g, "");
+      await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
+      const page = await listJobMediaPage(jobId, accessToken);
+      setJobMediaByJobId((previous) => ({
+        ...previous,
+        [jobId]: page.items.filter((asset) => asset.purpose === "job")
+      }));
+      setPickedJobMediaFile(null);
+      setJobActionSuccess("Job media uploaded. It will appear after review.");
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to upload job media");
+      setJobActionError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setJobMediaUploading(false);
+    }
+  };
+
   const renderExternalJobs = (rows: JobRecord[]): JSX.Element => {
     if (!loading && rows.length === 0) {
       return <Text style={styles.cardBodyMuted}>No jobs in this section yet.</Text>;
@@ -455,10 +635,16 @@ export function JobsScreen({
               <Text style={styles.dataMeta}>
                 Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
               </Text>
-              <Text style={styles.dataMeta}>Posted by: {job.seekerUserId}</Text>
+              <Text style={styles.dataMeta}>Posted by: {personName(job.seekerUserId)}</Text>
+              <Text style={styles.dataMeta}>{personMeta(job.seekerUserId)}</Text>
               <Text style={styles.dataMeta}>Status: {job.status}</Text>
               <Text style={styles.dataMeta}>{job.description}</Text>
               <Text style={styles.dataMeta}>Created: {formatDate(job.createdAt)}</Text>
+              <MediaPreviewList
+                items={approvedMedia(jobMediaByJobId[job.id] ?? [])}
+                emptyText="No approved job media yet."
+                testID={`jobs-media-${job.id}`}
+              />
               {application ? (
                 <Text style={styles.dataMeta}>Your application: {application.status}</Text>
               ) : null}
@@ -607,6 +793,9 @@ export function JobsScreen({
                       setVisibility("public");
                     }}
                     testID="jobs-visibility-public"
+                    accessibilityRole="radio"
+                    accessibilityLabel="Make job visible to everyone"
+                    accessibilityState={{ selected: visibility === "public" }}
                   >
                     <Text
                       style={[
@@ -627,6 +816,9 @@ export function JobsScreen({
                       setVisibility("connections_only");
                     }}
                     testID="jobs-visibility-connections"
+                    accessibilityRole="radio"
+                    accessibilityLabel="Make job visible to connections only"
+                    accessibilityState={{ selected: visibility === "connections_only" }}
                   >
                     <Text
                       style={[
@@ -669,12 +861,17 @@ export function JobsScreen({
                         </Text>
                         <Text style={styles.dataMeta}>Status: {job.status}</Text>
                         <Text style={styles.dataMeta}>
-                          Assigned provider: {job.assignedProviderUserId ?? "Not assigned"}
+                          Assigned provider: {personName(job.assignedProviderUserId)}
                         </Text>
                         <Text style={styles.dataMeta}>
                           Applicants: {applicantCount ?? "..."}
                         </Text>
                         <Text style={styles.dataMeta}>Created: {formatDate(job.createdAt)}</Text>
+                        <MediaPreviewList
+                          items={approvedMedia(jobMediaByJobId[job.id] ?? [])}
+                          emptyText="No approved job media yet."
+                          testID={`jobs-posted-media-${job.id}`}
+                        />
                         {isCountLoading ? (
                           <Text style={styles.dataMeta}>Loading applicants...</Text>
                         ) : null}
@@ -755,6 +952,30 @@ export function JobsScreen({
             multiline
             testID="jobs-decision-reason"
           />
+          <MediaUploadPanel
+            title="Job photos and videos"
+            description="Add context for the work. Approved media follows this job's visibility rules."
+            pickLabel="Add job media"
+            uploadLabel="Upload job media"
+            pickedFile={pickedJobMediaFile}
+            pendingItems={pendingReviewMedia(jobMediaByJobId[selectedOwnJob.id] ?? [])}
+            uploading={jobMediaUploading}
+            error={null}
+            success={null}
+            testID={`jobs-upload-media-${selectedOwnJob.id}`}
+            onPick={() => {
+              void onPickJobMedia();
+            }}
+            onClear={() => setPickedJobMediaFile(null)}
+            onUpload={() => {
+              void onUploadPickedJobMedia(selectedOwnJob.id);
+            }}
+          />
+          <MediaPreviewList
+            items={approvedMedia(jobMediaByJobId[selectedOwnJob.id] ?? [])}
+            emptyText="No approved job media yet."
+            testID={`jobs-selected-media-${selectedOwnJob.id}`}
+          />
           {selectedOwnJobLoading ? <Text style={styles.cardBodyMuted}>Loading applicants...</Text> : null}
           {!selectedOwnJobLoading && selectedOwnJobApplications.length === 0 ? (
             <Text style={styles.cardBodyMuted} testID="jobs-applicants-empty">
@@ -764,7 +985,8 @@ export function JobsScreen({
           <View style={styles.stackSmall}>
             {selectedOwnJobApplications.map((application) => (
               <View key={application.id} style={styles.dataRow}>
-                <Text style={styles.dataTitle}>{application.providerUserId}</Text>
+                <Text style={styles.dataTitle}>{personName(application.providerUserId)}</Text>
+                <Text style={styles.dataMeta}>{personMeta(application.providerUserId)}</Text>
                 <Text style={styles.dataMeta}>Status: {application.status}</Text>
                 <Text style={styles.dataMeta}>
                   Applied: {formatDate(application.createdAt)}
@@ -950,7 +1172,9 @@ export function JobsScreen({
       {selectedApplicantProfile ? (
         <SectionCard title="Applicant profile preview">
           <Text style={styles.dataTitle}>{selectedApplicantProfile.displayName}</Text>
-          <Text style={styles.dataMeta}>Member ID: {selectedApplicantProfile.userId}</Text>
+          <Text style={styles.dataMeta}>
+            {[selectedApplicantProfile.city, selectedApplicantProfile.area].filter(Boolean).join(", ") || "Location not provided"} · Member ID: {selectedApplicantProfile.userId}
+          </Text>
           <Text style={styles.dataMeta}>
             Location:{" "}
             {[selectedApplicantProfile.city, selectedApplicantProfile.area]

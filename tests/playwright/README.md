@@ -41,7 +41,8 @@ make ui-test-mobile
 - `PW_MOBILE_BASE_URL` (default: `http://localhost:3102`)
 - `PW_MOBILE_API_BASE_ORIGIN` (default: `http://localhost:4012`)
 - `PW_MOBILE_API_BASE_URL` (default: `http://localhost:4012/api/v1`)
-- `PW_REUSE_EXISTING_SERVERS` (`false` by default; set `true` to reuse already-running web/api servers)
+- `PW_REUSE_EXISTING_SERVERS` (`true` by default outside CI; set `false` to force Playwright-started servers)
+- If a local dev server is already reachable, Playwright auto-detects it and reuses it. The default dev ports are `4000` for the API, `3000` for web, `3003` for admin, and `3002` for mobile.
 - `PW_AUTH_RATE_LIMIT_MAX` (default: `2000` for Playwright-started API server)
 - `PW_HEADLESS` (`false` by default so tests are visible; set `true` for headless)
 - `PW_BROWSER_CHANNEL` (optional installed browser channel, such as `chrome`)

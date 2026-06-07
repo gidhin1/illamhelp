@@ -1,3 +1,5 @@
+import { createMediaClient } from "@illamhelp/media-client";
+
 export type UserType = "seeker" | "provider" | "both";
 export type AppRole = "both" | "seeker" | "provider" | "admin" | "support";
 
@@ -64,6 +66,9 @@ export interface JobRecord {
   title: string;
   description: string;
   locationText: string;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
+  seekerRating: number | null;
   visibility: "public" | "connections_only";
   status:
   | "posted"
@@ -162,18 +167,8 @@ export interface ConsentGrantRecord {
 }
 
 export type MediaKind = "image" | "video";
-
-export interface MediaAssetRecord {
-  id: string;
-  ownerUserId: string;
-  jobId: string | null;
-  kind: MediaKind;
-  bucketName: string;
-  objectKey: string;
-  contentType: string;
-  fileSizeBytes: number;
-  checksumSha256: string;
-  state:
+export type MediaPurpose = "profile" | "job" | "verification_document";
+export type MediaState =
   | "uploaded"
   | "scanning"
   | "ai_reviewed"
@@ -182,6 +177,20 @@ export interface MediaAssetRecord {
   | "rejected"
   | "appeal_pending"
   | "appeal_resolved";
+
+export interface MediaAssetRecord {
+  id: string;
+  ownerUserId: string;
+  profileUserId: string | null;
+  jobId: string | null;
+  kind: MediaKind;
+  purpose: MediaPurpose;
+  bucketName: string;
+  objectKey: string;
+  contentType: string;
+  fileSizeBytes: number;
+  checksumSha256: string;
+  state: MediaState;
   createdAt: string;
   updatedAt: string;
 }
@@ -198,11 +207,13 @@ export interface UploadTicketRecord {
 export interface PublicMediaAssetRecord {
   id: string;
   ownerUserId: string;
+  profileUserId: string | null;
   jobId: string | null;
   kind: MediaKind;
+  purpose: MediaPurpose;
   contentType: string;
   fileSizeBytes: number;
-  state: "approved";
+  state: MediaState;
   createdAt: string;
   updatedAt: string;
   downloadUrl: string;
@@ -212,6 +223,10 @@ export interface PublicMediaAssetRecord {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "http://localhost:4000/api/v1";
+
+const mediaClient = createMediaClient({
+  baseUrl: process.env.NEXT_PUBLIC_MEDIA_GRPC_WEB_URL
+});
 
 function asErrorMessage(payload: ApiErrorPayload | undefined, fallback: string): string {
   if (!payload) {
@@ -740,27 +755,23 @@ export function canViewConsent(
 }
 
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
-  return apiRequest<MediaAssetRecord[] | PaginatedListResponse<MediaAssetRecord>>(
-    "/media", {}, accessToken
-  ).then((payload) => normalizeListPayload(payload));
+  return listMyMediaPage(accessToken).then((payload) => normalizeListPayload(payload));
 }
 
 export function listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {
-  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-  return apiRequest<CursorPageResponse<MediaAssetRecord>>(`/media${query}`, {}, accessToken);
+  return mediaClient.listMyMediaPage(accessToken, cursor);
 }
 
-export function listPublicApprovedMedia(ownerUserId: string): Promise<PublicMediaAssetRecord[]> {
-  return apiRequest<PublicMediaAssetRecord[] | PaginatedListResponse<PublicMediaAssetRecord>>(
-    `/media/public/${encodeURIComponent(ownerUserId)}`
-  ).then((payload) => normalizeListPayload(payload));
+export function listPublicApprovedMedia(ownerUserId: string, accessToken: string): Promise<PublicMediaAssetRecord[]> {
+  return listPublicApprovedMediaPage(ownerUserId, accessToken).then((payload) => normalizeListPayload(payload));
 }
 
-export function listPublicApprovedMediaPage(ownerUserId: string, cursor?: string): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
-  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-  return apiRequest<CursorPageResponse<PublicMediaAssetRecord>>(
-    `/media/public/${encodeURIComponent(ownerUserId)}${query}`
-  );
+export function listPublicApprovedMediaPage(
+  ownerUserId: string,
+  accessToken: string,
+  cursor?: string
+): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
+  return mediaClient.listProfileMediaPage(ownerUserId, accessToken, cursor);
 }
 
 export function createMediaUploadTicket(
@@ -770,18 +781,12 @@ export function createMediaUploadTicket(
     fileSizeBytes: number;
     checksumSha256: string;
     originalFileName: string;
+    purpose: MediaPurpose;
     jobId?: string;
   },
   accessToken: string
 ): Promise<UploadTicketRecord> {
-  return apiRequest<UploadTicketRecord>(
-    "/media/upload-ticket",
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    },
-    accessToken
-  );
+  return mediaClient.createUploadTicket(payload, accessToken);
 }
 
 export function completeMediaUpload(
@@ -789,14 +794,22 @@ export function completeMediaUpload(
   payload: { etag?: string },
   accessToken: string
 ): Promise<MediaAssetRecord> {
-  return apiRequest<MediaAssetRecord>(
-    `/media/${mediaId}/complete`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    },
-    accessToken
-  );
+  return mediaClient.completeMediaUpload(mediaId, payload, accessToken);
+}
+
+export function listVerificationDocumentsPage(
+  accessToken: string,
+  cursor?: string
+): Promise<CursorPageResponse<MediaAssetRecord>> {
+  return mediaClient.listVerificationDocumentsPage(accessToken, cursor);
+}
+
+export function listJobMediaPage(
+  jobId: string,
+  accessToken: string,
+  cursor?: string
+): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
+  return mediaClient.listJobMediaPage(jobId, accessToken, cursor);
 }
 
 export function formatDate(iso: string | null): string {
@@ -889,7 +902,7 @@ export interface NotificationRecord {
   type: string;
   title: string;
   body: string;
-  data: Record<string, unknown>;
+  data: MetadataDto;
   read: boolean;
   readAt: string | null;
   createdAt: string;
@@ -942,3 +955,4 @@ export function markAllNotificationsRead(
     accessToken
   );
 }
+import type { MetadataDto } from "@illamhelp/shared-types";

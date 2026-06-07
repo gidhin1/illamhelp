@@ -12,6 +12,60 @@ export type ConsentGrantStatus = "active" | "revoked";
 
 export type MediaKind = "image" | "video";
 
+export type MetadataValue =
+  | string
+  | number
+  | boolean
+  | null
+  | MetadataDto
+  | MetadataValue[];
+
+export interface MetadataDto {
+  [key: string]: MetadataValue;
+}
+
+export interface CursorPageDto<T> {
+  items: T[];
+  limit: number;
+  nextCursor: string | null;
+}
+
+export interface JobDto {
+  id: string;
+  seekerUserId: string;
+  category: string;
+  title: string;
+  description: string;
+  locationText: string;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
+  seekerRating: number | null;
+  visibility: "public" | "connections_only";
+  status:
+    | "posted"
+    | "accepted"
+    | "in_progress"
+    | "completed"
+    | "payment_done"
+    | "payment_received"
+    | "closed"
+    | "cancelled";
+  assignedProviderUserId: string | null;
+  acceptedApplicationId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface JobApplicationDto {
+  id: string;
+  jobId: string;
+  providerUserId: string;
+  status: "applied" | "shortlisted" | "accepted" | "rejected" | "withdrawn";
+  message: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type MediaState =
   | "uploaded"
   | "scanning"
@@ -83,10 +137,30 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     label: "People",
     shortLabel: "People",
     icon: "people",
-    placement: "bottomBar",
+    placement: "drawer",
     order: 2,
     mobileTitle: "People",
     webHref: "/connections"
+  },
+  {
+    key: "jobs-discover",
+    label: "Jobs",
+    shortLabel: "Jobs",
+    icon: "jobs",
+    placement: "bottomBar",
+    order: 2,
+    mobileTitle: "Jobs",
+    webHref: "/jobs/discover"
+  },
+  {
+    key: "privacy",
+    label: "Privacy",
+    shortLabel: "Privacy",
+    icon: "privacy",
+    placement: "bottomBar",
+    order: 3,
+    mobileTitle: "Privacy",
+    webHref: "/consent"
   },
   {
     key: "profile",
@@ -94,7 +168,7 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     shortLabel: "Profile",
     icon: "profile",
     placement: "bottomBar",
-    order: 3,
+    order: 4,
     mobileTitle: "Profile",
     webHref: "/profile"
   },
@@ -103,7 +177,7 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     label: "Verify",
     shortLabel: "Verify",
     icon: "verify",
-    placement: "bottomBar",
+    placement: "drawer",
     order: 4,
     mobileTitle: "Verify",
     webHref: "/verification"
@@ -114,7 +188,7 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     shortLabel: "Jobs",
     icon: "jobs",
     placement: "drawer",
-    order: 1,
+    order: 3,
     mobileTitle: "Jobs",
     webHref: "/jobs/discover",
     children: [
@@ -156,19 +230,9 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     shortLabel: "Alerts",
     icon: "alerts",
     placement: "drawer",
-    order: 2,
+    order: 5,
     mobileTitle: "Alerts",
     webHref: "/notifications"
-  },
-  {
-    key: "privacy",
-    label: "Privacy",
-    shortLabel: "Privacy",
-    icon: "privacy",
-    placement: "drawer",
-    order: 3,
-    mobileTitle: "Privacy",
-    webHref: "/consent"
   },
   {
     key: "settings",
@@ -176,7 +240,7 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     shortLabel: "Settings",
     icon: "settings",
     placement: "drawer",
-    order: 4,
+    order: 6,
     mobileTitle: "Settings",
     webHref: "/settings"
   },
@@ -186,7 +250,7 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
     shortLabel: "Help",
     icon: "help",
     placement: "drawer",
-    order: 5,
+    order: 7,
     mobileTitle: "Help",
     webHref: "/help"
   }
@@ -194,6 +258,8 @@ export const MOBILE_NAVIGATION: AppNavItem[] = [
 
 export const BOTTOM_BAR_NAV = MOBILE_NAVIGATION.filter(
   (item) => item.placement === "bottomBar"
-);
+).sort((a, b) => a.order - b.order);
 
-export const DRAWER_NAV = MOBILE_NAVIGATION.filter((item) => item.placement === "drawer");
+export const DRAWER_NAV = MOBILE_NAVIGATION.filter((item) => item.placement === "drawer").sort(
+  (a, b) => a.order - b.order
+);

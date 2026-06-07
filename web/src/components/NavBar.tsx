@@ -300,7 +300,7 @@ export function NavBar(): JSX.Element {
             onClick={() => setMobileDrawerOpen(false)}
           />
           <div
-            className="mobile-drawer-panel"
+            className="mobile-drawer-panel motion-drawer"
             id="mobile-navigation-drawer"
             ref={drawerPanelRef}
             role="dialog"

@@ -8,6 +8,9 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes
 } from "react";
+import { useEffect, useRef } from "react";
+
+import { animateElement } from "../../lib/motion";
 
 export function SectionHeader({
   eyebrow,
@@ -36,14 +39,16 @@ export function Card({
   children,
   soft,
   className,
+  motion = "none",
   ...props
 }: {
   children: ReactNode;
   soft?: boolean;
   className?: string;
+  motion?: "none" | "enter";
 } & HTMLAttributes<HTMLElement>): React.JSX.Element {
   return (
-    <section {...props} className={`card ${soft ? "soft" : ""} ${className ?? ""}`}>
+    <section {...props} className={`card ${soft ? "soft" : ""} ${motion === "enter" ? "motion-enter" : ""} ${className ?? ""}`}>
       {children}
     </section>
   );
@@ -59,6 +64,7 @@ export function Button({
 } & ButtonHTMLAttributes<HTMLButtonElement>): React.JSX.Element {
   const className = [
     "button",
+    "motion-press",
     variant === "secondary" ? "secondary" : "",
     variant === "ghost" ? "ghost" : "",
     props.className ?? ""
@@ -117,8 +123,15 @@ export function Banner({
   tone: "info" | "success" | "error";
   children: ReactNode;
 }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const animation = animateElement(ref.current, "bannerIn");
+    return () => animation?.cancel();
+  }, [children, tone]);
+
   return (
-    <div className={`banner ${tone}`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"}>
+    <div ref={ref} className={`banner motion-banner ${tone}`} role={tone === "error" ? "alert" : "status"} aria-live={tone === "error" ? "assertive" : "polite"}>
       {children}
     </div>
   );
@@ -132,7 +145,7 @@ export function EmptyState({
   body: string;
 }): React.JSX.Element {
   return (
-    <Card soft className="stack">
+    <Card soft motion="enter" className="stack">
       <h3>{title}</h3>
       <p className="muted-text">{body}</p>
     </Card>

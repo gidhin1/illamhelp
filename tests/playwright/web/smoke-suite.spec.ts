@@ -270,11 +270,15 @@ test("web mobile navigation is labeled and dismissible as a dialog", async ({ pa
   await resetBrowserSession(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("main").getByRole("heading", { name: /Trusted help at home/i })).toBeVisible();
+  await expect(
+    page.getByRole("main").getByRole("heading", { name: /Find trusted help before the work reaches your doorstep/i })
+  ).toBeVisible();
 
   await expect(page.getByTestId("tab-home").getByText("Home")).toBeVisible();
   await page.getByTestId("mobile-drawer-toggle").click();
-  await expect(page.getByRole("dialog", { name: "Navigation menu" })).toBeVisible();
+  const drawer = page.getByRole("dialog", { name: "Navigation menu" });
+  await expect(drawer).toBeVisible();
+  await expect(drawer).toHaveClass(/motion-drawer/);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Navigation menu" })).not.toBeVisible();
 });

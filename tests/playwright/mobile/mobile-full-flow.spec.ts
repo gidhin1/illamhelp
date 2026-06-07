@@ -38,7 +38,8 @@ async function openJobsSubmenu(page: Page): Promise<void> {
 test("mobile full flow covers primary functional routes from authenticated shell", async ({ page }) => {
   await registerAccount(page);
 
-  await page.getByTestId("tab-people").click();
+  await openDrawer(page);
+  await page.getByTestId("drawer-nav-people").click();
   await expect(page.getByText("Trusted people")).toBeVisible();
   await page.getByTestId("connections-request-submit").click();
   await expect(page.getByTestId("connections-error-banner")).toContainText(
@@ -50,11 +51,11 @@ test("mobile full flow covers primary functional routes from authenticated shell
   await expect(page.getByText("Stay updated")).toBeVisible();
   await expect(page.getByTestId("notifications-filter-toggle")).toBeVisible();
 
-  await openDrawer(page);
-  await page.getByTestId("drawer-nav-privacy").click();
+  await page.getByTestId("tab-privacy").click();
   await expect(page.getByText("Share contact details safely")).toBeVisible();
   await expect(page.getByTestId("consent-request-submit")).toBeVisible();
 
+  await page.getByTestId("tab-jobs-discover").click();
   await openDrawer(page);
   await openJobsSubmenu(page);
   await page.getByTestId("drawer-nav-jobs-posted").click();
@@ -79,15 +80,13 @@ test("mobile full flow reaches settings/help placeholders and signs out", async 
 
   await openDrawer(page);
   await page.getByTestId("drawer-nav-settings").click();
-  await expect(
-    page.getByText("Theme, notification, and account preferences will live here as the new shell expands.")
-  ).toBeVisible();
+  await expect(page.getByText("Account preferences")).toBeVisible();
+  await expect(page.getByText("Open privacy controls")).toBeVisible();
 
   await openDrawer(page);
   await page.getByTestId("drawer-nav-help").click();
-  await expect(
-    page.getByText("Contextual guidance, support routes, and trust education will live here.")
-  ).toBeVisible();
+  await expect(page.getByText("Support and safety")).toBeVisible();
+  await expect(page.getByText("Open alerts")).toBeVisible();
 
   await openDrawer(page);
   await page.getByTestId("drawer-signout").click();
@@ -97,7 +96,8 @@ test("mobile full flow reaches settings/help placeholders and signs out", async 
 test("mobile verification route supports doc-type switching and refresh interactions", async ({ page }) => {
   await registerAccount(page);
 
-  await page.getByTestId("tab-verify").click();
+  await openDrawer(page);
+  await page.getByTestId("drawer-nav-verify").click();
   await expect(page.getByText("Get verified")).toBeVisible();
 
   await page.getByTestId("verification-doc-type-business_license").click();

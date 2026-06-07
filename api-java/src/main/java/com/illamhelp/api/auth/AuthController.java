@@ -9,7 +9,6 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
-import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -33,16 +32,16 @@ public class AuthController {
 
   @PostMapping("/auth/login")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> login(@Valid @RequestBody LoginRequest request) {
+  public KeycloakAuthService.AuthSession login(@Valid @RequestBody LoginRequest request) {
     return authService.login(request.username(), request.password());
   }
 
   @PostMapping("/auth/register")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> register(@Valid @RequestBody RegisterRequest request) {
-    Map<String, Object> session = authService.register(request);
+  public KeycloakAuthService.AuthSession register(@Valid @RequestBody RegisterRequest request) {
+    KeycloakAuthService.AuthSession session = authService.register(request);
     profilesService.upsertFromRegistration(
-        String.valueOf(session.get("userId")),
+        session.userId(),
         request.firstName(),
         request.lastName(),
         request.email(),
@@ -52,15 +51,15 @@ public class AuthController {
 
   @PostMapping("/auth/refresh")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Object> refresh(@Valid @RequestBody RefreshRequest request) {
+  public KeycloakAuthService.AuthSession refresh(@Valid @RequestBody RefreshRequest request) {
     return authService.refresh(request.refreshToken());
   }
 
   @PostMapping("/auth/logout")
   @ResponseStatus(HttpStatus.CREATED)
-  public Map<String, Boolean> logout(@Valid @RequestBody RefreshRequest request) {
+  public LogoutResponse logout(@Valid @RequestBody RefreshRequest request) {
     authService.logout(request.refreshToken());
-    return Map.of("success", true);
+    return new LogoutResponse(true);
   }
 
   @GetMapping("/auth/me")
@@ -74,6 +73,9 @@ public class AuthController {
   }
 
   public record RefreshRequest(@NotBlank String refreshToken) {
+  }
+
+  public record LogoutResponse(boolean success) {
   }
 
   public record RegisterRequest(

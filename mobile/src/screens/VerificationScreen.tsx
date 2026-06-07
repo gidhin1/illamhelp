@@ -1,10 +1,18 @@
 
 import {
-  formatDate, getMyVerification,
-  submitVerification, VerificationRecord
+  completeMediaUpload,
+  createMediaUploadTicket,
+  formatDate,
+  getMyVerification,
+  listVerificationDocumentsPage,
+  MediaAssetRecord,
+  MediaKind,
+  submitVerification,
+  VerificationRecord
 } from "../api";
 
 import {
+  randomHex,
   shouldForceSignOut, asError
 } from "../utils";
 
@@ -13,9 +21,21 @@ import {
 } from "../constants";
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
+import {
+  MediaUploadPanel,
+  pendingReviewMedia,
+  PickedMediaFile
+} from "../MediaUploadPanel";
+
+function inferMediaKind(contentType: string): MediaKind | null {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  return null;
+}
 
 export function VerificationScreen({
   accessToken,
@@ -30,15 +50,24 @@ export function VerificationScreen({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [documentType, setDocumentType] = useState("government_id");
-  const [documentMediaIds, setDocumentMediaIds] = useState("");
+  const [documentMediaAssets, setDocumentMediaAssets] = useState<MediaAssetRecord[]>([]);
+  const [pickedDocumentFile, setPickedDocumentFile] = useState<PickedMediaFile | null>(null);
+  const [documentUploading, setDocumentUploading] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
+  const [documentSuccess, setDocumentSuccess] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
+    setDocumentError(null);
     try {
-      const record = await getMyVerification(accessToken);
+      const [record, documentsPage] = await Promise.all([
+        getMyVerification(accessToken),
+        listVerificationDocumentsPage(accessToken).catch(() => ({ items: [], nextCursor: null }))
+      ]);
       setVerification(record);
+      setDocumentMediaAssets(documentsPage.items.filter((item) => item.purpose === "verification_document"));
     } catch (requestError) {
       const message = asError(requestError, "Unable to load verification status");
       setError(message);
@@ -55,12 +84,11 @@ export function VerificationScreen({
   }, [load]);
 
   const onSubmit = async (): Promise<void> => {
-    const ids = documentMediaIds
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
+    const ids = documentMediaAssets
+      .filter((item) => item.purpose === "verification_document" && item.state !== "rejected")
+      .map((item) => item.id);
     if (ids.length === 0) {
-      setError("Enter at least one document media ID.");
+      setError("Upload at least one private document before submitting verification.");
       return;
     }
 
@@ -89,6 +117,99 @@ export function VerificationScreen({
     }
   };
 
+  const onPickDocument = useCallback(async (): Promise<void> => {
+    setDocumentError(null);
+    setDocumentSuccess(null);
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["image/*", "video/*"],
+      multiple: false,
+      copyToCacheDirectory: true
+    });
+    if (result.canceled) {
+      return;
+    }
+    const asset = result.assets[0];
+    if (!asset?.mimeType || !asset.size) {
+      setDocumentError("Choose an image or video with a readable file size.");
+      return;
+    }
+    if (!inferMediaKind(asset.mimeType)) {
+      setDocumentError("Only identity images and videos are supported.");
+      return;
+    }
+    setPickedDocumentFile({
+      uri: asset.uri,
+      name: asset.name || `verification-document-${Date.now()}`,
+      mimeType: asset.mimeType,
+      size: asset.size
+    });
+  }, []);
+
+  const onUploadDocument = useCallback(async (): Promise<void> => {
+    if (!pickedDocumentFile) {
+      setDocumentError("Choose a private verification document first.");
+      return;
+    }
+    const kind = inferMediaKind(pickedDocumentFile.mimeType);
+    if (!kind) {
+      setDocumentError("Only identity images and videos are supported.");
+      return;
+    }
+
+    setDocumentUploading(true);
+    setDocumentError(null);
+    setDocumentSuccess(null);
+    try {
+      const ticket = await createMediaUploadTicket(
+        {
+          kind,
+          purpose: "verification_document",
+          contentType: pickedDocumentFile.mimeType,
+          fileSizeBytes: pickedDocumentFile.size,
+          checksumSha256: randomHex(64),
+          originalFileName: pickedDocumentFile.name
+        },
+        accessToken
+      );
+
+      const uploadResponse = await fetch(ticket.uploadUrl, {
+        method: "PUT",
+        headers: ticket.requiredHeaders,
+        body: {
+          uri: pickedDocumentFile.uri,
+          name: pickedDocumentFile.name,
+          type: pickedDocumentFile.mimeType
+        } as unknown as RequestInit["body"]
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      }
+
+      const etag = uploadResponse.headers.get("etag")?.replace(/"/g, "");
+      const completed = await completeMediaUpload(
+        ticket.mediaId,
+        { etag: etag || undefined },
+        accessToken
+      );
+
+      setDocumentMediaAssets((previous) => [
+        completed,
+        ...previous.filter((item) => item.id !== completed.id)
+      ]);
+      setPickedDocumentFile(null);
+      setDocumentSuccess("Private document uploaded for verification review.");
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to upload verification document");
+      setDocumentError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setDocumentUploading(false);
+    }
+  }, [accessToken, onSessionInvalid, pickedDocumentFile]);
+
   const canSubmitNew = !verification || verification.status === "rejected";
   const statusLabel =
     verification && VERIFICATION_STATUS_LABELS[verification.status]
@@ -106,7 +227,7 @@ export function VerificationScreen({
         <Text style={styles.pill}>Verification</Text>
         <Text style={styles.screenTitle}>Get verified</Text>
         <Text style={styles.screenSubtitle}>
-          Submit identity documents to unlock trusted badges on your profile.
+          Upload private identity documents, then submit them for trusted review.
         </Text>
       </View>
       {error ? <Banner tone="error" message={error} testID="verification-error-banner" /> : null}
@@ -122,6 +243,7 @@ export function VerificationScreen({
         {!loading && verification ? (
           <View style={styles.dataRow}>
             <Text style={styles.dataTitle}>Status: {statusLabel}</Text>
+            <Text style={styles.dataMeta}>Privacy: private verification review only</Text>
             <Text style={styles.dataMeta}>
               Document type: {verification.documentType.replaceAll("_", " ")}
             </Text>
@@ -145,7 +267,7 @@ export function VerificationScreen({
       {canSubmitNew ? (
         <SectionCard title={verification?.status === "rejected" ? "Resubmit request" : "Submit request"}>
           <Text style={styles.cardBodyMuted}>
-            Upload your documents from Profile, Professional media first, then paste media IDs here.
+            Add ID, certificate, license, or address-proof files here. They stay out of profile media and only appear in verification review.
           </Text>
           <Text style={styles.fieldLabel}>Document type</Text>
           <View style={styles.roleRow}>
@@ -175,13 +297,30 @@ export function VerificationScreen({
               </Pressable>
             ))}
           </View>
-          <InputField
-            label="Document media IDs"
-            value={documentMediaIds}
-            onChangeText={setDocumentMediaIds}
-            placeholder="media-id-1, media-id-2"
-            testID="verification-media-ids"
+          <MediaUploadPanel
+            title="Private verification documents"
+            description="Choose an image or video from this device, then upload it privately for review."
+            pickLabel="Add private document"
+            uploadLabel="Upload private document"
+            pickedFile={pickedDocumentFile}
+            pendingItems={pendingReviewMedia(documentMediaAssets)}
+            uploading={documentUploading}
+            error={documentError}
+            success={documentSuccess}
+            testID="verification-document-upload"
+            onPick={() => {
+              void onPickDocument();
+            }}
+            onClear={() => setPickedDocumentFile(null)}
+            onUpload={() => {
+              void onUploadDocument();
+            }}
           />
+          {documentMediaAssets.length > 0 ? (
+            <Text style={styles.dataMeta} testID="verification-document-count">
+              {documentMediaAssets.length} private document{documentMediaAssets.length === 1 ? "" : "s"} ready for submission.
+            </Text>
+          ) : null}
           <InputField
             label="Notes (optional)"
             value={notes}
@@ -195,7 +334,7 @@ export function VerificationScreen({
             onPress={() => {
               void onSubmit();
             }}
-            disabled={submitting}
+            disabled={submitting || documentUploading}
             testID="verification-submit"
           />
         </SectionCard>

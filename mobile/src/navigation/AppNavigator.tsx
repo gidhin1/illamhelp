@@ -14,22 +14,37 @@ import { ConnectionsScreen } from "../screens/ConnectionsScreen";
 import { ConsentScreen } from "../screens/ConsentScreen";
 import { VerificationScreen } from "../screens/VerificationScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
+import { AppButton, SectionCard } from "../components";
 
-function PlaceholderScreen({
+function GuidanceScreen({
   title,
-  body
+  kicker,
+  body,
+  rows,
+  primaryAction,
+  onPrimaryAction
 }: {
   title: string;
+  kicker: string;
   body: string;
+  rows: Array<{ title: string; body: string }>;
+  primaryAction: string;
+  onPrimaryAction: () => void;
 }): JSX.Element {
   const styles = useAppStyles();
   return (
     <ScrollView contentContainerStyle={styles.screenScroll}>
       <View style={styles.screenHeader}>
-        <Text style={styles.pill}>{title}</Text>
+        <Text style={styles.pill}>{kicker}</Text>
         <Text style={styles.screenTitle}>{title}</Text>
         <Text style={styles.screenSubtitle}>{body}</Text>
       </View>
+      {rows.map((row) => (
+        <SectionCard key={row.title} title={row.title}>
+          <Text style={styles.cardBodyMuted}>{row.body}</Text>
+        </SectionCard>
+      ))}
+      <AppButton label={primaryAction} onPress={onPrimaryAction} testID={`guidance-${kicker.toLowerCase()}-primary`} />
     </ScrollView>
   );
 }
@@ -138,16 +153,50 @@ export function AppNavigator({
         return <ConsentScreen accessToken={accessToken} user={user} onSessionInvalid={signOut} />;
       case "settings":
         return (
-          <PlaceholderScreen
-            title="Settings"
-            body="Theme, notification, and account preferences will live here as the new shell expands."
+          <GuidanceScreen
+            kicker="Settings"
+            title="Account preferences"
+            body="Keep identity, privacy, and notifications easy to review from one place."
+            rows={[
+              {
+                title: "Human identity",
+                body: "Profile details and public media live in Profile, where you can update service details and contact fields."
+              },
+              {
+                title: "Privacy state",
+                body: "Contact sharing is controlled from Privacy. You can review active grants and revoke them when needed."
+              },
+              {
+                title: "Next safe action",
+                body: "Use Alerts for pending requests and verification updates before changing account-level settings."
+              }
+            ]}
+            primaryAction="Open privacy controls"
+            onPrimaryAction={() => navigateTo("privacy")}
           />
         );
       case "help":
         return (
-          <PlaceholderScreen
-            title="Help"
-            body="Contextual guidance, support routes, and trust education will live here."
+          <GuidanceScreen
+            kicker="Help"
+            title="Support and safety"
+            body="Find the right next step for privacy, verification, media, and job issues."
+            rows={[
+              {
+                title: "Human identity",
+                body: "If a person or applicant looks wrong, capture the member ID and review their profile context first."
+              },
+              {
+                title: "Privacy state",
+                body: "For contact sharing or document concerns, start in Privacy or Verification. ID documents never belong in profile media."
+              },
+              {
+                title: "Next safe action",
+                body: "For job problems, open Jobs and use the job detail context before sharing new contact details."
+              }
+            ]}
+            primaryAction="Open alerts"
+            onPrimaryAction={() => navigateTo("alerts")}
           />
         );
       default:

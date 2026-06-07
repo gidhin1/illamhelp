@@ -1,0 +1,226 @@
+syntax = "proto3";
+
+package media.v1;
+
+option java_multiple_files = true;
+option java_package = "com.illamhelp.api.proto.media.v1";
+option java_outer_classname = "MediaApiProto";
+
+service MediaService {
+  rpc CreateUploadTicket(CreateUploadTicketRequest) returns (UploadTicket);
+  rpc CompleteUpload(CompleteUploadRequest) returns (MediaAsset);
+  rpc ListMyMedia(ListMyMediaRequest) returns (MediaPage);
+  rpc ListProfileMedia(ListProfileMediaRequest) returns (DownloadableMediaPage);
+  rpc ListJobMedia(ListJobMediaRequest) returns (DownloadableMediaPage);
+  rpc ListVerificationDocuments(ListVerificationDocumentsRequest) returns (MediaPage);
+}
+
+service AdminMediaService {
+  rpc ListModerationQueue(ListModerationQueueRequest) returns (ModerationQueuePage);
+  rpc GetModerationDetails(GetModerationDetailsRequest) returns (ModerationDetails);
+  rpc ProcessModerationJobs(ProcessModerationJobsRequest) returns (ProcessModerationJobsResponse);
+  rpc ReviewMedia(ReviewMediaRequest) returns (MediaAsset);
+}
+
+enum MediaKind {
+  MEDIA_KIND_UNSPECIFIED = 0;
+  MEDIA_KIND_IMAGE = 1;
+  MEDIA_KIND_VIDEO = 2;
+}
+
+enum MediaState {
+  MEDIA_STATE_UNSPECIFIED = 0;
+  MEDIA_STATE_UPLOADED = 1;
+  MEDIA_STATE_SCANNING = 2;
+  MEDIA_STATE_AI_REVIEWED = 3;
+  MEDIA_STATE_HUMAN_REVIEW_PENDING = 4;
+  MEDIA_STATE_APPROVED = 5;
+  MEDIA_STATE_REJECTED = 6;
+  MEDIA_STATE_APPEAL_PENDING = 7;
+  MEDIA_STATE_APPEAL_RESOLVED = 8;
+}
+
+enum MediaPurpose {
+  MEDIA_PURPOSE_UNSPECIFIED = 0;
+  MEDIA_PURPOSE_PROFILE = 1;
+  MEDIA_PURPOSE_JOB = 2;
+  MEDIA_PURPOSE_VERIFICATION_DOCUMENT = 3;
+}
+
+message CreateUploadTicketRequest {
+  MediaKind kind = 1;
+  string content_type = 2;
+  int64 file_size_bytes = 3;
+  string checksum_sha256 = 4;
+  string original_file_name = 5;
+  MediaPurpose purpose = 6;
+  string job_id = 7;
+}
+
+message UploadTicket {
+  string upload_url = 1;
+  string expires_at = 2;
+  map<string, string> required_headers = 3;
+  string media_id = 4;
+  string bucket_name = 5;
+  string object_key = 6;
+}
+
+message CompleteUploadRequest {
+  string media_id = 1;
+  string etag = 2;
+}
+
+message ListMyMediaRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message ListProfileMediaRequest {
+  string profile_user_id = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message ListJobMediaRequest {
+  string job_id = 1;
+  int32 limit = 2;
+  string cursor = 3;
+}
+
+message ListVerificationDocumentsRequest {
+  int32 limit = 1;
+  string cursor = 2;
+}
+
+message MediaAsset {
+  string id = 1;
+  string owner_user_id = 2;
+  string profile_user_id = 3;
+  string job_id = 4;
+  MediaKind kind = 5;
+  MediaPurpose purpose = 6;
+  string bucket_name = 7;
+  string object_key = 8;
+  string content_type = 9;
+  int64 file_size_bytes = 10;
+  string checksum_sha256 = 11;
+  MediaState state = 12;
+  string created_at = 13;
+  string updated_at = 14;
+}
+
+message DownloadableMedia {
+  string id = 1;
+  string owner_user_id = 2;
+  string profile_user_id = 3;
+  string job_id = 4;
+  MediaKind kind = 5;
+  MediaPurpose purpose = 6;
+  string content_type = 7;
+  int64 file_size_bytes = 8;
+  MediaState state = 9;
+  string created_at = 10;
+  string updated_at = 11;
+  string download_url = 12;
+  string download_url_expires_at = 13;
+}
+
+message MediaPage {
+  repeated MediaAsset items = 1;
+  int32 limit = 2;
+  string next_cursor = 3;
+}
+
+message DownloadableMediaPage {
+  repeated DownloadableMedia items = 1;
+  int32 limit = 2;
+  string next_cursor = 3;
+}
+
+message ListModerationQueueRequest {
+  string stage = 1;
+  string status = 2;
+  int32 limit = 3;
+}
+
+message ModerationQueueItem {
+  string moderation_job_id = 1;
+  string media_id = 2;
+  string stage = 3;
+  string status = 4;
+  string reason_code = 5;
+  string moderation_created_at = 6;
+  MediaState media_state = 7;
+  string owner_user_id = 8;
+  MediaKind kind = 9;
+  MediaPurpose purpose = 10;
+  string content_type = 11;
+  int64 file_size_bytes = 12;
+}
+
+message ModerationQueuePage {
+  repeated ModerationQueueItem items = 1;
+}
+
+message GetModerationDetailsRequest {
+  string media_id = 1;
+}
+
+message ModerationMedia {
+  string id = 1;
+  string owner_user_id = 2;
+  string profile_user_id = 3;
+  string job_id = 4;
+  MediaKind kind = 5;
+  MediaPurpose purpose = 6;
+  string bucket_name = 7;
+  string object_key = 8;
+  string content_type = 9;
+  int64 file_size_bytes = 10;
+  string checksum_sha256 = 11;
+  MediaState state = 12;
+  repeated string moderation_reason_codes = 13;
+  string ai_scores_json = 14;
+  string created_at = 15;
+  string updated_at = 16;
+  string preview_url = 17;
+  string preview_url_expires_at = 18;
+}
+
+message ModerationJob {
+  string id = 1;
+  string media_asset_id = 2;
+  string stage = 3;
+  string status = 4;
+  string assigned_moderator_user_id = 5;
+  string reason_code = 6;
+  string details_json = 7;
+  string created_at = 8;
+  string completed_at = 9;
+}
+
+message ModerationDetails {
+  ModerationMedia media = 1;
+  repeated ModerationJob moderation_jobs = 2;
+}
+
+message ProcessModerationJobsRequest {
+  int32 limit = 1;
+}
+
+message ProcessModerationJobsResponse {
+  int32 selected = 1;
+  int32 processed = 2;
+  int32 technical_approved = 3;
+  int32 technical_rejected = 4;
+  int32 ai_completed = 5;
+  int32 errors = 6;
+}
+
+message ReviewMediaRequest {
+  string media_id = 1;
+  string decision = 2;
+  string reason_code = 3;
+  string notes = 4;
+}

@@ -12,6 +12,7 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@illamhelp/media-client": "workspace:*",
     "@illamhelp/ui-tokens": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.22",

@@ -109,7 +109,7 @@ services:
       start_period: 30s
 
   keycloak:
-    image: quay.io/keycloak/keycloak@sha256:be6a86215213145bfb4fb3e2b3ab982a806d00262655abdcf3ffa6a38d241c7c
+    image: quay.io/keycloak/keycloak:26.6.2@sha256:f9ba7b2af90db8dc749a57ca9aedca51e840cb9224441ab546a968da941da900
     container_name: illamhelp-keycloak
     restart: unless-stopped
     command: ["start-dev", "--http-port=8080"]
@@ -150,6 +150,17 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
+
+  media-grpc-web:
+    image: envoyproxy/envoy:v1.35-latest
+    container_name: illamhelp-media-grpc-web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9091:9091"
+    volumes:
+      - ./envoy/media-grpc-web.yaml:/etc/envoy/envoy.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   postgres_data:
