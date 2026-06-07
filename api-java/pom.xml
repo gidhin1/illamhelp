@@ -193,6 +193,7 @@
         <configuration>
           <excludes>
             <exclude>com/illamhelp/api/proto/**</exclude>
+            <exclude>illamhelp/internal/events/v1/**</exclude>
             <exclude>com/illamhelp/api/media/Grpc*</exclude>
           </excludes>
         </configuration>

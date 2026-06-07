@@ -2,9 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   Text,
-  View
+  View,
+  type ViewProps,
+  type ViewStyle
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -24,6 +27,12 @@ import { useReduceMotion } from "../components";
 import { useAppTheme } from "../theme-context";
 import { bottomBarItems, drawerItems, getNavigationItem, isJobsRoute, type MobileRouteKey } from "./registry";
 import { NavIcon } from "./icons";
+
+const AnimatedView = Animated.View as React.ComponentType<
+  ViewProps & {
+    style?: StyleProp<ViewStyle>;
+  }
+>;
 
 function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
@@ -432,11 +441,11 @@ export function MobileShell({
 
       {drawerVisible ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          <Animated.View style={[styles.drawerScrim, drawerScrimStyle]}>
+          <AnimatedView style={[styles.drawerScrim, drawerScrimStyle]}>
             <Pressable accessibilityRole="button" accessibilityLabel="Close navigation menu" style={StyleSheet.absoluteFill} onPress={onToggleDrawer} testID="app-drawer-scrim" />
-          </Animated.View>
+          </AnimatedView>
           <GestureDetector gesture={drawerPanGesture}>
-            <Animated.View accessibilityViewIsModal accessible={false} style={[styles.drawer, drawerPanelStyle, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
+            <AnimatedView accessibilityViewIsModal accessible={false} style={[styles.drawer, drawerPanelStyle, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
               <ScrollView contentContainerStyle={styles.drawerScroll} showsVerticalScrollIndicator={false}>
                 <View style={styles.profileCard}>
                   <View style={styles.avatar}>
@@ -572,7 +581,7 @@ export function MobileShell({
                   <Text style={styles.signOutLabel}>Sign out</Text>
                 </Pressable>
               </ScrollView>
-            </Animated.View>
+            </AnimatedView>
           </GestureDetector>
         </View>
       ) : null}

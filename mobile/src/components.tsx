@@ -15,6 +15,12 @@ import { useAppStyles, useAppTheme } from "./theme-context";
 export type BottomBarKey = "home" | "people" | "profile" | "verify";
 export type AuthMode = "login" | "register";
 export type ButtonVariant = "primary" | "secondary" | "ghost";
+const AnimatedView = Animated.View as React.ComponentType<
+  ViewProps & {
+    style?: StyleProp<ViewStyle>;
+    testID?: string;
+  }
+>;
 
 export function useReduceMotion(): boolean {
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -109,9 +115,9 @@ export function MotionView({
   }, [disabled, reduceMotion, variant]);
 
   return (
-    <Animated.View style={[style, motionStyle]} testID={testID} {...viewProps}>
+    <AnimatedView style={[style, motionStyle]} testID={testID} {...viewProps}>
       {children}
-    </Animated.View>
+    </AnimatedView>
   );
 }
 
