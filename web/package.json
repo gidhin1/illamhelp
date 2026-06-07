@@ -12,8 +12,8 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
-    "@illamhelp/shared-types": "workspace:*",
     "@illamhelp/media-client": "workspace:*",
+    "@illamhelp/shared-types": "workspace:*",
     "@illamhelp/ui-tokens": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.22",
@@ -26,10 +26,11 @@
     "@types/node": "^22.13.8",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^9.20.0",
     "eslint-config-next": "^16.2.6",
     "typescript": "^5.8.2",
-    "vitest": "^2.1.9"
+    "vite": "^7.2.7",
+    "vitest": "^4.1.8"
   }
 }
