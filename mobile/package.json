@@ -48,6 +48,6 @@
     "expo-modules-autolinking": "2.0.8",
     "globals": "^15.14.0",
     "typescript": "^5.8.2",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.0"
   }
 }
