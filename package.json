@@ -52,6 +52,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "vitest": "^4.2.0"
+    "vitest": "^4.1.8"
   }
 }
