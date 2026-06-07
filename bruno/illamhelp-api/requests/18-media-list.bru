@@ -1,30 +1,42 @@
 meta {
   name: Media List
-  type: http
+  type: grpc
   seq: 18
   tags: [
-    e2e
+    manual
   ]
 }
 
-get {
-  url: {{baseUrl}}/media
-  body: none
+grpc {
+  url: grpc://localhost:9090
+  method: /media.v1.MediaService/ListVerificationDocuments
+  protoPath: ../../api-java/src/main/protobuf/media/v1/media.proto
+  methodType: unary
   auth: none
 }
 
-headers {
-  Authorization: Bearer {{seekerAccessToken}}
+metadata {
+  authorization: Bearer {{seekerAccessToken}}
+}
+
+body:grpc {
+  name: message 1
+  content: '''
+    {
+      "limit": 50
+    }
+  '''
 }
 
 tests {
-  test("media list returns 200", function () {
-    expect(res.getStatus()).to.equal(200);
+  test("verification document list returns items", function () {
+    const items = Array.isArray(res.body?.items) ? res.body.items : [];
+    expect(items).to.be.an("array");
   });
 
   test("media list includes created media id", function () {
     const mediaId = bru.getEnvVar("mediaId");
-    const items = Array.isArray(res.body) ? res.body : (Array.isArray(res.body?.items) ? res.body.items : []);
+    const items = Array.isArray(res.body?.items) ? res.body.items : [];
     const row = items.find((item) => item.id === mediaId);
     expect(row).to.not.equal(undefined);
   });

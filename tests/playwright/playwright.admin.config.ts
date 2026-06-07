@@ -2,10 +2,27 @@ import { defineConfig, devices } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
-const adminBaseUrl = process.env.PW_ADMIN_BASE_URL ?? "http://localhost:3103";
-const webBaseUrl = process.env.PW_WEB_BASE_URL ?? "http://localhost:3000";
-const adminApiBaseOrigin = process.env.PW_ADMIN_API_BASE_ORIGIN ?? "http://localhost:4011";
-const adminApiBaseUrl = process.env.PW_ADMIN_API_BASE_URL ?? `${adminApiBaseOrigin}/api/v1`;
+import { pickBaseUrl, pickServerTarget } from "./server-targets";
+
+const adminApiTarget = pickServerTarget(
+  process.env.PW_ADMIN_API_BASE_ORIGIN,
+  "http://localhost:4000",
+  "http://localhost:4011"
+);
+const adminTarget = pickBaseUrl(
+  process.env.PW_ADMIN_BASE_URL,
+  "http://localhost:3003",
+  adminApiTarget.reuseExistingServer ? "http://localhost:3003" : "http://localhost:3103"
+);
+const webTarget = pickBaseUrl(
+  process.env.PW_WEB_BASE_URL,
+  "http://localhost:3000",
+  adminApiTarget.reuseExistingServer ? "http://localhost:3000" : "http://localhost:3100"
+);
+const adminBaseUrl = adminTarget.baseUrl;
+const webBaseUrl = webTarget.baseUrl;
+const adminApiBaseOrigin = adminApiTarget.baseUrl;
+const adminApiBaseUrl = process.env.PW_ADMIN_API_BASE_URL ?? `${adminApiBaseOrigin.replace(/\/$/, "")}/api/v1`;
 const adminApiPort = new URL(adminApiBaseOrigin).port || "4011";
 const adminAuthRateLimitMax = process.env.PW_AUTH_RATE_LIMIT_MAX ?? "2000";
 const defaultAdminApiCorsOrigins = [
@@ -66,24 +83,24 @@ export default defineConfig({
   webServer: [
     {
       command: `PORT="${adminApiPort}" NODE_ENV=test AUTH_RATE_LIMIT_MAX="${adminAuthRateLimitMax}" CORS_ORIGINS="${adminCorsOrigins}" STRICT_ORIGIN_CHECK=true mvn -f api-java/pom.xml spring-boot:run`,
-      url: `${adminApiBaseOrigin}/api/v1/health`,
+      url: adminApiTarget.healthUrl,
       timeout: 240_000,
       cwd: repoRoot,
-      reuseExistingServer
+      reuseExistingServer: reuseExistingServer || adminApiTarget.reuseExistingServer
     },
     {
       command: `PW_WEB_BASE_URL="${webBaseUrl}" NEXT_PUBLIC_API_BASE_URL="${adminApiBaseUrl}" bash ./scripts/start-web-playwright.sh`,
       url: webBaseUrl,
       timeout: 240_000,
       cwd: repoRoot,
-      reuseExistingServer
+      reuseExistingServer: reuseExistingServer || webTarget.reuseExistingServer
     },
     {
       command: `NEXT_PUBLIC_API_BASE_URL="${adminApiBaseUrl}" bash ./scripts/start-admin-playwright.sh`,
       url: adminBaseUrl,
       timeout: 240_000,
       cwd: repoRoot,
-      reuseExistingServer
+      reuseExistingServer: reuseExistingServer || adminTarget.reuseExistingServer
     }
   ],
   projects: [

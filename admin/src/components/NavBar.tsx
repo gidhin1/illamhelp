@@ -104,7 +104,7 @@ export function NavBar(): React.JSX.Element {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            color: "white",
+            color: "var(--on-strong)",
             fontWeight: "bold",
             fontSize: "18px"
             }}

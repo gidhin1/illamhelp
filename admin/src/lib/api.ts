@@ -1,12 +1,8 @@
+import { createMediaClient } from "@illamhelp/media-client";
+
 export type AppRole = "both" | "seeker" | "provider" | "admin" | "support";
 
-type MetadataValue =
-  | string
-  | number
-  | boolean
-  | null
-  | MetadataDto
-  | MetadataValue[];
+type MetadataValue = unknown;
 
 interface MetadataDto {
   [key: string]: MetadataValue;
@@ -53,8 +49,10 @@ export interface AuthenticatedUser {
 export interface MediaAssetRecord {
   id: string;
   ownerUserId: string;
+  profileUserId: string | null;
   jobId: string | null;
   kind: "image" | "video";
+  purpose: "profile" | "job" | "verification_document";
   bucketName: string;
   objectKey: string;
   contentType: string;
@@ -91,6 +89,7 @@ export interface ModerationQueueItem {
   | "appeal_resolved";
   ownerUserId: string;
   kind: "image" | "video";
+  purpose: "profile" | "job" | "verification_document";
   contentType: string;
   fileSizeBytes: number;
 }
@@ -111,7 +110,10 @@ export interface ModerationDetails {
   media: {
     id: string;
     ownerUserId: string;
+    profileUserId: string | null;
+    jobId: string | null;
     kind: "image" | "video";
+    purpose: "profile" | "job" | "verification_document";
     bucketName: string;
     objectKey: string;
     contentType: string;
@@ -181,6 +183,10 @@ export interface AdminTimelineResponse {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "http://localhost:4000/api/v1";
+
+const mediaClient = createMediaClient({
+  baseUrl: process.env.NEXT_PUBLIC_MEDIA_GRPC_WEB_URL
+});
 
 function asErrorMessage(payload: ApiErrorPayload | undefined, fallback: string): string {
   if (!payload) {
@@ -255,39 +261,21 @@ export function listModerationQueue(
   accessToken: string,
   options?: { status?: string; limit?: number }
 ): Promise<ModerationQueueItem[]> {
-  const params = new URLSearchParams();
-  if (options?.status) {
-    params.set("status", options.status);
-  }
-  if (typeof options?.limit === "number") {
-    params.set("limit", String(options.limit));
-  }
-  const query = params.toString();
-  const path = query
-    ? `/admin/media/moderation-queue?${query}`
-    : "/admin/media/moderation-queue";
-  return apiRequest<ModerationQueueItem[]>(path, {}, accessToken);
+  return mediaClient.listModerationQueue(accessToken, options);
 }
 
 export function getModerationDetails(
   mediaId: string,
   accessToken: string
 ): Promise<ModerationDetails> {
-  return apiRequest<ModerationDetails>(`/admin/media/${mediaId}/moderation`, {}, accessToken);
+  return mediaClient.getModerationDetails(mediaId, accessToken);
 }
 
 export function processModerationQueue(
   accessToken: string,
   limit = 10
 ): Promise<ModerationProcessResult> {
-  return apiRequest<ModerationProcessResult>(
-    "/admin/media/moderation/process",
-    {
-      method: "POST",
-      body: JSON.stringify({ limit })
-    },
-    accessToken
-  );
+  return mediaClient.processModerationQueue(accessToken, limit);
 }
 
 export function reviewMedia(
@@ -299,14 +287,7 @@ export function reviewMedia(
   },
   accessToken: string
 ): Promise<MediaAssetRecord> {
-  return apiRequest<MediaAssetRecord>(
-    `/admin/media/${mediaId}/review`,
-    {
-      method: "POST",
-      body: JSON.stringify(payload)
-    },
-    accessToken
-  );
+  return mediaClient.reviewMedia(mediaId, payload, accessToken);
 }
 
 export function fetchMemberTimeline(

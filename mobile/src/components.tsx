@@ -1,11 +1,141 @@
-import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
-import type { TextInputProps, ViewStyle } from "react-native";
+import React, { useEffect, useState } from "react";
+import { AccessibilityInfo, ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import type { PressableProps, StyleProp, TextInputProps, ViewProps, ViewStyle } from "react-native";
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming
+} from "react-native-reanimated";
 
 import { useAppStyles, useAppTheme } from "./theme-context";
 
 export type BottomBarKey = "home" | "people" | "profile" | "verify";
 export type AuthMode = "login" | "register";
 export type ButtonVariant = "primary" | "secondary" | "ghost";
+
+export function useReduceMotion(): boolean {
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+
+    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) {
+        setReduceMotion(enabled);
+      }
+    });
+
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  return reduceMotion;
+}
+
+export type MotionVariant = "none" | "fade" | "rise" | "slide" | "banner";
+
+export function MotionView({
+  children,
+  style,
+  testID,
+  variant = "none",
+  delay = 0,
+  disabled,
+  ...viewProps
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+  variant?: MotionVariant;
+  delay?: number;
+  disabled?: boolean;
+} & Pick<ViewProps, "accessible" | "accessibilityLabel" | "accessibilityLiveRegion" | "accessibilityRole">): JSX.Element {
+  const reduceMotion = useReduceMotion();
+  const theme = useAppTheme();
+  const progress = useSharedValue(reduceMotion || disabled || variant === "none" ? 1 : 0);
+
+  useEffect(() => {
+    if (reduceMotion || disabled || variant === "none") {
+      progress.value = 1;
+      return;
+    }
+
+    progress.value = 0;
+    progress.value = withDelay(
+      delay,
+      withTiming(1, {
+        duration: theme.motion.duration.enter,
+        easing: Easing.out(Easing.cubic)
+      })
+    );
+  }, [delay, disabled, progress, reduceMotion, theme.motion.duration.enter, variant]);
+
+  const motionStyle = useAnimatedStyle(() => {
+    if (reduceMotion || disabled || variant === "none") {
+      return {};
+    }
+
+    if (variant === "fade") {
+      return { opacity: progress.value };
+    }
+
+    if (variant === "slide") {
+      return {
+        opacity: progress.value,
+        transform: [{ translateX: interpolate(progress.value, [0, 1], [-14, 0]) }]
+      };
+    }
+
+    if (variant === "banner") {
+      return {
+        opacity: progress.value,
+        transform: [
+          { translateY: interpolate(progress.value, [0, 1], [-10, 0]) },
+          { scale: interpolate(progress.value, [0, 1], [0.98, 1]) }
+        ]
+      };
+    }
+
+    return {
+      opacity: progress.value,
+      transform: [{ translateY: interpolate(progress.value, [0, 1], [10, 0]) }]
+    };
+  }, [disabled, reduceMotion, variant]);
+
+  return (
+    <Animated.View style={[style, motionStyle]} testID={testID} {...viewProps}>
+      {children}
+    </Animated.View>
+  );
+}
+
+export function MotionPressable({
+  children,
+  disabled,
+  style,
+  ...props
+}: PressableProps): JSX.Element {
+  const styles = useAppStyles();
+
+  return (
+    <Pressable
+      {...props}
+      disabled={disabled}
+      style={(state) => [
+        typeof style === "function" ? style(state) : style,
+        state.pressed && !disabled ? styles.buttonPressed : null
+      ]}
+    >
+      {children}
+    </Pressable>
+  );
+}
 
 export function AppButton({
   label,
@@ -36,8 +166,8 @@ export function AppButton({
   const textStyles = [styles.buttonLabel, variant === "ghost" ? styles.buttonLabelGhost : null];
 
   return (
-    <Pressable
-      style={buttonStyles}
+    <MotionPressable
+      style={() => buttonStyles}
       disabled={disabled || loading}
       onPress={onPress}
       testID={testID}
@@ -45,9 +175,9 @@ export function AppButton({
       accessibilityLabel={label}
       accessibilityState={{ disabled: !!disabled || !!loading, busy: !!loading }}
     >
-      {loading ? <ActivityIndicator size="small" color={variant === "ghost" ? theme.colors.ink : "#fff"} /> : null}
+      {loading ? <ActivityIndicator size="small" color={variant === "ghost" ? theme.colors.ink : theme.colors.onStrong} /> : null}
       <Text style={textStyles}>{label}</Text>
-    </Pressable>
+    </MotionPressable>
   );
 }
 
@@ -103,21 +233,23 @@ export function SectionCard({
   title,
   subtitle,
   children,
-  testID
+  testID,
+  motion = "none"
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   testID?: string;
+  motion?: MotionVariant;
 }): JSX.Element {
   const styles = useAppStyles();
 
   return (
-    <View style={styles.card} testID={testID}>
+    <MotionView style={styles.card} testID={testID} variant={motion}>
       <Text style={styles.cardTitle}>{title}</Text>
       {subtitle ? <Text style={styles.cardBodyMuted}>{subtitle}</Text> : null}
       <View style={styles.stackSmall}>{children}</View>
-    </View>
+    </MotionView>
   );
 }
 
@@ -194,7 +326,7 @@ export function ActionEmptyState({
   testID?: string;
 }): JSX.Element {
   return (
-    <SectionCard title={title} subtitle={message} testID={testID}>
+    <SectionCard title={title} subtitle={message} testID={testID} motion="rise">
       {actionLabel && onAction ? <AppButton label={actionLabel} onPress={onAction} variant="secondary" /> : null}
     </SectionCard>
   );
@@ -211,7 +343,7 @@ export function Banner({
 }): JSX.Element {
   const styles = useAppStyles();
   return (
-    <View
+    <MotionView
       style={[
         styles.banner,
         tone === "error" ? styles.bannerError : null,
@@ -219,6 +351,7 @@ export function Banner({
         tone === "info" ? styles.bannerInfo : null
       ]}
       testID={testID}
+      variant="banner"
       accessible
       accessibilityRole={tone === "error" ? "alert" : undefined}
       accessibilityLiveRegion={tone === "error" ? "assertive" : "polite"}
@@ -233,6 +366,6 @@ export function Banner({
       >
         {message}
       </Text>
-    </View>
+    </MotionView>
   );
 }

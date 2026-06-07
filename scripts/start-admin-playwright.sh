@@ -45,4 +45,22 @@ ADMIN_PORT="$(
   ' "${ADMIN_URL}"
 )"
 
+if ! curl --silent --fail --max-time 2 "${ADMIN_URL}" >/dev/null 2>&1; then
+  PORT_HOLDERS="$(
+    lsof -tiTCP:"${ADMIN_PORT}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | xargs || true
+  )"
+  if [[ -n "${PORT_HOLDERS}" ]]; then
+    echo "Stopping stale admin process(es) on port ${ADMIN_PORT}: ${PORT_HOLDERS}"
+    kill ${PORT_HOLDERS} >/dev/null 2>&1 || true
+    sleep 1
+    REMAINING_PORT_HOLDERS="$(
+      lsof -tiTCP:"${ADMIN_PORT}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | xargs || true
+    )"
+    if [[ -n "${REMAINING_PORT_HOLDERS}" ]]; then
+      echo "Force-stopping stale admin process(es) on port ${ADMIN_PORT}: ${REMAINING_PORT_HOLDERS}"
+      kill -9 ${REMAINING_PORT_HOLDERS} >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
 PORT="${ADMIN_PORT}" corepack pnpm --filter @illamhelp/admin dev

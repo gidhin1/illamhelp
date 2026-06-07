@@ -55,9 +55,9 @@ async function reviewVerificationByUi(
   decision: "approved" | "rejected",
   timeoutMs = 10_000
 ): Promise<void> {
-  const row = await poll(async () => {
+  const queueItem = await poll(async () => {
     if (page.isClosed()) {
-      throw new Error("Admin page was closed before verification row appeared.");
+      throw new Error("Admin page was closed before verification request appeared.");
     }
 
     const errorBanner = page.locator(".banner.error").first();
@@ -66,22 +66,25 @@ async function reviewVerificationByUi(
       throw new Error(`Verification review failed: ${errorText}`);
     }
 
-    const candidate = page.getByRole("row").filter({ hasText: memberUserId }).first();
+    const candidate = page
+      .getByRole("list", { name: "Verification requests" })
+      .getByRole("button")
+      .filter({ hasText: memberUserId })
+      .first();
     if (await candidate.isVisible().catch(() => false)) {
       return candidate;
     }
 
     await page.getByRole("button", { name: /^Pending$/i }).first().click().catch(() => undefined);
-    await page.waitForTimeout(300);
     await page.getByRole("button", { name: /^All Records$/i }).first().click().catch(() => undefined);
-    await page.waitForTimeout(500);
     return undefined;
   }, timeoutMs);
 
-  await row.getByRole("button", { name: /Start Review/i }).click();
-  await page.getByLabel("Decision Notes (Audit)").fill(reviewNote);
+  await queueItem.click();
+  await expect(page.getByTestId("verification-review-panel").getByText(memberUserId).first()).toBeVisible();
+  await page.getByLabel("Decision notes").fill(reviewNote);
   await page
-    .getByRole("button", { name: decision === "approved" ? /^Approve$/i : /^Reject$/i })
+    .getByRole("button", { name: decision === "approved" ? /^Approve verification$/i : /^Reject verification$/i })
     .click();
   await expect(
     page
@@ -403,6 +406,12 @@ async function selectOptionContaining(
     const match = options.find(
       (item) => item.value && item.text.toLowerCase().includes(normalized)
     );
+    if (!match) {
+      const selectableOptions = options.filter((item) => item.value);
+      if (selectableOptions.length === 1) {
+        return selectableOptions[0].value;
+      }
+    }
     return match?.value;
   }, timeoutMs);
 
@@ -415,11 +424,11 @@ async function requestConsentAccessByUi(
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const requestCard = await cardByHeading(page, "Request contact details");
-  const select = requestCard.getByLabel("Who");
+  const requestPanel = await cardByHeading(page, "Need someone else’s details?");
+  const select = requestPanel.getByLabel("Who");
   await selectOptionContaining(select, ownerUserId);
-  await requestCard.getByLabel("Why").fill(purpose);
-  await requestCard.getByRole("button", { name: "Request details" }).click();
+  await requestPanel.getByLabel("Why").fill(purpose);
+  await requestPanel.getByRole("button", { name: "Request contact details" }).click();
   await waitForSuccessMessage(page, "Access request submitted.");
 }
 
@@ -429,11 +438,11 @@ async function grantConsentByUi(
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const grantCard = await cardByHeading(page, "Share contact details");
-  const select = grantCard.getByLabel("Pending request");
+  const grantPanel = await cardByHeading(page, "Requests waiting for you");
+  const select = grantPanel.getByLabel("Approve request from");
   await selectOptionContaining(select, requesterUserId);
-  await grantCard.getByLabel("Why").fill(purpose);
-  await grantCard.getByRole("button", { name: "Share details" }).click();
+  await grantPanel.getByLabel("Reason you are approving").fill(purpose);
+  await grantPanel.getByRole("button", { name: "Share selected details" }).click();
   await waitForSuccessMessage(page, "Contact details shared.");
 }
 
@@ -443,11 +452,11 @@ async function revokeConsentByUi(
   reason: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const revokeCard = await cardByHeading(page, "Stop sharing");
-  const select = revokeCard.getByLabel("Active sharing");
+  const revokePanel = await cardByHeading(page, "People seeing your details");
+  const select = revokePanel.getByLabel("Stop sharing with");
   await selectOptionContaining(select, granteeUserId);
-  await revokeCard.getByLabel("Reason").fill(reason);
-  await revokeCard.getByRole("button", { name: "Stop sharing" }).click();
+  await revokePanel.getByLabel("Reason for stopping").fill(reason);
+  await revokePanel.getByRole("button", { name: "Stop sharing details" }).click();
   await waitForSuccessMessage(page, "Contact sharing stopped.");
 }
 
@@ -457,19 +466,19 @@ async function assertConsentVisibility(
   expected: "allowed" | "denied"
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  const checkCard = await cardByHeading(page, "Check sharing status");
-  const select = checkCard.getByLabel("Who");
+  const checkPanel = await cardByHeading(page, "Check sharing status");
+  const select = checkPanel.getByLabel("Connected person");
   await selectOptionContaining(select, ownerUserId);
-  await checkCard.getByLabel("Contact detail").selectOption("phone");
-  await checkCard.getByRole("button", { name: "Check sharing" }).click();
+  await checkPanel.getByLabel("Contact detail").selectOption("phone");
+  await checkPanel.getByRole("button", { name: "Check sharing" }).click();
   await waitForSuccessMessage(page, "Sharing check completed.");
 
   if (expected === "allowed") {
-    await expect(page.getByText("Yes, this field is visible to you.").first()).toBeVisible();
+    await expect(page.getByText("This contact detail is available to you.").first()).toBeVisible();
     return;
   }
 
-  await expect(page.getByText("No, this field is hidden.").first()).toBeVisible();
+  await expect(page.getByText("This contact detail is hidden right now.").first()).toBeVisible();
 }
 
 async function openPostedJobDetail(page: Page, title: string): Promise<void> {
@@ -765,7 +774,6 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
   const shortId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const reviewNote = `Verification approved in E2E ${shortId}`;
   const submissionNote = `Verification submit note ${member.username}-${shortId}`;
-  const documentMediaId = "11111111-1111-4111-8111-111111111111";
 
   const memberPage = await browser.newPage();
   const adminPage = await browser.newPage();
@@ -782,7 +790,18 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
     const memberUserId = memberSession.userId;
 
     await clickMainNav(memberPage, "Verify");
-    await memberPage.getByLabel("Document media IDs").fill(documentMediaId);
+    await memberPage
+      .locator("input[type='file']")
+      .setInputFiles({
+        name: "verification-document.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=",
+          "base64"
+        )
+      });
+    await memberPage.getByRole("button", { name: "Upload Document" }).click();
+    await waitForSuccessMessage(memberPage, "Document uploaded privately for verification.");
     await memberPage
       .getByLabel("Notes for Reviewer (optional)")
       .fill(submissionNote);

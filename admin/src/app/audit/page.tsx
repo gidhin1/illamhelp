@@ -54,8 +54,13 @@ function AuditContent(): React.JSX.Element {
     },
     {
       id: "parties",
-      header: "Requester → Target",
-      cell: ({ row }) => `${row.original.requesterUserId} → ${row.original.ownerUserId}`
+      header: "People",
+      cell: ({ row }) => (
+        <div>
+          <div style={{ color: "var(--ink)", fontWeight: 600 }}>Requester: {row.original.requesterUserId}</div>
+          <div className="muted-text">Details owner: {row.original.ownerUserId}</div>
+        </div>
+      )
     },
     {
       accessorKey: "requestedFields",
@@ -82,8 +87,13 @@ function AuditContent(): React.JSX.Element {
     },
     {
       id: "parties",
-      header: "Owner → Grantee",
-      cell: ({ row }) => `${row.original.ownerUserId} → ${row.original.granteeUserId}`
+      header: "People",
+      cell: ({ row }) => (
+        <div>
+          <div style={{ color: "var(--ink)", fontWeight: 600 }}>Shared by: {row.original.ownerUserId}</div>
+          <div className="muted-text">Can view: {row.original.granteeUserId}</div>
+        </div>
+      )
     },
     {
       accessorKey: "grantedFields",
@@ -137,12 +147,12 @@ function AuditContent(): React.JSX.Element {
       <div style={{ padding: "var(--spacing-xl)" }} className="stack">
         <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
           <form className="grid" style={{ gridTemplateColumns: "1fr auto", alignItems: "end", gap: "10px" }} onSubmit={onSearch}>
-            <Field label="Lookup member timeline" hint="Search using a public member ID (e.g. member_abc123)">
+            <Field label="Member to investigate" hint="Use the public member ID shown in profile, consent, or verification records.">
               <TextInput
                 data-testid="timeline-member-id"
                 value={memberId}
                 onChange={(event) => setMemberId(event.target.value)}
-                placeholder="Enter member ID..."
+                placeholder="member_abc123"
                 required
                 style={{ fontSize: "1.1rem", padding: "12px 16px" }}
               />
@@ -159,13 +169,13 @@ function AuditContent(): React.JSX.Element {
         {!timeline && !loading ? (
           <EmptyState
             title="Investigate Activity"
-            body="Enter a member ID to review consent interactions, data grants, and related audit events."
+            body="Enter a member ID to review contact-sharing approvals, consent requests, and related account activity."
           />
         ) : null}
 
         {timeline && (
           <div className="stack" style={{ gap: "var(--spacing-2xl)", marginTop: "var(--spacing-lg)" }}>
-            <Card className="stack" data-testid="timeline-member-summary" style={{ borderLeft: "4px solid var(--brand)" }}>
+            <Card className="stack" data-testid="timeline-member-summary" style={{ borderColor: "color-mix(in srgb, var(--brand) 36%, var(--line))" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
                  <div className="stack" style={{ gap: "4px" }}>
                     <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.4rem" }}>{timeline.member.publicUserId}</h3>
@@ -189,12 +199,12 @@ function AuditContent(): React.JSX.Element {
               </Card>
 
               <Card className="stack" data-testid="timeline-consent-grants" style={{ overflow: "hidden" }}>
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Active & Historic Grants</h3>
-                <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Approvals mapping data visibility limits.</p>
+                <h3 style={{ fontFamily: "var(--font-display)" }}>Contact Sharing History</h3>
+                <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Approvals showing who could view contact details and when.</p>
                 {timeline.consentGrants.length === 0 ? (
-                  <EmptyState title="No consent grants" body="No grant history found." />
+                  <EmptyState title="No sharing approvals" body="No contact-sharing history found." />
                 ) : (
-                  <DataTable ariaLabel="Consent grants" columns={grantColumns} data={timeline.consentGrants} />
+                  <DataTable ariaLabel="Contact sharing approvals" columns={grantColumns} data={timeline.consentGrants} />
                 )}
               </Card>
             </div>

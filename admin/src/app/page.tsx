@@ -16,6 +16,15 @@ import {
   listModerationQueue
 } from "@/lib/api";
 
+function formatQueuedDate(value: string): string {
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
 function DashboardContent(): React.JSX.Element {
   const { accessToken } = useSession();
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
@@ -51,6 +60,11 @@ function DashboardContent(): React.JSX.Element {
     const approved = queue.filter((item) => item.status === "approved").length;
     return { pending, rejected, approved, total: queue.length };
   }, [queue]);
+  const pendingItems = useMemo(
+    () => queue.filter((item) => item.status === "pending").slice(0, 5),
+    [queue]
+  );
+  const nextItem = pendingItems[0] ?? null;
 
   return (
     <div className="stack" style={{ gap: 0 }}>
@@ -62,52 +76,89 @@ function DashboardContent(): React.JSX.Element {
         </div>
       </div>
 
-      <div style={{ padding: "var(--spacing-xl)" }}>
+      <div className="admin-workbench-shell">
         {error ? <Banner tone="error">{error}</Banner> : null}
 
         <div className="stack" style={{ gap: "var(--spacing-2xl)" }}>
-          {/* KPI Section */}
-          <div>
-            <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Content Review Summary</h3>
-            <div className="kpi-grid">
-              <div className="kpi">
-                <div className="kpi-label">Queue Size</div>
-                <div className="kpi-value">{kpis.total}</div>
+          <div className="admin-workbench-grid">
+            <Card className="stack admin-workbench-primary">
+              <div className="admin-workbench-header">
+                <div>
+                  <span className="pill">Next safe action</span>
+                  <h2>Review the oldest pending media first.</h2>
+                  <p className="muted-text">Work from the queue instead of chasing dashboard numbers.</p>
+                </div>
+                <Link className="button" href="/moderation">Open moderation queue</Link>
               </div>
-              <div className="kpi">
-                <div className="kpi-label">Pending Review</div>
-                <div className="kpi-value" style={{ color: kpis.pending > 0 ? "var(--warning-text)" : "var(--ink)" }}>{kpis.pending}</div>
+
+              {nextItem ? (
+                <div className="admin-next-review-card">
+                  <div>
+                    <div className="admin-next-title">{nextItem.kind} media awaiting review</div>
+                    <div className="muted-text">Purpose: {nextItem.purpose.replaceAll("_", " ")}</div>
+                    <div className="admin-review-id">Media ID: {nextItem.mediaId}</div>
+                  </div>
+                  <div className="admin-next-meta">
+                    <span className="pill">{nextItem.mediaState.replaceAll("_", " ")}</span>
+                    <span className="muted-text">Queued {formatQueuedDate(nextItem.moderationCreatedAt)}</span>
+                  </div>
+                </div>
+              ) : (
+                <EmptyState
+                  title="No pending media reviews"
+                  body="Automated checks will add uploads here when they need a staff decision."
+                />
+              )}
+            </Card>
+
+            <Card className="stack admin-workbench-side">
+              <h3>Queue health</h3>
+              <div className="admin-queue-health">
+                <div>
+                  <strong>{kpis.total}</strong>
+                  <span>Total items</span>
+                </div>
+                <div>
+                  <strong>{kpis.pending}</strong>
+                  <span>Pending</span>
+                </div>
+                <div>
+                  <strong>{kpis.approved}</strong>
+                  <span>Approved</span>
+                </div>
+                <div>
+                  <strong>{kpis.rejected}</strong>
+                  <span>Rejected</span>
+                </div>
               </div>
-              <div className="kpi">
-                <div className="kpi-label">Approved</div>
-                <div className="kpi-value" style={{ color: "var(--success-text)" }}>{kpis.approved}</div>
-              </div>
-               <div className="kpi">
-                <div className="kpi-label">Rejected</div>
-                <div className="kpi-value" style={{ color: "var(--danger)" }}>{kpis.rejected}</div>
-              </div>
-            </div>
+            </Card>
           </div>
 
           <div className="grid two" style={{ alignItems: "start" }} aria-label="Operations actions">
             <Card className="stack">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                 <div style={{ background: "var(--brand-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>1</div>
-                 <h3 style={{ fontFamily: "var(--font-display)" }}>Content decisions</h3>
+              <div>
+                 <h3 style={{ fontFamily: "var(--font-display)" }}>Pending review queue</h3>
+                 <p className="muted-text" style={{ fontSize: "0.95rem" }}>
+                   {kpis.pending > 0 ? `${kpis.pending} item${kpis.pending === 1 ? "" : "s"} need a human decision.` : "No human media decisions are waiting right now."}
+                 </p>
               </div>
-              <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                {kpis.pending > 0 ? `${kpis.pending} item${kpis.pending === 1 ? "" : "s"} awaiting a review decision.` : "There are no media decisions waiting right now."}
-              </p>
-              <Link href="/moderation" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Open queue</Link>
+              <div className="admin-pending-list">
+                {pendingItems.map((item) => (
+                  <div key={item.mediaId} className="admin-pending-item">
+                    <strong>{item.kind} · {item.purpose.replaceAll("_", " ")}</strong>
+                    <span className="muted-text">Queued {formatQueuedDate(item.moderationCreatedAt)}</span>
+                  </div>
+                ))}
+              </div>
+              <Link href="/moderation" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Review pending media</Link>
             </Card>
 
             <Card className="stack">
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                 <div style={{ background: "var(--brand-2)", width: 32, height: 32, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>2</div>
+              <div>
                  <h3 style={{ fontFamily: "var(--font-display)" }}>Consent and audit search</h3>
               </div>
               <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                Look up a member to review privacy access, grants, and recorded actions.
+                Look up a member to review privacy access, sharing approvals, and recorded actions.
               </p>
               <Link href="/audit" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Search timeline</Link>
             </Card>

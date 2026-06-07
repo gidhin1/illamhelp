@@ -16,8 +16,12 @@ import {
     TextInput
 } from "@/components/ui/primitives";
 import {
+    completeMediaUpload,
+    createMediaUploadTicket,
     formatDate,
     getMyVerification,
+    listVerificationDocumentsPage,
+    MediaAssetRecord,
     submitVerification,
     VerificationRecord
 } from "@/lib/api";
@@ -36,17 +40,23 @@ export default function VerificationPage(): JSX.Element {
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [uploading, setUploading] = useState(false);
 
     const [documentType, setDocumentType] = useState("government_id");
-    const [mediaIds, setMediaIds] = useState("");
+    const [documentFile, setDocumentFile] = useState<File | null>(null);
+    const [documentMedia, setDocumentMedia] = useState<MediaAssetRecord[]>([]);
     const [notes, setNotes] = useState("");
 
     const loadVerification = useCallback(async (): Promise<void> => {
         if (!accessToken) return;
         setLoading(true);
         try {
-            const result = await getMyVerification(accessToken);
+            const [result, documents] = await Promise.all([
+                getMyVerification(accessToken),
+                listVerificationDocumentsPage(accessToken)
+            ]);
             setVerification(result);
+            setDocumentMedia(documents.items);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to load verification status");
         } finally {
@@ -62,13 +72,12 @@ export default function VerificationPage(): JSX.Element {
         event.preventDefault();
         if (!accessToken) return;
 
-        const ids = mediaIds
-            .split(",")
-            .map((id) => id.trim())
-            .filter((id) => id.length > 0);
+        const ids = documentMedia
+            .filter((media) => media.purpose === "verification_document" && media.state !== "uploaded" && media.state !== "rejected")
+            .map((media) => media.id);
 
         if (ids.length === 0) {
-            setError("Please enter at least one document media ID.");
+            setError("Upload at least one verification document before submitting.");
             return;
         }
 
@@ -90,6 +99,43 @@ export default function VerificationPage(): JSX.Element {
             setError(err instanceof Error ? err.message : "Failed to submit verification request");
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    const onUploadDocument = async (): Promise<void> => {
+        if (!accessToken || !documentFile) return;
+        const contentType = documentFile.type.trim().toLowerCase() || "application/octet-stream";
+        const kind = contentType.startsWith("video/") ? "video" : "image";
+        setUploading(true);
+        setError(null);
+        setSuccess(null);
+        try {
+            const checksumSha256 = await sha256Hex(documentFile);
+            const ticket = await createMediaUploadTicket({
+                kind,
+                purpose: "verification_document",
+                contentType,
+                fileSizeBytes: documentFile.size,
+                checksumSha256,
+                originalFileName: documentFile.name
+            }, accessToken);
+            const uploadResponse = await fetch(ticket.uploadUrl, {
+                method: "PUT",
+                headers: ticket.requiredHeaders,
+                body: documentFile
+            });
+            if (!uploadResponse.ok) {
+                throw new Error(`Upload failed with status ${uploadResponse.status}`);
+            }
+            const etag = uploadResponse.headers.get("etag")?.replaceAll('"', "");
+            const completed = await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
+            setDocumentMedia((previous) => [completed, ...previous.filter((item) => item.id !== completed.id)]);
+            setDocumentFile(null);
+            setSuccess("Document uploaded privately for verification.");
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to upload document");
+        } finally {
+            setUploading(false);
         }
     };
 
@@ -146,7 +192,7 @@ export default function VerificationPage(): JSX.Element {
                                             {verification?.status === "rejected" ? "Submit a new request" : "Start your verification"}
                                         </h3>
                                         <p className="muted-text">
-                                            Upload your ID documents via your Profile page first, then paste the resulting Media IDs below to link them to this request.
+                                            Upload ID documents here. These files are private and only visible to you and verification reviewers.
                                         </p>
                                     </div>
 
@@ -172,17 +218,26 @@ export default function VerificationPage(): JSX.Element {
                                                 <option value="utility_bill">Utility Bill (Address proof)</option>
                                             </select>
                                         </Field>
-                                        <Field
-                                            label="Document Media IDs"
-                                            hint="Paste the media IDs of your uploaded documents from the Profile tab, separated by commas."
-                                        >
-                                            <TextInput
-                                                value={mediaIds}
-                                                onChange={(e) => setMediaIds(e.target.value)}
-                                                placeholder="e.g. 550e8400-e29b-41d4..."
-                                                required
+                                        <Field label="Private document upload" hint="Images and videos are supported for ID, certificates, licenses, and address proof.">
+                                            <input
+                                                type="file"
+                                                accept="image/*,video/*"
+                                                aria-label="Choose private verification document"
+                                                onChange={(event) => setDocumentFile(event.target.files?.[0] ?? null)}
                                             />
                                         </Field>
+                                        <Button type="button" variant="secondary" disabled={!documentFile || uploading} onClick={() => void onUploadDocument()}>
+                                            {uploading ? "Uploading..." : "Upload Document"}
+                                        </Button>
+                                        {documentMedia.length > 0 ? (
+                                            <div className="stack" style={{ gap: "var(--spacing-xs)" }}>
+                                                {documentMedia.map((media) => (
+                                                    <div key={media.id} className="muted-text" style={{ fontSize: "0.9rem" }}>
+                                                        {media.kind} · {media.state} · {media.id}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : null}
                                         <Field label="Notes for Reviewer (optional)" hint="Provide any context that will help us verify you faster.">
                                             <TextInput
                                                 value={notes}
@@ -204,4 +259,12 @@ export default function VerificationPage(): JSX.Element {
             </section>
         </PageShell>
     );
+}
+
+async function sha256Hex(file: File): Promise<string> {
+    const buffer = await file.arrayBuffer();
+    const digest = await crypto.subtle.digest("SHA-256", buffer);
+    return Array.from(new Uint8Array(digest))
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
 }

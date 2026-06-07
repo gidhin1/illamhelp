@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
+import {
+  approvedMedia,
+  MediaUploadPanel,
+  pendingReviewMedia
+} from "@/components/media/MediaUploadPanel";
+import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
+import { PersonSummary } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
 import {
@@ -13,15 +20,20 @@ import {
   cancelBooking,
   closeBooking,
   completeBooking,
+  completeMediaUpload,
+  createMediaUploadTicket,
   formatDate,
   getProfileByUserId,
   JobApplicationRecord,
   JobRecord,
   listJobApplications,
+  listJobMediaPage,
   listJobs,
   markPaymentDone,
   markPaymentReceived,
+  MediaKind,
   ProfileRecord,
+  PublicMediaAssetRecord,
   rejectJobApplication,
   revokeJobAssignment,
   startBooking,
@@ -42,6 +54,21 @@ function isPendingApplication(status: JobApplicationRecord["status"]): boolean {
   return status === "applied" || status === "shortlisted";
 }
 
+function inferMediaKind(contentType: string): MediaKind | null {
+  if (contentType.startsWith("image/")) return "image";
+  if (contentType.startsWith("video/")) return "video";
+  return null;
+}
+
+async function sha256Hex(file: File): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Browser does not support file checksums.");
+  }
+  const buffer = await file.arrayBuffer();
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(digest)).map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
 export default function JobDetailPage(): JSX.Element {
   const { accessToken, user } = useSession();
   const params = useParams<{ id: string }>();
@@ -49,6 +76,8 @@ export default function JobDetailPage(): JSX.Element {
 
   const [job, setJob] = useState<JobRecord | null>(null);
   const [applications, setApplications] = useState<JobApplicationRecord[]>([]);
+  const [jobMedia, setJobMedia] = useState<PublicMediaAssetRecord[]>([]);
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
   const [selectedApplicantProfile, setSelectedApplicantProfile] = useState<ProfileRecord | null>(
     null
   );
@@ -62,6 +91,11 @@ export default function JobDetailPage(): JSX.Element {
   const [decisionReason, setDecisionReason] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaMessage, setMediaMessage] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadJobContext = useCallback(async (): Promise<void> => {
     if (!accessToken || !jobId) {
@@ -81,6 +115,12 @@ export default function JobDetailPage(): JSX.Element {
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
         )
       );
+      if (foundJob) {
+        const mediaPage = await listJobMediaPage(foundJob.id, accessToken).catch(() => ({ items: [], nextCursor: null }));
+        setJobMedia(mediaPage.items.filter((asset) => asset.purpose === "job"));
+      } else {
+        setJobMedia([]);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load job");
     } finally {
@@ -91,6 +131,42 @@ export default function JobDetailPage(): JSX.Element {
   useEffect(() => {
     void loadJobContext();
   }, [loadJobContext]);
+
+  useEffect(() => {
+    if (!accessToken || !job) return;
+    const ids = Array.from(
+      new Set(
+        [
+          job.seekerUserId,
+          job.assignedProviderUserId,
+          ...applications.map((application) => application.providerUserId)
+        ].filter((userId): userId is string => Boolean(userId))
+      )
+    ).filter((userId) => !profilesByUserId[userId]);
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        ids.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, applications, job, profilesByUserId]);
 
   const isOwner = useMemo(() => {
     if (!job || !user?.publicUserId) {
@@ -207,7 +283,7 @@ export default function JobDetailPage(): JSX.Element {
     await runAction(`profile-${providerUserId}`, async () => {
       const profile = await getProfileByUserId(providerUserId, accessToken);
       setSelectedApplicantProfile(profile);
-      setActionSuccess(`Loaded profile for ${providerUserId}.`);
+      setActionSuccess(`Loaded profile for ${profile.displayName}.`);
     });
   };
 
@@ -222,6 +298,68 @@ export default function JobDetailPage(): JSX.Element {
       await loadJobContext();
       setActionSuccess(successMessage);
     });
+  };
+
+  const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    setUploadFile(event.target.files?.[0] ?? null);
+    setMediaMessage(null);
+    setMediaError(null);
+  };
+
+  const clearUploadFile = (): void => {
+    setUploadFile(null);
+    setMediaMessage(null);
+    setMediaError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const onUploadJobMedia = async (): Promise<void> => {
+    if (!accessToken || !job || !uploadFile) {
+      setMediaError("Choose a job photo or video first.");
+      return;
+    }
+    const contentType = uploadFile.type.trim().toLowerCase();
+    const kind = inferMediaKind(contentType);
+    if (!kind) {
+      setMediaError("Only job photos and videos are supported.");
+      return;
+    }
+
+    setUploadingMedia(true);
+    setMediaError(null);
+    setMediaMessage(null);
+    try {
+      const checksumSha256 = await sha256Hex(uploadFile);
+      const ticket = await createMediaUploadTicket(
+        {
+          kind,
+          purpose: "job",
+          jobId: job.id,
+          contentType,
+          fileSizeBytes: uploadFile.size,
+          checksumSha256,
+          originalFileName: uploadFile.name
+        },
+        accessToken
+      );
+      const uploadResponse = await fetch(ticket.uploadUrl, {
+        method: "PUT",
+        headers: ticket.requiredHeaders,
+        body: uploadFile
+      });
+      if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      const etag = uploadResponse.headers.get("etag")?.replaceAll('"', "");
+      await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
+      const mediaPage = await listJobMediaPage(job.id, accessToken);
+      setJobMedia(mediaPage.items.filter((asset) => asset.purpose === "job"));
+      setUploadFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      setMediaMessage("Job media uploaded. It will appear after review.");
+    } catch (requestError) {
+      setMediaError(requestError instanceof Error ? requestError.message : "Unable to upload job media");
+    } finally {
+      setUploadingMedia(false);
+    }
   };
 
   return (
@@ -262,9 +400,21 @@ export default function JobDetailPage(): JSX.Element {
                     <div className="data-meta">
                       Visibility: {job.visibility === "connections_only" ? "Connections only" : "Public"}
                     </div>
-                    <div className="data-meta">Posted by: {job.seekerUserId}</div>
-                    <div className="data-meta">
-                      Assigned provider: {job.assignedProviderUserId ?? "Not assigned"}
+                    <div className="data-row">
+                      <div className="data-title">Posted by</div>
+                      <PersonSummary userId={job.seekerUserId} profile={profilesByUserId[job.seekerUserId]} compact />
+                    </div>
+                    <div className="data-row">
+                      <div className="data-title">Assigned provider</div>
+                      {job.assignedProviderUserId ? (
+                        <PersonSummary
+                          userId={job.assignedProviderUserId}
+                          profile={profilesByUserId[job.assignedProviderUserId]}
+                          compact
+                        />
+                      ) : (
+                        <div className="data-meta">No provider assigned yet</div>
+                      )}
                     </div>
                     <div className="field-hint">Created: {formatDate(job.createdAt)}</div>
                     <div className="field-hint">Updated: {formatDate(job.updatedAt)}</div>
@@ -272,6 +422,11 @@ export default function JobDetailPage(): JSX.Element {
                       <div className="data-title">Description</div>
                       <div className="data-meta">{job.description}</div>
                     </div>
+                    <MediaPreviewGrid
+                      items={approvedMedia(jobMedia)}
+                      emptyText="No approved job photos or videos yet."
+                      testId="job-detail-media-grid"
+                    />
                   </Card>
 
                   <div className="stack">
@@ -458,6 +613,26 @@ export default function JobDetailPage(): JSX.Element {
                         ) : null}
                       </Card>
                     )}
+                    {isOwner ? (
+                      <Card className="stack">
+                        <MediaUploadPanel
+                          title="Job photos and videos"
+                          description="Add context for the work. Approved media follows this job's visibility rules."
+                          pickerLabel="Add job media"
+                          uploadLabel="Upload job media"
+                          selectedFile={uploadFile}
+                          inputRef={fileInputRef}
+                          pendingItems={pendingReviewMedia(jobMedia)}
+                          error={mediaError}
+                          success={mediaMessage}
+                          uploading={uploadingMedia}
+                          testId="job-media-upload"
+                          onFileChange={onFileChange}
+                          onClearFile={clearUploadFile}
+                          onUpload={() => void onUploadJobMedia()}
+                        />
+                      </Card>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -475,7 +650,11 @@ export default function JobDetailPage(): JSX.Element {
                       {applications.map((application) => (
                         <Card key={application.id} className="stack">
                           <StatusLabel tone="info">{application.status.replaceAll("_", " ")}</StatusLabel>
-                          <div className="data-title">{application.providerUserId}</div>
+                          <PersonSummary
+                            userId={application.providerUserId}
+                            profile={profilesByUserId[application.providerUserId]}
+                            compact
+                          />
                           <div className="data-meta">
                             Applied: {formatDate(application.createdAt)}
                           </div>
@@ -528,8 +707,7 @@ export default function JobDetailPage(): JSX.Element {
               {selectedApplicantProfile ? (
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Applicant profile preview</h3>
-                  <div className="data-title">{selectedApplicantProfile.displayName}</div>
-                  <div className="data-meta">Member ID: {selectedApplicantProfile.userId}</div>
+                  <PersonSummary userId={selectedApplicantProfile.userId} profile={selectedApplicantProfile} />
                   <div className="data-meta">
                     Location:{" "}
                     {[selectedApplicantProfile.city, selectedApplicantProfile.area]

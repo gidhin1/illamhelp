@@ -55,7 +55,10 @@ public class MediaModerationService {
     ModerationMedia media = new ModerationMedia(
         MediaService.string(found, "id"),
         MediaService.string(found, "ownerUserId"),
+        MediaService.string(found, "profileUserId"),
+        MediaService.string(found, "jobId"),
         MediaService.string(found, "kind"),
+        MediaService.string(found, "purpose"),
         MediaService.string(found, "bucketName"),
         MediaService.string(found, "objectKey"),
         MediaService.string(found, "contentType"),
@@ -151,6 +154,7 @@ public class MediaModerationService {
         MediaService.string(row, "mediaState"),
         MediaService.string(row, "ownerUserId"),
         MediaService.string(row, "kind"),
+        MediaService.string(row, "purpose"),
         MediaService.string(row, "contentType"),
         MediaService.longValue(row, "fileSizeBytes"));
   }
@@ -189,15 +193,16 @@ public class MediaModerationService {
 
   public record ModerationQueueItem(String moderationJobId, String mediaId, String stage, String status,
       String reasonCode, String moderationCreatedAt, String mediaState, String ownerUserId, String kind,
-      String contentType, Long fileSizeBytes) {
+      String purpose, String contentType, Long fileSizeBytes) {
   }
 
   public record ModerationDetails(ModerationMedia media, List<ModerationJob> moderationJobs) {
   }
 
-  public record ModerationMedia(String id, String ownerUserId, String kind, String bucketName, String objectKey,
-      String contentType, Long fileSizeBytes, String checksumSha256, String state, Object moderationReasonCodes,
-      Object aiScores, String createdAt, String updatedAt, String previewUrl, String previewUrlExpiresAt) {
+  public record ModerationMedia(String id, String ownerUserId, String profileUserId, String jobId, String kind,
+      String purpose, String bucketName, String objectKey, String contentType, Long fileSizeBytes,
+      String checksumSha256, String state, Object moderationReasonCodes, Object aiScores, String createdAt,
+      String updatedAt, String previewUrl, String previewUrlExpiresAt) {
   }
 
   public record ModerationJob(String id, String mediaAssetId, String stage, String status,

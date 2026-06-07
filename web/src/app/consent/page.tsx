@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 
 import { PageShell } from "@/components/PageShell";
+import { PersonSummary, personLabel } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
 import { DataTable } from "@/components/ui/DataTable";
@@ -27,10 +28,12 @@ import {
   ConsentField,
   ConsentGrantRecord,
   formatDate,
+  getProfileByUserId,
   grantConsent,
   listConnections,
   listConsentGrantsPage,
   listConsentRequestsPage,
+  ProfileRecord,
   requestConsentAccess,
   revokeConsent
 } from "@/lib/api";
@@ -60,6 +63,7 @@ export default function ConsentPage(): JSX.Element {
   const [requestsCursor, setRequestsCursor] = useState<string | null>(null);
   const [grantsCursor, setGrantsCursor] = useState<string | null>(null);
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
@@ -124,17 +128,6 @@ export default function ConsentPage(): JSX.Element {
     void loadConsentData();
   }, [loadConsentData]);
 
-  const stats = useMemo(() => {
-    const active = grants.filter((grant) => grant.status === "active").length;
-    const pending = requests.filter((request) => request.status === "pending").length;
-    return {
-      requests: requests.length,
-      grants: grants.length,
-      active,
-      pending
-    };
-  }, [grants, requests]);
-
   const currentUserId = user?.publicUserId ?? null;
   const acceptedConnections = useMemo(
     () => connections.filter((connection) => connection.status === "accepted"),
@@ -151,6 +144,52 @@ export default function ConsentPage(): JSX.Element {
     [acceptedConnections, currentUserId]
   );
 
+  useEffect(() => {
+    if (!accessToken) return;
+    const ids = Array.from(
+      new Set([
+        ...connectionPeople.map((connection) => connection.memberId),
+        ...requests.flatMap((request) => [request.requesterUserId, request.ownerUserId]),
+        ...grants.flatMap((grant) => [grant.ownerUserId, grant.granteeUserId])
+      ])
+    ).filter((userId) => userId && !profilesByUserId[userId]);
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        ids.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, connectionPeople, grants, profilesByUserId, requests]);
+
+  const memberOptionLabel = useCallback(
+    (userId: string): string => {
+      const profile = profilesByUserId[userId];
+      if (!profile) return `IllamHelp member (${userId})`;
+      const location = profile ? [profile.city, profile.area].filter(Boolean).join(", ") : "";
+      const context = [location, profile?.serviceCategories.slice(0, 1).join(", ")].filter(Boolean).join(" · ");
+      return context ? `${personLabel(profile)} (${context})` : personLabel(profile);
+    },
+    [profilesByUserId]
+  );
+
   const pendingIncomingRequests = useMemo(
     () => requests.filter((request) => request.status === "pending" && request.ownerUserId === currentUserId),
     [requests, currentUserId]
@@ -160,6 +199,22 @@ export default function ConsentPage(): JSX.Element {
     () => grants.filter((grant) => grant.status === "active" && grant.ownerUserId === currentUserId),
     [grants, currentUserId]
   );
+  const activeSharedWithMe = useMemo(
+    () => grants.filter((grant) => grant.status === "active" && grant.granteeUserId === currentUserId),
+    [grants, currentUserId]
+  );
+  const selectedRevokeGrant = useMemo(
+    () => activeOwnedGrants.find((grant) => grant.id === revokeGrantId) ?? null,
+    [activeOwnedGrants, revokeGrantId]
+  );
+  const selectedGrantRequest = useMemo(
+    () => pendingIncomingRequests.find((request) => request.id === grantRequestId) ?? null,
+    [pendingIncomingRequests, grantRequestId]
+  );
+
+  function fieldList(fields: ConsentField[]): string {
+    return fields.map((field) => CONSENT_FIELD_LABELS[field]).join(", ");
+  }
 
   const withSubmission = async (action: () => Promise<void>): Promise<void> => {
     setSubmitting(true);
@@ -266,7 +321,13 @@ export default function ConsentPage(): JSX.Element {
     {
       id: "parties",
       header: "People",
-      cell: ({ row }) => `${row.original.requesterUserId} requested details from ${row.original.ownerUserId}`,
+      cell: ({ row }) => (
+        <div className="stack" style={{ gap: "8px" }}>
+          <PersonSummary userId={row.original.requesterUserId} profile={profilesByUserId[row.original.requesterUserId]} compact />
+          <span className="muted-text">asked to view details from</span>
+          <PersonSummary userId={row.original.ownerUserId} profile={profilesByUserId[row.original.ownerUserId]} compact />
+        </div>
+      ),
     },
     {
       id: "fields",
@@ -293,7 +354,13 @@ export default function ConsentPage(): JSX.Element {
     {
       id: "parties",
       header: "People",
-      cell: ({ row }) => `${row.original.granteeUserId} (has access) ← ${row.original.ownerUserId}`,
+      cell: ({ row }) => (
+        <div className="stack" style={{ gap: "8px" }}>
+          <PersonSummary userId={row.original.granteeUserId} profile={profilesByUserId[row.original.granteeUserId]} compact />
+          <span className="muted-text">can view details shared by</span>
+          <PersonSummary userId={row.original.ownerUserId} profile={profilesByUserId[row.original.ownerUserId]} compact />
+        </div>
+      ),
     },
     {
       id: "fields",
@@ -326,33 +393,165 @@ export default function ConsentPage(): JSX.Element {
           />
           <RequireSession>
             <div className="stack">
-              <div className="kpi-grid">
-                <div className="kpi">
-                  <div className="kpi-label">Requests</div>
-                  <div className="kpi-value">{stats.requests}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Pending requests</div>
-                  <div className="kpi-value">{stats.pending}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Active sharing</div>
-                  <div className="kpi-value">{stats.active}</div>
-                </div>
-              </div>
-
               {actionError ? <Banner tone="error">{actionError}</Banner> : null}
               {actionSuccess ? <Banner tone="success">{actionSuccess}</Banner> : null}
 
-              <div className="grid two" style={{ alignItems: "start" }}>
-                <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Request contact details</h3>
+              <div className="privacy-wallet-summary" aria-label="Contact sharing summary">
+                <div>
+                  <span className="pill">Privacy state</span>
+                  <h2>Start with who can see your details.</h2>
+                  <p className="muted-text">
+                    Active sharing is listed first so you can stop access before making new requests.
+                  </p>
+                </div>
+                <div className="privacy-wallet-counts">
+                  <div>
+                    <strong>{activeOwnedGrants.length}</strong>
+                    <span>people can see your details</span>
+                  </div>
+                  <div>
+                    <strong>{pendingIncomingRequests.length}</strong>
+                    <span>requests need your answer</span>
+                  </div>
+                  <div>
+                    <strong>{activeSharedWithMe.length}</strong>
+                    <span>people shared with you</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="privacy-wallet-layout">
+                <Card className="stack privacy-wallet-panel">
+                  <div className="privacy-panel-header">
+                    <div>
+                      <h3>People seeing your details</h3>
+                      <p className="muted-text">Stop sharing as soon as the visit or job is complete.</p>
+                    </div>
+                    <StatusLabel tone={activeOwnedGrants.length > 0 ? "warning" : "success"}>
+                      {activeOwnedGrants.length > 0 ? "Active sharing" : "Private"}
+                    </StatusLabel>
+                  </div>
+
+                  {activeOwnedGrants.length === 0 ? (
+                    <EmptyState title="No one can see your contact details" body="When you approve a request, that person will appear here with the exact details they can view." />
+                  ) : (
+                    <div className="privacy-person-list" aria-label="Active contact sharing">
+                      {activeOwnedGrants.map((grant) => (
+                        <button
+                          key={grant.id}
+                          type="button"
+                          className={`privacy-person-card ${revokeGrantId === grant.id ? "selected" : ""}`}
+                          onClick={() => setRevokeGrantId(grant.id)}
+                          aria-pressed={revokeGrantId === grant.id}
+                        >
+                          <PersonSummary userId={grant.granteeUserId} profile={profilesByUserId[grant.granteeUserId]} compact />
+                          <span className="privacy-card-detail">Can see: {fieldList(grant.grantedFields)}</span>
+                          <span className="privacy-card-detail">Shared {formatDate(grant.grantedAt).split(",")[0]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <form className="stack privacy-action-form" onSubmit={onRevoke}>
+                    <Field label="Stop sharing with" hint={selectedRevokeGrant ? `Selected: ${personLabel(profilesByUserId[selectedRevokeGrant.granteeUserId])}` : "Choose an active share above or from this list."}>
+                      <SelectInput value={revokeGrantId} onChange={(e) => setRevokeGrantId(e.target.value)} required>
+                        <option value="">Select active sharing...</option>
+                        {activeOwnedGrants.map((grant) => (
+                          <option key={grant.id} value={grant.id}>{memberOptionLabel(grant.granteeUserId)} - {fieldList(grant.grantedFields)}</option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+                    <Field label="Reason for stopping" hint="This is saved for your privacy history.">
+                      <TextInput value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} placeholder="Service completed" required minLength={3} />
+                    </Field>
+                    <Button type="submit" variant="secondary" disabled={submitting || revokeGrantId.length === 0}>
+                      {submitting ? "Stopping sharing..." : "Stop sharing details"}
+                    </Button>
+                  </form>
+                </Card>
+
+                <Card className="stack privacy-wallet-panel">
+                  <div className="privacy-panel-header">
+                    <div>
+                      <h3>Requests waiting for you</h3>
+                      <p className="muted-text">Approve only the details needed for the visit or job.</p>
+                    </div>
+                    <StatusLabel tone={pendingIncomingRequests.length > 0 ? "warning" : "success"}>
+                      {pendingIncomingRequests.length} pending
+                    </StatusLabel>
+                  </div>
+
+                  {pendingIncomingRequests.length === 0 ? (
+                    <EmptyState title="No pending requests" body="When a connected person asks for contact details, you can approve or ignore it here." />
+                  ) : (
+                    <div className="privacy-person-list" aria-label="Pending contact detail requests">
+                      {pendingIncomingRequests.map((request) => (
+                        <button
+                          key={request.id}
+                          type="button"
+                          className={`privacy-person-card ${grantRequestId === request.id ? "selected" : ""}`}
+                          onClick={() => {
+                            setGrantRequestId(request.id);
+                            setGrantFields(request.requestedFields);
+                            setGrantPurpose(request.purpose);
+                          }}
+                          aria-pressed={grantRequestId === request.id}
+                        >
+                          <PersonSummary userId={request.requesterUserId} profile={profilesByUserId[request.requesterUserId]} compact />
+                          <span className="privacy-card-detail">Asking for: {fieldList(request.requestedFields)}</span>
+                          <span className="privacy-card-detail">Reason: {request.purpose}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  <form className="stack privacy-action-form" onSubmit={onGrant}>
+                    <Field label="Approve request from" hint={selectedGrantRequest ? `Selected: ${personLabel(profilesByUserId[selectedGrantRequest.requesterUserId])}` : "Choose a pending request above or from this list."}>
+                      <SelectInput value={grantRequestId} onChange={(e) => setGrantRequestId(e.target.value)} required>
+                        <option value="">Select request...</option>
+                        {pendingIncomingRequests.map((req) => (
+                          <option key={req.id} value={req.id}>{memberOptionLabel(req.requesterUserId)} - {fieldList(req.requestedFields)}</option>
+                        ))}
+                      </SelectInput>
+                    </Field>
+                    <Field label="Reason you are approving" hint="Keep this specific enough to remember why access was allowed.">
+                      <TextInput value={grantPurpose} onChange={(e) => setGrantPurpose(e.target.value)} placeholder="Approved for one-time visit coordination" required />
+                    </Field>
+                    <Field label="Access ends after (optional)" hint="Leave blank for no expiry, or choose a date and time.">
+                      <TextInput type="datetime-local" value={grantExpiresAt} onChange={(e) => setGrantExpiresAt(e.target.value)} />
+                    </Field>
+                    <fieldset className="check-fieldset">
+                      <legend className="field-label">Details to share</legend>
+                      <span className="field-hint">Only approve what this person needs.</span>
+                      <div className="check-grid privacy-check-grid">
+                        {CONSENT_FIELDS.map((field) => (
+                          <label key={field} className="privacy-check-option">
+                            <input type="checkbox" checked={grantFields.includes(field)} onChange={() => setGrantFields((prev) => toggleFieldSelection(prev, field))} />
+                            <span>{CONSENT_FIELD_LABELS[field]}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <Button type="submit" disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}>
+                      {submitting ? "Sharing details..." : "Share selected details"}
+                    </Button>
+                  </form>
+                </Card>
+              </div>
+
+              <Card className="stack privacy-next-action">
+                <div>
+                  <span className="pill">Next safe action</span>
+                  <h3>Need someone else’s details?</h3>
+                  <p className="muted-text">Ask a connected person for only the contact details needed for the job or visit.</p>
+                </div>
+                <div className="privacy-request-grid">
                   <form className="stack" onSubmit={onRequestAccess}>
                     <Field label="Who" hint="Select the person whose details you need">
                       <SelectInput value={requestConnectionId} onChange={(e) => setRequestConnectionId(e.target.value)} required>
                         <option value="">Select connected person...</option>
                         {connectionPeople.map((item) => (
-                          <option key={item.connectionId} value={item.connectionId}>{item.memberId}</option>
+                          <option key={item.connectionId} value={item.connectionId}>{memberOptionLabel(item.memberId)}</option>
                         ))}
                       </SelectInput>
                     </Field>
@@ -360,95 +559,38 @@ export default function ConsentPage(): JSX.Element {
                       <TextInput value={requestPurpose} onChange={(e) => setRequestPurpose(e.target.value)} placeholder="Need address to arrive" required minLength={3} />
                     </Field>
                     <fieldset className="check-fieldset">
-                      <legend className="field-label">What</legend>
+                      <legend className="field-label">Details to request</legend>
                       <span className="field-hint">Details you need for the job or visit</span>
-                      <div className="check-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "5px" }}>
+                      <div className="check-grid privacy-check-grid">
                         {CONSENT_FIELDS.map((field) => (
-                          <label key={field} style={{ display: "flex", gap: "5px", alignItems: "center" }}>
+                          <label key={field} className="privacy-check-option">
                             <input type="checkbox" checked={requestFields.includes(field)} onChange={() => setRequestFields((prev) => toggleFieldSelection(prev, field))} />
-                            <span style={{ fontSize: "0.9rem" }}>{CONSENT_FIELD_LABELS[field]}</span>
+                            <span>{CONSENT_FIELD_LABELS[field]}</span>
                           </label>
                         ))}
                       </div>
                     </fieldset>
-                    <div style={{ marginTop: "10px" }}>
-                      <Button type="submit" disabled={submitting || requestFields.length === 0 || requestConnectionId.length === 0}>
-                        {submitting ? "Sending request..." : "Request details"}
-                      </Button>
-                    </div>
+                    <Button type="submit" disabled={submitting || requestFields.length === 0 || requestConnectionId.length === 0}>
+                      {submitting ? "Sending request..." : "Request contact details"}
+                    </Button>
                   </form>
-                </Card>
+                  <div className="privacy-helper-panel">
+                    <strong>Before you request</strong>
+                    <span>Choose the smallest set of details needed. The other person can approve, ignore, or stop sharing later.</span>
+                  </div>
+                </div>
+              </Card>
 
-                <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Share contact details</h3>
-                  <form className="stack" onSubmit={onGrant}>
-                    <Field label="Pending request" hint="Select an incoming request to approve">
-                      <SelectInput value={grantRequestId} onChange={(e) => setGrantRequestId(e.target.value)} required>
-                        <option value="">Select request...</option>
-                        {pendingIncomingRequests.map((req) => (
-                          <option key={req.id} value={req.id}>{req.requesterUserId} - {req.requestedFields.join(", ")}</option>
-                        ))}
-                      </SelectInput>
-                    </Field>
-                    <Field label="Why" hint="Reason for sharing">
-                      <TextInput value={grantPurpose} onChange={(e) => setGrantPurpose(e.target.value)} placeholder="Approved for visit" required />
-                    </Field>
-                    <Field label="Expires On (optional)">
-                      <TextInput type="datetime-local" value={grantExpiresAt} onChange={(e) => setGrantExpiresAt(e.target.value)} />
-                    </Field>
-                    <fieldset className="check-fieldset">
-                      <legend className="field-label">What</legend>
-                      <span className="field-hint">The exact fields you are sharing</span>
-                      <div className="check-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "5px" }}>
-                        {CONSENT_FIELDS.map((field) => (
-                          <label key={field} style={{ display: "flex", gap: "5px", alignItems: "center" }}>
-                            <input type="checkbox" checked={grantFields.includes(field)} onChange={() => setGrantFields((prev) => toggleFieldSelection(prev, field))} />
-                            <span style={{ fontSize: "0.9rem" }}>{CONSENT_FIELD_LABELS[field]}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </fieldset>
-                    <div style={{ marginTop: "10px" }}>
-                      <Button type="submit" disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}>
-                        {submitting ? "Sharing details..." : "Share details"}
-                      </Button>
-                    </div>
-                  </form>
-                </Card>
-              </div>
-
-              <div className="grid two" style={{ alignItems: "start" }}>
-                <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
-                  <h3 style={{ fontFamily: "var(--font-display)", color: "var(--error-text)" }}>Stop sharing</h3>
-                  <p className="muted-text" style={{ fontSize: "0.9rem" }}>Immediately stop sharing contact details you approved earlier.</p>
-                  <form className="stack" onSubmit={onRevoke}>
-                    <Field label="Active sharing">
-                      <SelectInput value={revokeGrantId} onChange={(e) => setRevokeGrantId(e.target.value)} required>
-                        <option value="">Select active sharing...</option>
-                        {activeOwnedGrants.map((grant) => (
-                          <option key={grant.id} value={grant.id}>{grant.granteeUserId} - {grant.grantedFields.join(", ")}</option>
-                        ))}
-                      </SelectInput>
-                    </Field>
-                    <Field label="Reason">
-                      <TextInput value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} placeholder="Service completed" required minLength={3} />
-                    </Field>
-                    <div style={{ marginTop: "10px" }}>
-                      <Button type="submit" variant="secondary" disabled={submitting || revokeGrantId.length === 0}>
-                        {submitting ? "Stopping sharing..." : "Stop sharing"}
-                      </Button>
-                    </div>
-                  </form>
-                </Card>
-
-                <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
+              <div className="grid two privacy-secondary-grid" style={{ alignItems: "start" }}>
+                <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Check sharing status</h3>
+                  <p className="muted-text" style={{ fontSize: "0.9rem" }}>Confirm whether a connected person has shared a specific contact detail with you.</p>
                   <form className="stack" onSubmit={onCanView}>
-                    <Field label="Who">
+                    <Field label="Connected person">
                       <SelectInput value={checkConnectionId} onChange={(e) => setCheckConnectionId(e.target.value)} required>
                         <option value="">Select connection...</option>
                         {connectionPeople.map((item) => (
-                          <option key={item.connectionId} value={item.connectionId}>{item.memberId}</option>
+                          <option key={item.connectionId} value={item.connectionId}>{memberOptionLabel(item.memberId)}</option>
                         ))}
                       </SelectInput>
                     </Field>
@@ -457,25 +599,37 @@ export default function ConsentPage(): JSX.Element {
                         {CONSENT_FIELDS.map((field) => <option key={field} value={field}>{CONSENT_FIELD_LABELS[field]}</option>)}
                       </SelectInput>
                     </Field>
-                    <div style={{ marginTop: "10px" }}>
-                      <Button type="submit" variant="ghost" disabled={submitting || checkConnectionId.length === 0}>
-                        {submitting ? "Checking sharing..." : "Check sharing"}
-                      </Button>
-                    </div>
+                    <Button type="submit" variant="ghost" disabled={submitting || checkConnectionId.length === 0}>
+                      {submitting ? "Checking sharing..." : "Check sharing"}
+                    </Button>
                     {checkResult !== null && (
-                      <div style={{ marginTop: "10px" }}>
-                        <Banner tone={checkResult ? "success" : "info"}>
-                          {checkResult ? "Yes, this field is visible to you." : "No, this field is hidden."}
-                        </Banner>
-                      </div>
+                      <Banner tone={checkResult ? "success" : "info"}>
+                        {checkResult ? "This contact detail is available to you." : "This contact detail is hidden right now."}
+                      </Banner>
                     )}
                   </form>
+                </Card>
+
+                <Card className="stack">
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>People who shared with you</h3>
+                  {activeSharedWithMe.length === 0 ? (
+                    <EmptyState title="No details shared with you" body="When someone approves your request, their shared details appear in your job or contact flow." />
+                  ) : (
+                    <div className="privacy-person-list">
+                      {activeSharedWithMe.map((grant) => (
+                        <div key={grant.id} className="privacy-person-card readonly">
+                          <PersonSummary userId={grant.ownerUserId} profile={profilesByUserId[grant.ownerUserId]} compact />
+                          <span className="privacy-card-detail">Shared with you: {fieldList(grant.grantedFields)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </Card>
               </div>
 
               <div className="stack" style={{ gap: "var(--spacing-3xl)", marginTop: "var(--spacing-xl)" }}>
                 <div>
-                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Detail requests</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Request history</h3>
                   {listError ? <Banner tone="error">{listError}</Banner> : null}
                   {listLoading ? (
                     <Skeleton lines={3} />

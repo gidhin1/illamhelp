@@ -43,6 +43,10 @@ public class VerificationService {
     }
 
     String[] mediaIds = body.documentMediaIds().stream().map(String::valueOf).toArray(String[]::new);
+    if (verificationRequestRepository.countInvalidVerificationDocumentMedia(userId, mediaIds) > 0) {
+      throw new ApiException(HttpStatus.BAD_REQUEST,
+          "Verification requests can only use your completed verification document media");
+    }
     String documentType = body.documentType() == null || body.documentType().isBlank() ? "identity" : body.documentType().trim();
     VerificationRequestRepository.VerificationRecordRow record = verificationRequestRepository.insertRequest(
         userId, mediaIds, documentType, body.notes());

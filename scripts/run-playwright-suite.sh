@@ -24,7 +24,7 @@ docker compose \
   --project-name "${COMPOSE_PROJECT}" \
   --env-file "${ENV_FILE}" \
   -f "${COMPOSE_FILE}" \
-  up -d postgres redis minio minio-init nats opa keycloak
+  up -d postgres redis minio minio-init nats opa keycloak media-grpc-web
 
 bash ./scripts/keycloak-dev-bootstrap.sh
 

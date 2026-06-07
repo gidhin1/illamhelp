@@ -1,35 +1,57 @@
 meta {
   name: Media Complete Upload
-  type: http
+  type: grpc
   seq: 17
   tags: [
     manual
   ]
 }
 
-post {
-  url: {{baseUrl}}/media/{{mediaId}}/complete
-  body: json
+grpc {
+  url: grpc://localhost:9090
+  method: /media.v1.MediaService/CompleteUpload
+  protoPath: ../../api-java/src/main/protobuf/media/v1/media.proto
+  methodType: unary
   auth: none
 }
 
-headers {
-  Authorization: Bearer {{seekerAccessToken}}
-  Content-Type: application/json
+metadata {
+  authorization: Bearer {{seekerAccessToken}}
 }
 
-body:json {
-  {}
+body:grpc {
+  name: message 1
+  content: '''
+    {
+      "media_id": "{{mediaId}}",
+      "etag": "bruno-e2e"
+    }
+  '''
 }
 
 tests {
-  test("media complete returns 201", function () {
-    expect(res.getStatus()).to.equal(201);
+  test("media complete returns asset id", function () {
+    const body = res.body || {};
+    expect(body.id).to.equal(bru.getEnvVar("mediaId"));
   });
 
   test("media complete moves state to scanning", function () {
-    expect(res.body.state).to.equal("scanning");
+    const body = res.body || {};
+    expect(body.state).to.be.oneOf(["MEDIA_STATE_SCANNING", "scanning"]);
   });
+}
+
+script:pre-request {
+  const uploadUrl = bru.getEnvVar("mediaUploadUrl");
+  const rawHeaders = bru.getEnvVar("mediaUploadHeaders") || "{}";
+  if (uploadUrl) {
+    const headers = JSON.parse(rawHeaders);
+    await fetch(uploadUrl, {
+      method: "PUT",
+      headers,
+      body: "Bruno E2E verification document fixture"
+    });
+  }
 }
 
 script:post-response {

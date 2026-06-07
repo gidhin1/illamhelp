@@ -11,7 +11,14 @@ import {
 import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 
+import {
+  approvedMedia,
+  MediaUploadPanel,
+  pendingReviewMedia
+} from "@/components/media/MediaUploadPanel";
+import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
+import { PersonSummary } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
 import { DataTable } from "@/components/ui/DataTable";
@@ -117,12 +124,6 @@ async function sha256Hex(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export default function ProfilePage(): JSX.Element {
   const { accessToken, user } = useSession();
   const [metrics, setMetrics] = useState<ProfileMetrics>({
@@ -163,7 +164,8 @@ export default function ProfilePage(): JSX.Element {
     setPublicGalleryLoading(true);
     setPublicGalleryError(null);
     try {
-      const page = await listPublicApprovedMediaPage(normalizedOwnerId);
+      if (!accessToken) return;
+      const page = await listPublicApprovedMediaPage(normalizedOwnerId, accessToken);
       setPublicMediaAssets(page.items);
       setPublicMediaCursor(page.nextCursor);
     } catch (requestError) {
@@ -173,17 +175,14 @@ export default function ProfilePage(): JSX.Element {
     } finally {
       setPublicGalleryLoading(false);
     }
-  }, []);
+  }, [accessToken]);
 
   const loadProfileData = useCallback(async (): Promise<void> => {
     if (!accessToken) return;
     setLoading(true);
     setError(null);
     try {
-      const [dashboard, mediaPage] = await Promise.all([
-        getMyDashboard(accessToken),
-        listMyMediaPage(accessToken)
-      ]);
+      const dashboard = await getMyDashboard(accessToken);
       setMetrics({
         totalJobs: dashboard.metrics.totalJobs,
         totalConnections: dashboard.metrics.totalConnections,
@@ -194,16 +193,21 @@ export default function ProfilePage(): JSX.Element {
       setRecentJobs(dashboard.recentJobs);
       setProfile(dashboard.profile);
       setForm(buildForm(dashboard.profile));
+      setPublicGalleryOwner(dashboard.profile.userId);
+      const [mediaPage, publicMediaPage] = await Promise.all([
+        listMyMediaPage(accessToken).catch(() => ({ items: [], nextCursor: null })),
+        listPublicApprovedMediaPage(dashboard.profile.userId, accessToken).catch(() => ({ items: [], nextCursor: null }))
+      ]);
       setMediaAssets(mediaPage.items);
       setMediaCursor(mediaPage.nextCursor);
-      setPublicGalleryOwner(dashboard.profile.userId);
-      await loadPublicGallery(dashboard.profile.userId);
+      setPublicMediaAssets(publicMediaPage.items);
+      setPublicMediaCursor(publicMediaPage.nextCursor);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load profile analytics");
     } finally {
       setLoading(false);
     }
-  }, [accessToken, loadPublicGallery]);
+  }, [accessToken]);
 
   const loadMoreMedia = async (): Promise<void> => {
     if (!accessToken || !mediaCursor) return;
@@ -214,7 +218,8 @@ export default function ProfilePage(): JSX.Element {
 
   const loadMorePublicMedia = async (): Promise<void> => {
     if (!publicMediaCursor) return;
-    const page = await listPublicApprovedMediaPage(publicGalleryOwner.trim().toLowerCase(), publicMediaCursor);
+    if (!accessToken) return;
+    const page = await listPublicApprovedMediaPage(publicGalleryOwner.trim().toLowerCase(), accessToken, publicMediaCursor);
     setPublicMediaAssets((previous) => [...previous, ...page.items]);
     setPublicMediaCursor(page.nextCursor);
   };
@@ -228,6 +233,13 @@ export default function ProfilePage(): JSX.Element {
     setUploadFile(selected);
     setUploadError(null);
     setUploadSuccess(null);
+  };
+
+  const clearUploadFile = (): void => {
+    setUploadFile(null);
+    setUploadError(null);
+    setUploadSuccess(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const onUploadMedia = async (): Promise<void> => {
@@ -248,7 +260,7 @@ export default function ProfilePage(): JSX.Element {
     try {
       const checksumSha256 = await sha256Hex(uploadFile);
       const ticket = await createMediaUploadTicket(
-        { kind, contentType, fileSizeBytes: uploadFile.size, checksumSha256, originalFileName: uploadFile.name },
+        { kind, purpose: "profile", contentType, fileSizeBytes: uploadFile.size, checksumSha256, originalFileName: uploadFile.name },
         accessToken
       );
       const uploadResponse = await fetch(ticket.uploadUrl, { method: "PUT", headers: ticket.requiredHeaders, body: uploadFile });
@@ -256,7 +268,7 @@ export default function ProfilePage(): JSX.Element {
       const etagHeader = uploadResponse.headers.get("etag") ?? undefined;
       const completed = await completeMediaUpload(ticket.mediaId, { etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined }, accessToken);
       setMediaAssets((previous) => [completed, ...previous.filter((item) => item.id !== completed.id)]);
-      setUploadSuccess("Uploaded successfully. Review started.");
+      setUploadSuccess("Profile media uploaded. It will appear after review.");
       setUploadFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (requestError) {
@@ -296,37 +308,6 @@ export default function ProfilePage(): JSX.Element {
       setSaving(false);
     }
   };
-
-  const mediaColumns: ColumnDef<MediaAssetRecord>[] = [
-    {
-      accessorKey: "kind",
-      header: "Type",
-      cell: ({ row }) => <StatusLabel tone="neutral">{row.original.kind.replaceAll("_", " ")}</StatusLabel>
-    },
-    {
-      accessorKey: "objectKey",
-      header: "Filename",
-      cell: ({ row }) => {
-        const parts = row.original.objectKey.split("/");
-        return <span style={{ fontWeight: 600, color: "var(--ink)" }}>{parts.at(-1) ?? "unknown"}</span>;
-      }
-    },
-    {
-      accessorKey: "state",
-      header: "Status",
-      cell: ({ row }) => <StatusLabel tone="info">{row.original.state.replaceAll("_", " ")}</StatusLabel>
-    },
-    {
-      accessorKey: "fileSizeBytes",
-      header: "Size",
-      cell: ({ row }) => <span className="muted-text">{formatBytes(row.original.fileSizeBytes)}</span>
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Date",
-      cell: ({ row }) => <span className="muted-text">{formatDate(row.original.createdAt).split(",")[0]}</span>
-    }
-  ];
 
   const recentJobsColumns: ColumnDef<DashboardResponse["recentJobs"][0]>[] = [
     {
@@ -391,7 +372,8 @@ export default function ProfilePage(): JSX.Element {
 
               <div className="grid two" style={{ alignItems: "start" }}>
                 <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Identity Snapshot</h3>
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Profile summary</h3>
+                  {profile ? <PersonSummary userId={profile.userId} profile={profile} /> : null}
                   <div className="data-row">
                     <div className="muted-text" style={{ fontSize: "0.85rem" }}>Member ID</div>
                     <div style={{ fontWeight: 600, fontSize: "1.1rem" }} data-testid="profile-user-id">
@@ -464,41 +446,46 @@ export default function ProfilePage(): JSX.Element {
               )}
 
               <Card className="stack">
-                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "15px" }}>
-                  <div>
-                    <h3 style={{ fontFamily: "var(--font-display)" }}>Professional Media</h3>
-                    <p className="muted-text">Upload photos/videos of your work. Content is strictly reviewed.</p>
-                  </div>
-                  <div>
-                    {uploadError && <Banner tone="error">{uploadError}</Banner>}
-                    {uploadSuccess && <Banner tone="success">{uploadSuccess}</Banner>}
-                    <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" onChange={onFileChange} style={{ maxWidth: 220 }} />
-                      <Button type="button" disabled={uploading} onClick={() => void onUploadMedia()}>{uploading ? "Uploading..." : "Upload"}</Button>
-                    </div>
-                  </div>
+                <MediaUploadPanel
+                  title="Profile photos and videos"
+                  description="Show work examples and service proof. Approved media is visible to accepted connections."
+                  pickerLabel="Add profile media"
+                  uploadLabel="Upload profile media"
+                  selectedFile={uploadFile}
+                  inputRef={fileInputRef}
+                  pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
+                  error={uploadError}
+                  success={uploadSuccess}
+                  uploading={uploading}
+                  testId="profile-media-upload"
+                  onFileChange={onFileChange}
+                  onClearFile={clearUploadFile}
+                  onUpload={() => void onUploadMedia()}
+                />
+                <div className="stack">
+                  <h3 style={{ fontFamily: "var(--font-display)" }}>Approved profile gallery</h3>
+                  <MediaPreviewGrid
+                    items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
+                    emptyText="Approved profile photos and videos will appear here."
+                    testId="profile-approved-media-grid"
+                  />
                 </div>
-                
                 {mediaAssets.length === 0 ? (
-                  <EmptyState title="No media uploaded" body="Your professional verification and work photos will appear here." />
-                ) : (
-                  <>
-                    <DataTable ariaLabel="Media assets" columns={mediaColumns} data={mediaAssets} />
-                    {mediaCursor ? (
-                      <div style={{ display: "flex", justifyContent: "center" }}>
-                        <Button type="button" variant="secondary" onClick={() => void loadMoreMedia()}>Load more media</Button>
-                      </div>
-                    ) : null}
-                  </>
-                )}
+                  <EmptyState title="No media uploaded" body="Add images or videos that help others understand your services." />
+                ) : null}
+                {mediaCursor ? (
+                  <div style={{ display: "flex", justifyContent: "center" }}>
+                    <Button type="button" variant="secondary" onClick={() => void loadMoreMedia()}>Load more media</Button>
+                  </div>
+                ) : null}
               </Card>
 
               <Card className="stack">
                 <h3 style={{ fontFamily: "var(--font-display)" }}>Public Gallery Previews</h3>
-                <p className="muted-text">Preview approved public files. Enter member ID below.</p>
+                <p className="muted-text">Preview approved profile photos and videos for a member.</p>
                 {publicGalleryError && <Banner tone="error">{publicGalleryError}</Banner>}
                 <div className="grid two" style={{ alignItems: "end" }}>
-                  <Field label="Member ID">
+                  <Field label="Member to preview" hint="Use a public member ID when you need to inspect another profile gallery.">
                     <TextInput data-testid="profile-public-owner-input" value={publicGalleryOwner} onChange={(e) => setPublicGalleryOwner(e.target.value)} />
                   </Field>
                   <div>
@@ -507,24 +494,11 @@ export default function ProfilePage(): JSX.Element {
                     </Button>
                   </div>
                 </div>
-                {publicMediaAssets.length === 0 ? (
-                  <div style={{ marginTop: "10px", padding: "20px", background: "var(--surface-2)", borderRadius: "var(--radius-md)", textAlign: "center" }}>
-                    <p className="muted-text">Approved entries will appear here.</p>
-                  </div>
-                ) : (
-                  <div className="grid two" data-testid="profile-public-media-grid" style={{ marginTop: "15px" }}>
-                    {publicMediaAssets.map((asset) => (
-                      <div key={asset.id} className="card soft" data-testid="profile-public-media-item" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                        <StatusLabel tone="neutral">{asset.kind.replaceAll("_", " ")}</StatusLabel>
-                        <div style={{ color: "var(--ink)", fontWeight: 600 }}>{formatBytes(asset.fileSizeBytes)}</div>
-                        <div className="muted-text" style={{ fontSize: "0.85rem" }}>{formatDate(asset.createdAt)}</div>
-                        <a href={asset.downloadUrl} target="_blank" rel="noreferrer" style={{ marginTop: "10px", color: "var(--brand)", fontSize: "0.9rem", fontWeight: 600 }}>
-                          Open original file
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <MediaPreviewGrid
+                  items={publicMediaAssets.filter((asset) => asset.purpose === "profile")}
+                  emptyText="Approved profile photos and videos will appear here."
+                  testId="profile-public-media-grid"
+                />
                 {publicMediaCursor ? (
                   <div style={{ display: "flex", justifyContent: "center" }}>
                     <Button type="button" variant="secondary" onClick={() => void loadMorePublicMedia()}>Load more approved media</Button>

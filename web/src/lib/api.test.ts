@@ -167,7 +167,8 @@ describe("web API client", () => {
       contentType: "image/png",
       fileSizeBytes: 456,
       checksumSha256: "checksum",
-      originalFileName: "proof.png"
+      originalFileName: "proof.png",
+      purpose: "profile"
     }, "token");
     await completeMediaUpload("media-1", { etag: "etag" }, "token");
     await markAllNotificationsRead("token");
@@ -178,7 +179,7 @@ describe("web API client", () => {
     });
     expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:4000/api/v1/consent/request-access");
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST" });
-    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:4000/api/v1/media/media-1/complete");
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:9091/media.v1.MediaService/CompleteUpload");
     expect(fetchMock.mock.calls[4][1]).toMatchObject({ method: "PATCH" });
   });
 

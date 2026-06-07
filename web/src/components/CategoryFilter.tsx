@@ -20,7 +20,7 @@ export function CategoryFilter(): JSX.Element {
               className="pill"
               style={{
                 borderColor: selected ? "var(--brand)" : "var(--line)",
-                background: selected ? "rgba(44, 91, 78, 0.12)" : "#fff",
+                background: selected ? "var(--brand-2-10)" : "var(--surface)",
                 fontWeight: selected ? 600 : 400
               }}
               onClick={() => setActive(category.id)}

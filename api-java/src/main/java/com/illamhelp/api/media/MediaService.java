@@ -1,6 +1,7 @@
 package com.illamhelp.api.media;
 
 import com.illamhelp.api.common.ApiException;
+import com.illamhelp.api.common.AuthenticatedUser;
 import com.illamhelp.api.common.CursorPages;
 import com.illamhelp.api.config.AppProperties;
 import com.illamhelp.api.storage.StorageService;
@@ -21,14 +22,16 @@ public class MediaService {
   private final AppProperties properties;
   private final StorageService storageService;
   private final MediaMutationService mediaMutationService;
+  private final MediaAccessPolicy mediaAccessPolicy;
   private final ObjectMapper objectMapper;
 
   public MediaService(MediaAssetRepository mediaAssetRepository, AppProperties properties, StorageService storageService,
-      MediaMutationService mediaMutationService, ObjectMapper objectMapper) {
+      MediaMutationService mediaMutationService, MediaAccessPolicy mediaAccessPolicy, ObjectMapper objectMapper) {
     this.mediaAssetRepository = mediaAssetRepository;
     this.properties = properties;
     this.storageService = storageService;
     this.mediaMutationService = mediaMutationService;
+    this.mediaAccessPolicy = mediaAccessPolicy;
     this.objectMapper = objectMapper;
   }
 
@@ -40,22 +43,54 @@ public class MediaService {
   }
 
   public MediaPage<PublicMediaRecord> listApprovedForOwner(String ownerUserId, Integer limit, String cursorValue) {
+    String internalOwnerUserId = resolveInternalUserId(ownerUserId);
+    AuthenticatedUser publicViewer = new AuthenticatedUser(internalOwnerUserId, ownerUserId, List.of(), "public", internalOwnerUserId);
+    return listProfileMedia(publicViewer, internalOwnerUserId, limit, cursorValue);
+  }
+
+  public MediaPage<PublicMediaRecord> listProfileMedia(AuthenticatedUser viewer, String profileUserId, Integer limit,
+      String cursorValue) {
     int pageSize = pageSize(limit);
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
-    String internalOwnerUserId = resolveInternalUserId(ownerUserId);
-    List<Map<String, Object>> rows = mediaAssetRepository.listApprovedForOwner(internalOwnerUserId,
+    String internalProfileUserId = resolveInternalUserId(profileUserId);
+    mediaAccessPolicy.requireCanViewProfileMedia(viewer, internalProfileUserId);
+    List<Map<String, Object>> rows = mediaAssetRepository.listApprovedForProfile(internalProfileUserId,
         cursor.createdAt(), cursor.id(), pageSize + 1);
+    return downloadableMediaPage(rows, pageSize);
+  }
+
+  public MediaPage<PublicMediaRecord> listJobMedia(AuthenticatedUser viewer, String jobId, Integer limit,
+      String cursorValue) {
+    int pageSize = pageSize(limit);
+    CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
+    mediaAccessPolicy.requireCanViewJobMedia(viewer, jobId);
+    List<Map<String, Object>> rows = mediaAssetRepository.listApprovedForJob(jobId,
+        cursor.createdAt(), cursor.id(), pageSize + 1);
+    return downloadableMediaPage(rows, pageSize);
+  }
+
+  public MediaPage<MediaAssetRecord> listVerificationDocuments(String userId, Integer limit, String cursorValue) {
+    int pageSize = pageSize(limit);
+    CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
+    List<Map<String, Object>> items = mediaAssetRepository.listVerificationDocuments(userId,
+        cursor.createdAt(), cursor.id(), pageSize + 1);
+    return mediaPage(items, pageSize, MediaService::mediaAssetRecord);
+  }
+
+  private MediaPage<PublicMediaRecord> downloadableMediaPage(List<Map<String, Object>> rows, int pageSize) {
     Map<String, Object> page = CursorPages.response(rows, pageSize, "createdAt");
     @SuppressWarnings("unchecked")
     List<Map<String, Object>> pageItems = (List<Map<String, Object>>) page.get("items");
     List<PublicMediaRecord> items = pageItems.stream().map(row -> {
       StorageService.PresignedGetTicket signed =
-          storageService.presignedGet(String.valueOf(row.get("bucket_name")), String.valueOf(row.get("object_key")));
+          storageService.presignedGet(String.valueOf(row.get("bucketName")), String.valueOf(row.get("objectKey")));
       return new PublicMediaRecord(
           string(row, "id"),
           string(row, "ownerUserId"),
+          string(row, "profileUserId"),
           string(row, "jobId"),
           string(row, "kind"),
+          string(row, "purpose"),
           string(row, "contentType"),
           longValue(row, "fileSizeBytes"),
           string(row, "state"),
@@ -73,13 +108,25 @@ public class MediaService {
     String contentType = body.contentType();
     String objectKey = userId + "/" + mediaId;
     String jobId = body.jobId();
+    String purpose = normalizePurpose(body.purpose());
+    String profileUserId = switch (purpose) {
+      case "profile", "verification_document" -> userId;
+      case "job" -> null;
+      default -> throw new ApiException(HttpStatus.BAD_REQUEST, "Unsupported media purpose: " + body.purpose());
+    };
+    if ("job".equals(purpose)) {
+      mediaAccessPolicy.requireCanAttachJobMedia(userId, jobId);
+    } else if (jobId != null && !jobId.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "jobId is only supported for job media");
+    }
     Long fileSizeBytes = body.fileSizeBytes();
     String checksumSha256 = body.checksumSha256();
     StorageService.PresignedPutTicket signed = storageService.presignedPut(properties.minioQuarantineBucket(), objectKey, contentType,
         checksumSha256 == null ? "" : checksumSha256);
-    mediaMutationService.recordUploadTicket(userId, mediaId, jobId, kind, properties.minioQuarantineBucket(),
+    mediaMutationService.recordUploadTicket(userId, mediaId, profileUserId, jobId, purpose, kind, properties.minioQuarantineBucket(),
         objectKey, contentType, fileSizeBytes, checksumSha256, json(Map.of(
             "source", "upload_ticket",
+            "purpose", purpose,
             "expectedContentType", contentType,
             "expectedSize", body.fileSizeBytes())));
     return new UploadTicketResponse(
@@ -123,8 +170,10 @@ public class MediaService {
     return new MediaAssetRecord(
         string(row, "id"),
         string(row, "ownerUserId"),
+        string(row, "profileUserId"),
         string(row, "jobId"),
         string(row, "kind"),
+        string(row, "purpose"),
         string(row, "bucketName"),
         string(row, "objectKey"),
         string(row, "contentType"),
@@ -170,6 +219,13 @@ public class MediaService {
     return limit == null ? 50 : Math.max(1, Math.min(limit, MAX_ARRAY_RESULTS));
   }
 
+  private String normalizePurpose(String purpose) {
+    if (purpose == null || purpose.isBlank()) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Media purpose is required");
+    }
+    return purpose.trim().toLowerCase();
+  }
+
   private String json(Map<String, Object> value) {
     try {
       return objectMapper.writeValueAsString(value);
@@ -194,18 +250,18 @@ public class MediaService {
   public record MediaPage<T>(List<T> items, int limit, String nextCursor) {
   }
 
-  public record MediaAssetRecord(String id, String ownerUserId, String jobId, String kind, String bucketName,
-      String objectKey, String contentType, Long fileSizeBytes, String checksumSha256, String state, String createdAt,
-      String updatedAt) {
+  public record MediaAssetRecord(String id, String ownerUserId, String profileUserId, String jobId, String kind,
+      String purpose, String bucketName, String objectKey, String contentType, Long fileSizeBytes,
+      String checksumSha256, String state, String createdAt, String updatedAt) {
   }
 
-  public record PublicMediaRecord(String id, String ownerUserId, String jobId, String kind, String contentType,
-      Long fileSizeBytes, String state, String createdAt, String updatedAt, String downloadUrl,
-      String downloadUrlExpiresAt) {
+  public record PublicMediaRecord(String id, String ownerUserId, String profileUserId, String jobId, String kind,
+      String purpose, String contentType, Long fileSizeBytes, String state, String createdAt, String updatedAt,
+      String downloadUrl, String downloadUrlExpiresAt) {
   }
 
   public record UploadTicketInput(String kind, String contentType, Long fileSizeBytes, String checksumSha256,
-      String originalFileName, String jobId) {
+      String originalFileName, String jobId, String purpose) {
   }
 
   public record UploadTicketResponse(String uploadUrl, String expiresAt, Map<String, String> requiredHeaders,

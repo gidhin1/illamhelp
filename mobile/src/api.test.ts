@@ -38,14 +38,12 @@ describe("mobile API client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await listJobsPage("token", "timestamp/id");
-    await listPublicApprovedMediaPage("member/name", "next cursor");
+    await listPublicApprovedMediaPage("member/name", "token", "next cursor");
 
     expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:4000/api/v1/jobs?cursor=timestamp%2Fid");
     expect(new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers).get("Authorization"))
       .toBe("Bearer token");
-    expect(fetchMock.mock.calls[1][0]).toBe(
-      "http://localhost:4000/api/v1/media/public/member%2Fname?cursor=next%20cursor"
-    );
+    expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:9091/media.v1.MediaService/ListProfileMedia");
   });
 
   it("normalizes cursor-page consent data for list screens", async () => {
@@ -128,7 +126,8 @@ describe("mobile API client", () => {
       contentType: "image/jpeg",
       fileSizeBytes: 123,
       checksumSha256: "abc",
-      originalFileName: "proof.jpg"
+      originalFileName: "proof.jpg",
+      purpose: "profile"
     }, "token");
     await completeMediaUpload("media/1", { etag: "etag" }, "token");
 
@@ -138,7 +137,7 @@ describe("mobile API client", () => {
     });
     expect(fetchMock.mock.calls[1][0]).toBe("http://localhost:4000/api/v1/consent/request-access");
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST" });
-    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:4000/api/v1/media/media/1/complete");
+    expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:9091/media.v1.MediaService/CompleteUpload");
     expect(new Headers((fetchMock.mock.calls[3][1] as RequestInit).headers).get("Authorization"))
       .toBe("Bearer token");
   });

@@ -9,7 +9,10 @@
   --ink: #1A1625;
   --muted: #6B6580;
   --brand: #6A5ACD;
-  --brand-2: #8B7CF7;
+  --brand-2: #7461DB;
+  --brand-text: #6A5ACD;
+  --brand-2-text: #7461DB;
+  --on-strong: #FFFFFF;
   --accent: #A78BFA;
   --line: rgba(106, 90, 205, 0.12);
   --shadow: 0 20px 40px rgba(26, 22, 37, 0.10);
@@ -33,7 +36,10 @@
     --ink: #E8E6F0;
     --muted: #9490A8;
     --brand: #6A5ACD;
-    --brand-2: #8B7CF7;
+    --brand-2: #7461DB;
+    --brand-text: #A78BFA;
+    --brand-2-text: #8B7CF7;
+    --on-strong: #FFFFFF;
     --accent: #A78BFA;
     --line: rgba(148, 144, 168, 0.16);
     --shadow: 0 20px 40px rgba(0, 0, 0, 0.40);
@@ -57,7 +63,10 @@
   --ink: #E8E6F0;
   --muted: #9490A8;
   --brand: #6A5ACD;
-  --brand-2: #8B7CF7;
+  --brand-2: #7461DB;
+  --brand-text: #A78BFA;
+  --brand-2-text: #8B7CF7;
+  --on-strong: #FFFFFF;
   --accent: #A78BFA;
   --line: rgba(148, 144, 168, 0.16);
   --shadow: 0 20px 40px rgba(0, 0, 0, 0.40);
@@ -104,6 +113,20 @@
   --font-xl: 22px;
   --font-2xl: 28px;
   --font-3xl: 36px;
+  --leading-display: 1.2;
+  --leading-heading: 1.25;
+  --leading-body: 1.5;
+  --leading-compact: 1.35;
+  --measure-title: 18ch;
+  --measure-prose: 72ch;
+  --motion-press: 140ms;
+  --motion-state: 180ms;
+  --motion-enter: 240ms;
+  --motion-exit: 160ms;
+  --motion-drawer: 280ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
 
   --brand-2-10: color-mix(in srgb, var(--brand-2) 10%, transparent);
   --is-mobile: none;

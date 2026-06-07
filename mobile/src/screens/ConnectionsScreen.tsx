@@ -2,8 +2,9 @@
 import {
   acceptConnection, AuthenticatedUser, blockConnection,
   ConnectionSearchCandidate, ConnectionRecord,
-  declineConnection, formatDate, listConnectionsPage,
-  requestConnection, searchConnections
+  declineConnection, formatDate, getProfileByUserId, listConnectionsPage,
+  listPublicApprovedMediaPage, PublicMediaAssetRecord,
+  ProfileRecord, requestConnection, searchConnections
 } from "../api";
 
 import {
@@ -15,6 +16,7 @@ import { ScrollView, StyleSheet, Text, View } from "react-native";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { MediaPreviewList } from "../MediaPreviewList";
 import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
@@ -25,8 +27,8 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     headerTitle: {
       color: colors.ink,
-      fontSize: 31,
-      lineHeight: 35,
+      fontSize: 30,
+      lineHeight: 36,
       fontWeight: "700"
     },
     headerBody: {
@@ -50,12 +52,14 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     statLabel: {
       color: colors.muted,
       fontSize: 12,
-      fontWeight: "600"
+      fontWeight: "600",
+      lineHeight: 16
     },
     statValue: {
       color: colors.ink,
       fontSize: 26,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 31
     },
     personCard: {
       borderRadius: 12,
@@ -74,7 +78,13 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     personName: {
       color: colors.ink,
       fontSize: 17,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 22
+    },
+    personId: {
+      color: colors.muted,
+      fontSize: 12,
+      lineHeight: 18
     },
     personMeta: {
       color: colors.muted,
@@ -84,7 +94,8 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     sectionLabel: {
       color: colors.ink,
       fontSize: 19,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 24
     }
   });
 }
@@ -106,6 +117,8 @@ export function ConnectionsScreen({
   const [error, setError] = useState<string | null>(null);
   const [targetQuery, setTargetQuery] = useState("");
   const [matches, setMatches] = useState<ConnectionSearchCandidate[]>([]);
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
+  const [profileMediaByUserId, setProfileMediaByUserId] = useState<Record<string, PublicMediaAssetRecord[]>>({});
   const [searching, setSearching] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -119,6 +132,84 @@ export function ConnectionsScreen({
     () => visibleConnections.filter((connection) => connection.status === "accepted"),
     [visibleConnections]
   );
+  const personName = useCallback(
+    (userId: string): string => profilesByUserId[userId]?.displayName || `Member ${userId}`,
+    [profilesByUserId]
+  );
+  const personMeta = useCallback(
+    (userId: string): string => {
+      const profile = profilesByUserId[userId];
+      if (!profile) return `Member ID: ${userId}`;
+      return [
+        [profile.city, profile.area].filter(Boolean).join(", "),
+        profile.serviceCategories.slice(0, 2).join(", "),
+        `Member ID: ${profile.userId}`
+      ].filter(Boolean).join(" · ");
+    },
+    [profilesByUserId]
+  );
+
+  useEffect(() => {
+    if (acceptedConnections.length === 0) {
+      setProfileMediaByUserId({});
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        acceptedConnections.map(async (connection) => {
+          const otherUser =
+            connection.userAId === user.publicUserId ? connection.userBId : connection.userAId;
+          try {
+            const page = await listPublicApprovedMediaPage(otherUser, accessToken);
+            return [otherUser, page.items.filter((asset) => asset.purpose === "profile")] as const;
+          } catch {
+            return [otherUser, []] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfileMediaByUserId(Object.fromEntries(entries));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [acceptedConnections, accessToken, user.publicUserId]);
+
+  useEffect(() => {
+    const ids = Array.from(
+      new Set(
+        visibleConnections.map((connection) =>
+          connection.userAId === user.publicUserId ? connection.userBId : connection.userAId
+        )
+      )
+    ).filter((userId) => !profilesByUserId[userId]);
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        ids.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, profilesByUserId, user.publicUserId, visibleConnections]);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -275,7 +366,7 @@ export function ConnectionsScreen({
       <View style={styles.screenHeader}>
         <Text style={localStyles.headerTitle}>Trusted people</Text>
         <Text style={localStyles.headerBody}>
-          Search by name, member ID, service, or location.
+          Search by name, service, location, or member ID.
         </Text>
       </View>
 
@@ -327,7 +418,7 @@ export function ConnectionsScreen({
                   <Text style={localStyles.personName}>{candidate.displayName}</Text>
                   <Text style={styles.pill}>Discover</Text>
                 </View>
-                <Text style={localStyles.personMeta}>Member ID: {candidate.userId}</Text>
+                <Text style={localStyles.personId}>Member ID: {candidate.userId}</Text>
                 {candidate.locationLabel ? (
                   <Text style={localStyles.personMeta}>Location: {candidate.locationLabel}</Text>
                 ) : null}
@@ -367,10 +458,20 @@ export function ConnectionsScreen({
           return (
             <View key={connection.id} style={localStyles.personCard}>
               <View style={localStyles.personTitleRow}>
-                <Text style={localStyles.personName}>{otherUser}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={localStyles.personName}>{personName(otherUser)}</Text>
+                  <Text style={localStyles.personId}>{personMeta(otherUser)}</Text>
+                </View>
                 <Text style={styles.pill}>{connection.status}</Text>
               </View>
               <Text style={localStyles.personMeta}>Requested at: {formatDate(connection.requestedAt)}</Text>
+              {connection.status === "accepted" ? (
+                <MediaPreviewList
+                  items={profileMediaByUserId[otherUser] ?? []}
+                  emptyText="No approved profile media yet."
+                  testID={`connections-profile-media-${otherUser}`}
+                />
+              ) : null}
               {canAccept ? (
                 <AppButton
                   label="Accept"

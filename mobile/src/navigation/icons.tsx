@@ -1,6 +1,7 @@
 import { StyleSheet, View } from "react-native";
 
 import type { AppNavIcon } from "@illamhelp/shared-types";
+import { theme } from "../theme";
 
 type IconProps = {
   name: AppNavIcon;
@@ -264,7 +265,7 @@ const iconRenderers: Record<AppNavIcon, (props: ShapeProps) => JSX.Element> = {
 export function NavIcon({
   name,
   size = 22,
-  color = "#1F1D1A"
+  color = theme.colors.ink
 }: IconProps): JSX.Element {
   const Icon = iconRenderers[name] ?? iconRenderers.home;
 

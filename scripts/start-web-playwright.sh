@@ -45,4 +45,22 @@ WEB_PORT="$(
   ' "${WEB_URL}"
 )"
 
+if ! curl --silent --fail --max-time 2 "${WEB_URL}" >/dev/null 2>&1; then
+  PORT_HOLDERS="$(
+    lsof -tiTCP:"${WEB_PORT}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | xargs || true
+  )"
+  if [[ -n "${PORT_HOLDERS}" ]]; then
+    echo "Stopping stale web process(es) on port ${WEB_PORT}: ${PORT_HOLDERS}"
+    kill ${PORT_HOLDERS} >/dev/null 2>&1 || true
+    sleep 1
+    REMAINING_PORT_HOLDERS="$(
+      lsof -tiTCP:"${WEB_PORT}" -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' | xargs || true
+    )"
+    if [[ -n "${REMAINING_PORT_HOLDERS}" ]]; then
+      echo "Force-stopping stale web process(es) on port ${WEB_PORT}: ${REMAINING_PORT_HOLDERS}"
+      kill -9 ${REMAINING_PORT_HOLDERS} >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
 PORT="${WEB_PORT}" corepack pnpm --filter @illamhelp/web dev

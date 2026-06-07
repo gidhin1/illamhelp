@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardResponse, formatDate, getMyDashboard } from "../api";
-import { Banner, SectionCard } from "../components";
+import { Banner, MotionView, SectionCard } from "../components";
 import { asError, shouldForceSignOut } from "../utils";
 import { useAppStyles, useAppTheme } from "../theme-context";
 
@@ -14,17 +14,69 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       gap: 14,
       marginBottom: 4
     },
+    heroPanel: {
+      borderRadius: 14,
+      padding: 20,
+      gap: 14,
+      backgroundColor: colors.brand,
+      shadowColor: colors.shadow,
+      shadowOpacity: 0.14,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 5 },
+      elevation: 4
+    },
+    heroPill: {
+      alignSelf: "flex-start",
+      borderRadius: 999,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      backgroundColor: "rgba(255,255,255,0.14)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.26)",
+      color: colors.onStrong,
+      overflow: "hidden",
+      fontSize: 12,
+      fontWeight: "700"
+    },
     headerTitle: {
-      color: colors.ink,
-      fontSize: 26,
-      lineHeight: 32,
+      color: colors.onStrong,
+      fontSize: 30,
+      lineHeight: 36,
       fontWeight: "700"
     },
     headerBody: {
-      color: colors.muted,
+      color: "rgba(255,255,255,0.86)",
       fontSize: 16,
       lineHeight: 24,
       maxWidth: 320
+    },
+    signalRail: {
+      gap: 8
+    },
+    signalCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      minHeight: 44,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      backgroundColor: "rgba(255,255,255,0.12)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.24)"
+    },
+    signalDot: {
+      width: 8,
+      height: 8,
+      borderRadius: 4,
+      backgroundColor: colors.onStrong
+    },
+    signalText: {
+      color: colors.onStrong,
+      fontSize: 13,
+      fontWeight: "700",
+      lineHeight: 18,
+      flex: 1
     },
     filterRow: {
       flexDirection: "row",
@@ -47,17 +99,20 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     filterChipLabel: {
       color: colors.muted,
       fontSize: 13,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 18
     },
     filterChipLabelActive: {
       color: colors.brand
     },
     statsRow: {
       flexDirection: "row",
-      gap: 10
+      gap: 10,
+      flexWrap: "wrap"
     },
     statCard: {
       flex: 1,
+      minWidth: 104,
       borderRadius: 12,
       padding: 16,
       backgroundColor: colors.surface,
@@ -68,12 +123,18 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     statLabel: {
       color: colors.muted,
       fontSize: 12,
-      fontWeight: "600"
+      fontWeight: "600",
+      lineHeight: 16
     },
     statValue: {
       color: colors.ink,
       fontSize: 26,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 31
+    },
+    statCardAccent: {
+      backgroundColor: colors.surfaceAlt,
+      borderColor: colors.brand
     },
     feedSection: {
       gap: 12
@@ -86,7 +147,8 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     feedTitle: {
       color: colors.ink,
       fontSize: 20,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 25
     },
     jobCard: {
       borderRadius: 12,
@@ -95,6 +157,10 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.line
+    },
+    jobCardActive: {
+      borderColor: colors.brand,
+      backgroundColor: colors.surfaceAlt
     },
     jobMetaRow: {
       flexDirection: "row",
@@ -106,6 +172,7 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.brand,
       fontSize: 13,
       fontWeight: "700",
+      lineHeight: 18,
       paddingHorizontal: 12,
       paddingVertical: 7,
       borderRadius: 999,
@@ -117,12 +184,14 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     jobStatus: {
       color: colors.muted,
       fontSize: 12,
-      fontWeight: "600"
+      fontWeight: "600",
+      lineHeight: 16
     },
     jobTitle: {
       color: colors.ink,
       fontSize: 21,
-      fontWeight: "700"
+      fontWeight: "700",
+      lineHeight: 26
     },
     jobBody: {
       color: colors.muted,
@@ -138,7 +207,14 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     jobFooterText: {
       color: colors.muted,
       fontSize: 13,
-      fontWeight: "600"
+      fontWeight: "600",
+      lineHeight: 18
+    },
+    privacyNote: {
+      color: colors.brandText,
+      fontSize: 13,
+      fontWeight: "700",
+      lineHeight: 18
     }
   });
 }
@@ -203,12 +279,25 @@ export function HomeScreen({
       keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}
     >
-      <View style={localStyles.header}>
+      <MotionView style={[localStyles.header, localStyles.heroPanel]} variant="rise">
+        <Text style={localStyles.heroPill}>Today in IllamHelp</Text>
         <Text style={localStyles.headerTitle}>Your next steps</Text>
         <Text style={localStyles.headerBody}>
           Review jobs, contact sharing, and profile updates that need your attention.
         </Text>
-      </View>
+        <View style={localStyles.signalRail} accessibilityLabel="Home safety highlights">
+          {[
+            "Human identity first: review the person or job owner",
+            "Privacy state visible: contact details stay controlled",
+            "Next safe action: post, apply, or check alerts"
+          ].map((label) => (
+            <View key={label} style={localStyles.signalCard}>
+              <View style={localStyles.signalDot} />
+              <Text style={localStyles.signalText}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      </MotionView>
 
       {error ? <Banner tone="error" message={error} /> : null}
 
@@ -220,6 +309,10 @@ export function HomeScreen({
         <View style={localStyles.statCard}>
           <Text style={localStyles.statLabel}>Connections</Text>
           <Text style={localStyles.statValue}>{dashboard?.metrics.totalConnections ?? 0}</Text>
+        </View>
+        <View style={[localStyles.statCard, localStyles.statCardAccent]}>
+          <Text style={localStyles.statLabel}>Pending</Text>
+          <Text style={localStyles.statValue}>{dashboard?.metrics.pendingConnections ?? 0}</Text>
         </View>
       </View>
 
@@ -259,13 +352,20 @@ export function HomeScreen({
           <SectionCard
             title="Nothing to show yet"
             subtitle="As new jobs and trust activity come in, your personalized feed will appear here."
+            motion="rise"
           >
             <Text style={styles.cardBodyMuted}>Try switching filters or come back after your next connection or job post.</Text>
           </SectionCard>
         ) : null}
 
         {filteredJobs.map((job) => (
-          <View key={job.id} style={localStyles.jobCard}>
+          <MotionView
+            key={job.id}
+            style={[
+              localStyles.jobCard,
+              job.status !== "posted" && job.status !== "closed" ? localStyles.jobCardActive : null
+            ]}
+          >
             <View style={localStyles.jobMetaRow}>
               <Text style={localStyles.jobCategory}>{job.category}</Text>
               <Text style={localStyles.jobStatus}>{job.status.replaceAll("_", " ")}</Text>
@@ -274,8 +374,9 @@ export function HomeScreen({
             <Text style={localStyles.jobBody}>{job.locationText}</Text>
             <View style={localStyles.jobFooter}>
               <Text style={localStyles.jobFooterText}>Posted {formatDate(job.createdAt)}</Text>
+              <Text style={localStyles.privacyNote}>Check profile before sharing contact details</Text>
             </View>
-          </View>
+          </MotionView>
         ))}
       </View>
     </ScrollView>

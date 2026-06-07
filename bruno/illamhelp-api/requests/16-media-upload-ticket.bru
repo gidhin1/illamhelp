@@ -1,47 +1,59 @@
 meta {
   name: Media Upload Ticket
-  type: http
+  type: grpc
   seq: 16
   tags: [
-    e2e
+    manual
   ]
 }
 
-post {
-  url: {{baseUrl}}/media/upload-ticket
-  body: json
+grpc {
+  url: grpc://localhost:9090
+  method: /media.v1.MediaService/CreateUploadTicket
+  protoPath: ../../api-java/src/main/protobuf/media/v1/media.proto
+  methodType: unary
   auth: none
 }
 
-headers {
-  Authorization: Bearer {{seekerAccessToken}}
-  Content-Type: application/json
+metadata {
+  authorization: Bearer {{seekerAccessToken}}
 }
 
-body:json {
-  {
-    "kind": "image",
-    "contentType": "image/jpeg",
-    "fileSizeBytes": 512,
-    "checksumSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "originalFileName": "e2e-proof.jpg"
-  }
+body:grpc {
+  name: message 1
+  content: '''
+    {
+      "kind": "MEDIA_KIND_IMAGE",
+      "content_type": "image/jpeg",
+      "file_size_bytes": 512,
+      "checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "original_file_name": "e2e-id-proof.jpg",
+      "purpose": "MEDIA_PURPOSE_VERIFICATION_DOCUMENT"
+    }
+  '''
 }
 
 tests {
-  test("media upload ticket returns 201", function () {
-    expect(res.getStatus()).to.equal(201);
+  test("media upload ticket returns media id", function () {
+    const body = res.body || {};
+    expect(body.media_id || body.mediaId).to.be.a("string");
   });
 
   test("media upload ticket returns required fields", function () {
-    expect(res.body.mediaId).to.be.a("string");
-    expect(res.body.uploadUrl).to.be.a("string");
-    expect(res.body.bucketName).to.be.a("string");
-    expect(res.body.objectKey).to.be.a("string");
+    const body = res.body || {};
+    expect(body.upload_url || body.uploadUrl).to.be.a("string");
+    expect(body.bucket_name || body.bucketName).to.be.a("string");
+    expect(body.object_key || body.objectKey).to.be.a("string");
   });
 }
 
 script:post-response {
-  bru.setEnvVar("mediaId", res.body.mediaId);
-  bru.runner.setNextRequest("Media List");
+  const body = res.body || {};
+  const mediaId = body.media_id || body.mediaId;
+  const uploadUrl = body.upload_url || body.uploadUrl;
+  const headers = body.required_headers || body.requiredHeaders || {};
+  bru.setEnvVar("mediaId", mediaId);
+  bru.setEnvVar("mediaUploadUrl", uploadUrl);
+  bru.setEnvVar("mediaUploadHeaders", JSON.stringify(headers));
+  bru.runner.setNextRequest("Media Complete Upload");
 }

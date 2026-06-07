@@ -8,6 +8,9 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes
 } from "react";
+import { useEffect, useRef } from "react";
+
+import { animateElement } from "../../lib/motion";
 
 export function SectionHeader({
   eyebrow,
@@ -36,13 +39,16 @@ export function Card({
   children,
   soft,
   className,
+  motion = "none",
   ...props
 }: {
   children: ReactNode;
   soft?: boolean;
   className?: string;
+  motion?: "none" | "enter";
 } & HTMLAttributes<HTMLDivElement>): JSX.Element {
-  return <div {...props} className={`card ${soft ? "soft" : ""} ${className ?? ""}`}>{children}</div>;
+  const motionClass = motion === "enter" ? "motion-enter" : "";
+  return <div {...props} className={`card ${soft ? "soft" : ""} ${motionClass} ${className ?? ""}`}>{children}</div>;
 }
 
 export function Button({
@@ -57,6 +63,7 @@ export function Button({
 } & ButtonHTMLAttributes<HTMLButtonElement>): JSX.Element {
   const className = [
     "button",
+    "motion-press",
     variant === "secondary" ? "secondary" : "",
     variant === "ghost" ? "ghost" : "",
     variant === "danger" ? "danger" : "",
@@ -119,7 +126,14 @@ export function Banner({
   children: ReactNode;
 }): JSX.Element {
   const ariaRole = tone === "error" ? "alert" : "status";
-  return <div className={`banner ${tone}`} role={ariaRole} aria-live={tone === "error" ? "assertive" : "polite"}>{children}</div>;
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const animation = animateElement(ref.current, "bannerIn");
+    return () => animation?.cancel();
+  }, [children, tone]);
+
+  return <div ref={ref} className={`banner motion-banner ${tone}`} role={ariaRole} aria-live={tone === "error" ? "assertive" : "polite"}>{children}</div>;
 }
 
 export function StatusLabel({
@@ -158,7 +172,7 @@ export function EmptyState({
   action?: ReactNode;
 }): JSX.Element {
   return (
-    <Card soft>
+    <Card soft motion="enter">
       <div style={{ padding: "var(--spacing-lg) var(--spacing-md)" }}>
         <h3 style={{ marginBottom: "6px" }}>{title}</h3>
         <p className="muted-text">{body}</p>

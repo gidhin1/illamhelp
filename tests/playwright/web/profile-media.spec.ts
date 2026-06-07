@@ -124,10 +124,10 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
     .locator("input[type='file']")
     .setInputFiles({ name: "work-proof.png", mimeType: "image/png", buffer: payload });
   await page.getByRole("button", { name: "Upload" }).click();
-  await waitForSuccessMessage(page, "Uploaded successfully. Review started.");
+  await waitForSuccessMessage(page, "Profile media uploaded. It will appear after review.");
   await expect(page.getByText("scanning").first()).toBeVisible();
 
   await page.getByTestId("profile-public-owner-input").fill(memberId);
   await page.getByTestId("profile-public-load-button").click();
-  await expect(page.getByText("Approved entries will appear here.").first()).toBeVisible();
+  await expect(page.getByText("Approved profile photos and videos will appear here.").first()).toBeVisible();
 });

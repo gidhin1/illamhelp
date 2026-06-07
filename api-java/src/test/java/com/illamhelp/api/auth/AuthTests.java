@@ -11,6 +11,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withCreatedEntity;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.illamhelp.api.common.ApiException;
@@ -25,6 +26,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -152,6 +154,30 @@ class AuthTests {
     assertThat(session.userType()).isEqualTo("both");
     assertThat(session.roles()).isEqualTo(List.of("both"));
     verify(users).syncUserFromToken("created-user", List.of("both"), "new.member");
+    server.verify();
+  }
+
+  @Test
+  void keycloakRegistrationMapsDuplicateAccountToClearConflictMessage() {
+    RestClient.Builder builder = RestClient.builder();
+    MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+    KeycloakAuthService service = new KeycloakAuthService(
+        properties(), mock(AuthUserService.class), builder, new ObjectMapper());
+    var request = new AuthController.RegisterRequest(
+        "member", "StrongPass#2026", "First", "Last", "member@example.com", null, "both");
+
+    server.expect(requestTo("http://localhost:8080/realms/master/protocol/openid-connect/token"))
+        .andExpect(method(HttpMethod.POST))
+        .andRespond(withSuccess("{\"access_token\":\"admin-token\"}", MediaType.APPLICATION_JSON));
+    server.expect(requestTo("http://localhost:8080/admin/realms/illamhelp/users"))
+        .andExpect(method(HttpMethod.POST))
+        .andRespond(withStatus(HttpStatus.CONFLICT).body("{\"errorMessage\":\"User exists\"}"));
+
+    assertThatThrownBy(() -> service.register(request))
+        .isInstanceOf(ApiException.class)
+        .hasMessage("User ID or email is already registered")
+        .extracting("status")
+        .isEqualTo(HttpStatus.CONFLICT);
     server.verify();
   }
 

@@ -14,6 +14,19 @@ public interface VerificationRequestRepository extends JpaRepository<Verificatio
   List<ActiveRequestRow> activeForUser(@Param("userId") String userId);
 
   @Query(value = """
+      SELECT count(*) FROM unnest(cast(:mediaIds as uuid[])) AS requested(id)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM media_assets ma
+        WHERE ma.id = requested.id
+          AND ma.owner_user_id = cast(:userId as uuid)
+          AND ma.profile_user_id = cast(:userId as uuid)
+          AND ma.purpose = 'verification_document'::media_purpose
+          AND ma.state NOT IN ('uploaded'::media_state, 'rejected'::media_state)
+      )
+      """, nativeQuery = true)
+  long countInvalidVerificationDocumentMedia(@Param("userId") String userId, @Param("mediaIds") String[] mediaIds);
+
+  @Query(value = """
       WITH created AS (
         INSERT INTO verification_requests (user_id, document_media_ids, document_type, notes)
         VALUES (cast(:userId as uuid), cast(:documentMediaIds as uuid[]), :documentType, :notes)

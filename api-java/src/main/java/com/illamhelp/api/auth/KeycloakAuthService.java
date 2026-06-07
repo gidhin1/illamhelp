@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 @Service
@@ -161,8 +161,13 @@ public class KeycloakAuthService {
         return userId;
       }
       return location.getPath().substring(location.getPath().lastIndexOf('/') + 1);
+    } catch (HttpClientErrorException exception) {
+      if (exception.getStatusCode() == HttpStatus.CONFLICT) {
+        throw new ApiException(HttpStatus.CONFLICT, "User ID or email is already registered");
+      }
+      throw new ApiException(HttpStatus.BAD_GATEWAY, "Identity provider rejected the registration details");
     } catch (RuntimeException exception) {
-      throw new ApiException(HttpStatus.CONFLICT, "Unable to create account with provided credentials");
+      throw new ApiException(HttpStatus.BAD_GATEWAY, "Unable to create account with the identity provider");
     }
   }
 

@@ -16,6 +16,9 @@ export interface AppTheme {
     muted: string;
     brand: string;
     brandAlt: string;
+    brandText: string;
+    brandAltText: string;
+    onStrong: string;
     accent: string;
     line: string;
     shadow: string;
@@ -29,6 +32,7 @@ export interface AppTheme {
   radii: typeof tokens.radii;
   spacing: typeof tokens.spacing;
   typography: typeof tokens.typography;
+  motion: typeof tokens.motion;
 }
 
 export function resolveThemeMode(
@@ -56,6 +60,9 @@ export function buildTheme(preference: ThemePreference, systemMode?: ThemeMode |
       muted: palette.muted,
       brand: palette.brand,
       brandAlt: palette.brandAlt,
+      brandText: palette.brandText,
+      brandAltText: palette.brandAltText,
+      onStrong: palette.onStrong,
       accent: palette.accent,
       line: palette.line,
       shadow: palette.shadow,
@@ -68,7 +75,8 @@ export function buildTheme(preference: ThemePreference, systemMode?: ThemeMode |
     },
     radii: tokens.radii,
     spacing: tokens.spacing,
-    typography: tokens.typography
+    typography: tokens.typography,
+    motion: tokens.motion
   };
 }
 

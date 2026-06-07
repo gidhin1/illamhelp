@@ -61,7 +61,7 @@ up-full:
 	bash ./scripts/keycloak-dev-bootstrap.sh
 
 up-core:
-	$(COMPOSE) up -d postgres redis minio minio-init nats opa keycloak
+	$(COMPOSE) up -d postgres redis minio minio-init nats opa keycloak media-grpc-web
 	bash ./scripts/keycloak-dev-bootstrap.sh
 
 up-auth:

@@ -25,17 +25,19 @@ export function createAppStyles(theme: AppTheme) {
     fontSize: 30,
     fontWeight: "700",
     color: theme.colors.ink,
+    lineHeight: 36,
     marginTop: 8
   },
   authSubtitle: {
     color: theme.colors.muted,
     marginTop: 8,
-    lineHeight: 20
+    lineHeight: 22
   },
   apiHint: {
     color: theme.colors.muted,
     marginTop: 10,
-    fontSize: 12
+    fontSize: 12,
+    lineHeight: 16
   },
   modeSwitch: {
     flexDirection: "row",
@@ -56,10 +58,11 @@ export function createAppStyles(theme: AppTheme) {
   },
   modeButtonLabel: {
     color: theme.colors.muted,
-    fontWeight: "600"
+    fontWeight: "600",
+    lineHeight: 18
   },
   modeButtonLabelSelected: {
-    color: theme.colors.brand
+    color: theme.colors.brandText
   },
   appTopBar: {
     paddingHorizontal: 20,
@@ -75,10 +78,12 @@ export function createAppStyles(theme: AppTheme) {
   appTitle: {
     fontSize: 22,
     fontWeight: "700",
-    color: theme.colors.ink
+    color: theme.colors.ink,
+    lineHeight: 27
   },
   appSubtitle: {
-    color: theme.colors.muted
+    color: theme.colors.muted,
+    lineHeight: 20
   },
   appContent: {
     flex: 1,
@@ -96,11 +101,12 @@ export function createAppStyles(theme: AppTheme) {
   screenTitle: {
     fontSize: 26,
     fontWeight: "700",
-    color: theme.colors.ink
+    color: theme.colors.ink,
+    lineHeight: 32
   },
   screenSubtitle: {
     color: theme.colors.muted,
-    lineHeight: 20
+    lineHeight: 22
   },
   pill: {
     alignSelf: "flex-start",
@@ -110,10 +116,11 @@ export function createAppStyles(theme: AppTheme) {
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    color: theme.colors.brand,
+    color: theme.colors.brandText,
     overflow: "hidden",
     fontSize: 12,
-    fontWeight: "600"
+    fontWeight: "600",
+    lineHeight: 16
   },
   card: {
     backgroundColor: theme.colors.surface,
@@ -126,15 +133,16 @@ export function createAppStyles(theme: AppTheme) {
   cardTitle: {
     fontWeight: "700",
     color: theme.colors.ink,
-    fontSize: 16
+    fontSize: 16,
+    lineHeight: 21
   },
   cardBody: {
     color: theme.colors.ink,
-    lineHeight: 20
+    lineHeight: 22
   },
   cardBodyMuted: {
     color: theme.colors.muted,
-    lineHeight: 20
+    lineHeight: 22
   },
   stackSmall: {
     gap: 8
@@ -145,7 +153,8 @@ export function createAppStyles(theme: AppTheme) {
   fieldLabel: {
     fontWeight: "600",
     color: theme.colors.ink,
-    fontSize: 13
+    fontSize: 13,
+    lineHeight: 18
   },
   input: {
     borderWidth: 1,
@@ -154,7 +163,9 @@ export function createAppStyles(theme: AppTheme) {
     paddingHorizontal: 12,
     paddingVertical: 10,
     backgroundColor: theme.colors.surfaceAlt,
-    color: theme.colors.ink
+    color: theme.colors.ink,
+    fontSize: 16,
+    lineHeight: 22
   },
   inputMultiline: {
     minHeight: 84,
@@ -182,9 +193,14 @@ export function createAppStyles(theme: AppTheme) {
   buttonDisabled: {
     opacity: 0.6
   },
+  buttonPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.985 }]
+  },
   buttonLabel: {
-    color: "#fff",
-    fontWeight: "700"
+    color: theme.colors.onStrong,
+    fontWeight: "700",
+    lineHeight: 18
   },
   buttonLabelGhost: {
     color: theme.colors.ink
@@ -208,7 +224,8 @@ export function createAppStyles(theme: AppTheme) {
     borderColor: theme.colors.brand
   },
   bannerText: {
-    fontSize: 13
+    fontSize: 13,
+    lineHeight: 18
   },
   bannerTextError: {
     color: theme.colors.errorText
@@ -217,7 +234,7 @@ export function createAppStyles(theme: AppTheme) {
     color: theme.colors.successText
   },
   bannerTextInfo: {
-    color: theme.colors.brand
+    color: theme.colors.brandText
   },
   kpiGrid: {
     flexDirection: "row",
@@ -235,12 +252,14 @@ export function createAppStyles(theme: AppTheme) {
   },
   kpiLabel: {
     color: theme.colors.muted,
-    fontSize: 12
+    fontSize: 12,
+    lineHeight: 16
   },
   kpiValue: {
     color: theme.colors.ink,
     fontWeight: "700",
     fontSize: 20,
+    lineHeight: 24,
     marginTop: 4
   },
   dataRow: {
@@ -251,13 +270,105 @@ export function createAppStyles(theme: AppTheme) {
     borderColor: theme.colors.line,
     gap: 3
   },
+  dataRowSelected: {
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.brand,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2
+  },
   dataTitle: {
     color: theme.colors.ink,
-    fontWeight: "700"
+    fontWeight: "700",
+    fontSize: 16,
+    lineHeight: 21
   },
   dataMeta: {
     color: theme.colors.muted,
-    fontSize: 12
+    fontSize: 12,
+    lineHeight: 17
+  },
+  mediaPreviewRow: {
+    flexDirection: "row",
+    gap: 10,
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
+  },
+  mediaPreviewImage: {
+    width: 96,
+    height: 84,
+    borderRadius: 8,
+    backgroundColor: theme.colors.surfaceHover
+  },
+  mediaPreviewVideo: {
+    width: 96,
+    height: 84,
+    borderRadius: 8,
+    backgroundColor: theme.colors.ink,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  mediaPreviewVideoLabel: {
+    color: theme.colors.onStrong,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 16
+  },
+  mediaPreviewMeta: {
+    flex: 1,
+    gap: 4
+  },
+  mediaUploadPanel: {
+    gap: 10
+  },
+  mediaSelectedRow: {
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    gap: 10,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
+  },
+  mediaFileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.line,
+    backgroundColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  mediaFileIconText: {
+    color: theme.colors.brandText,
+    fontWeight: "700",
+    lineHeight: 18
+  },
+  mediaUploadActions: {
+    gap: 8
+  },
+  mediaPendingRow: {
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: theme.colors.warning,
+    gap: 3
   },
   notificationMetaRow: {
     flexDirection: "row",
@@ -277,22 +388,30 @@ export function createAppStyles(theme: AppTheme) {
   roleChip: {
     borderRadius: 999,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 10,
+    minHeight: 44,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    backgroundColor: theme.colors.surfaceAlt
+    backgroundColor: theme.colors.surfaceAlt,
+    justifyContent: "center"
   },
   roleChipSelected: {
     backgroundColor: theme.colors.surface,
-    borderColor: theme.colors.brand
+    borderColor: theme.colors.brand,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   roleChipLabel: {
     color: theme.colors.ink,
     fontSize: 12,
-    fontWeight: "600"
+    fontWeight: "600",
+    lineHeight: 16
   },
   roleChipLabelSelected: {
-    color: theme.colors.brand
+    color: theme.colors.brandText
   },
   tabBar: {
     flexDirection: "row",
@@ -322,24 +441,26 @@ export function createAppStyles(theme: AppTheme) {
   tabButtonLabel: {
     color: theme.colors.muted,
     fontSize: 12,
-    fontWeight: "600"
+    fontWeight: "600",
+    lineHeight: 16
   },
   tabButtonLabelSelected: {
-    color: theme.colors.brand
+    color: theme.colors.brandText
   },
   tabBadge: {
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: "#8c1d18",
+    backgroundColor: theme.colors.errorText,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4
   },
   tabBadgeLabel: {
-    color: "#fff",
+    color: theme.colors.bg,
     fontSize: 10,
-    fontWeight: "700"
+    fontWeight: "700",
+    lineHeight: 12
   },
   statusLabel: {
     alignSelf: "flex-start",
@@ -365,7 +486,8 @@ export function createAppStyles(theme: AppTheme) {
   statusLabelText: {
     color: theme.colors.ink,
     fontSize: 12,
-    fontWeight: "600"
+    fontWeight: "600",
+    lineHeight: 16
   },
   statusLabelTextSuccess: {
     color: theme.colors.successText
@@ -377,7 +499,7 @@ export function createAppStyles(theme: AppTheme) {
     color: theme.colors.errorText
   },
   statusLabelTextInfo: {
-    color: theme.colors.brand
+    color: theme.colors.brandText
   },
   skeletonRow: {
     gap: 8,

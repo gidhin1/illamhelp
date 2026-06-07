@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 
+import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
+import { PersonSummary } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
 import { DataTable } from "@/components/ui/DataTable";
@@ -13,17 +15,20 @@ import {
   applyToJob,
   createJob,
   formatDate,
+  getProfileByUserId,
   JobApplicationRecord,
   JobRecord,
+  listJobMediaPage,
   listJobs,
   listMyJobApplications,
+  ProfileRecord,
+  PublicMediaAssetRecord,
   withdrawJobApplication
 } from "@/lib/api";
 import {
   Banner,
   Button,
   Card,
-  EmptyState,
   Field,
   SectionHeader,
   SelectInput,
@@ -67,6 +72,35 @@ function isPendingApplication(status: JobApplicationRecord["status"]): boolean {
   return status === "applied" || status === "shortlisted";
 }
 
+function JobsLoadingSkeleton({ label }: { label: string }): JSX.Element {
+  return (
+    <Card soft className="stack" aria-busy="true">
+      <div className="pill">{label}</div>
+      <div className="skeleton-line" style={{ width: "62%" }} />
+      <div className="skeleton-line" style={{ width: "88%" }} />
+      <div className="skeleton-line" style={{ width: "48%" }} />
+    </Card>
+  );
+}
+
+function ActionEmptyState({
+  title,
+  body,
+  action
+}: {
+  title: string;
+  body: string;
+  action?: JSX.Element;
+}): JSX.Element {
+  return (
+    <Card soft className="stack">
+      <h3>{title}</h3>
+      <p className="muted-text">{body}</p>
+      {action}
+    </Card>
+  );
+}
+
 export default function JobsPage(): JSX.Element {
   return <JobsWorkspace section="discover" />;
 }
@@ -79,6 +113,8 @@ export function JobsWorkspace({
   const { accessToken, user } = useSession();
   const router = useRouter();
   const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [jobMediaByJobId, setJobMediaByJobId] = useState<Record<string, PublicMediaAssetRecord[]>>({});
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [myApplicationsByJob, setMyApplicationsByJob] = useState<
     Record<string, JobApplicationRecord>
@@ -109,6 +145,17 @@ export function JobsWorkspace({
       setJobs(jobsResult.items);
       setNextCursor(jobsResult.nextCursor);
       setMyApplicationsByJob(buildLatestApplicationByJob(myApplications));
+      const mediaEntries = await Promise.all(
+        jobsResult.items.map(async (job) => {
+          try {
+            const page = await listJobMediaPage(job.id, accessToken);
+            return [job.id, page.items.filter((asset) => asset.purpose === "job")] as const;
+          } catch {
+            return [job.id, []] as const;
+          }
+        })
+      );
+      setJobMediaByJobId(Object.fromEntries(mediaEntries));
     } catch (requestError) {
       setListError(requestError instanceof Error ? requestError.message : "Unable to load jobs");
     } finally {
@@ -124,6 +171,17 @@ export function JobsWorkspace({
       const result = await listJobs(accessToken, { limit: 100, cursor: nextCursor });
       setJobs((previous) => [...previous, ...result.items]);
       setNextCursor(result.nextCursor);
+      const mediaEntries = await Promise.all(
+        result.items.map(async (job) => {
+          try {
+            const page = await listJobMediaPage(job.id, accessToken);
+            return [job.id, page.items.filter((asset) => asset.purpose === "job")] as const;
+          } catch {
+            return [job.id, []] as const;
+          }
+        })
+      );
+      setJobMediaByJobId((previous) => ({ ...previous, ...Object.fromEntries(mediaEntries) }));
     } catch (requestError) {
       setListError(requestError instanceof Error ? requestError.message : "Unable to load more jobs");
     } finally {
@@ -134,6 +192,40 @@ export function JobsWorkspace({
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+
+  useEffect(() => {
+    if (!accessToken || jobs.length === 0) return;
+    const ids = Array.from(
+      new Set(
+        jobs
+          .flatMap((job) => [job.seekerUserId, job.assignedProviderUserId])
+          .filter((userId): userId is string => Boolean(userId))
+      )
+    ).filter((userId) => !profilesByUserId[userId]);
+    if (ids.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        ids.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, jobs, profilesByUserId]);
 
   const totalByStatus = useMemo(() => {
     return jobs.reduce<Record<string, number>>((acc, job) => {
@@ -299,9 +391,25 @@ export function JobsWorkspace({
       cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>,
     },
     {
+      id: "media",
+      header: "Media",
+      cell: ({ row }) => (
+        <span className="muted-text">
+          {(jobMediaByJobId[row.original.id] ?? []).length} approved
+        </span>
+      ),
+    },
+    {
       id: "person",
-      header: type === "posted" ? "Assigned Provider" : "Posted By",
-      cell: ({ row }) => type === "posted" ? (row.original.assignedProviderUserId || "-") : row.original.seekerUserId,
+      header: type === "posted" ? "Assigned provider" : "Posted by",
+      cell: ({ row }) => {
+        const userId = type === "posted" ? row.original.assignedProviderUserId : row.original.seekerUserId;
+        return userId ? (
+          <PersonSummary userId={userId} profile={profilesByUserId[userId]} compact />
+        ) : (
+          <span className="muted-text">Not assigned yet</span>
+        );
+      },
     },
     {
       accessorKey: "createdAt",
@@ -361,7 +469,18 @@ export function JobsWorkspace({
               <StatusLabel tone="info">{job.status.replaceAll("_", " ")}</StatusLabel>
             </div>
             <p className="muted-text">{job.category} - {job.locationText}</p>
+            <PersonSummary
+              userId={type === "posted" ? job.assignedProviderUserId ?? job.seekerUserId : job.seekerUserId}
+              profile={profilesByUserId[type === "posted" ? job.assignedProviderUserId ?? job.seekerUserId : job.seekerUserId]}
+              meta={type === "posted" && !job.assignedProviderUserId ? "No provider assigned yet" : undefined}
+              compact
+            />
             <p className="muted-text">Posted {formatDate(job.createdAt).split(",")[0]}</p>
+            <MediaPreviewGrid
+              items={jobMediaByJobId[job.id] ?? []}
+              emptyText="No approved job media yet."
+              testId={`job-media-${job.id}`}
+            />
             <div className="job-mobile-actions">
               {type === "posted" ? (
                 <Link className="button ghost" href={`/jobs/${job.id}`}>Manage</Link>
@@ -456,13 +575,17 @@ export function JobsWorkspace({
                       {renderMobileJobs(jobsPostedByMe, "posted")}
                     </>
                   ) : (
-                    <EmptyState title="No jobs posted" body="You haven't posted any jobs yet." />
+                    <ActionEmptyState
+                      title="No jobs posted"
+                      body="Create a job when you are ready to share the need, privacy scope, and any approved job media."
+                      action={<a className="button ghost" href="#post-new-job">Create job</a>}
+                    />
                   )}
                 </div>
               ) : null}
 
               {section === "posted" ? (
-                <Card className="stack">
+                <Card className="stack" id="post-new-job">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Post a New Job</h3>
                   {createError ? <Banner tone="error">{createError}</Banner> : null}
                   {createSuccess ? <Banner tone="success">{createSuccess}</Banner> : null}
@@ -516,7 +639,7 @@ export function JobsWorkspace({
               {listError ? <Banner tone="error">{listError}</Banner> : null}
               {jobActionError ? <Banner tone="error">{jobActionError}</Banner> : null}
               {jobActionSuccess ? <Banner tone="success">{jobActionSuccess}</Banner> : null}
-              {listLoading ? <p className="muted-text">Loading data...</p> : null}
+              {listLoading ? <JobsLoadingSkeleton label={`Loading ${headerCopy.title.toLowerCase()}`} /> : null}
 
               <div className="stack" style={{ gap: "var(--spacing-3xl)" }}>
                 {section === "assigned" ? (
@@ -530,7 +653,11 @@ export function JobsWorkspace({
                         </div>
                       </>
                     ) : (
-                      <EmptyState title="No assigned jobs" body="You have not been assigned to any jobs yet." />
+                      <ActionEmptyState
+                        title="No assigned jobs"
+                        body="Assigned work appears here after a seeker accepts you for a job."
+                        action={<Link className="button ghost" href="/jobs/discover">Discover jobs</Link>}
+                      />
                     )}
                   </div>
                 ) : null}
@@ -547,7 +674,11 @@ export function JobsWorkspace({
                           </div>
                         </>
                       ) : (
-                        <EmptyState title="No network jobs" body="No available jobs from your connections." />
+                        <ActionEmptyState
+                          title="No network jobs"
+                          body="Connections-only work appears here when trusted members post jobs for their network."
+                          action={<Link className="button ghost" href="/connections">Review people</Link>}
+                        />
                       )}
                     </div>
 
@@ -561,7 +692,11 @@ export function JobsWorkspace({
                           </div>
                         </>
                       ) : (
-                        <EmptyState title="No public jobs" body="No public jobs available right now." />
+                        <ActionEmptyState
+                          title="No public jobs"
+                          body="Public opportunities are quiet right now. Check your privacy state or refresh before applying elsewhere."
+                          action={<Button type="button" variant="ghost" onClick={() => void loadJobs()}>Refresh jobs</Button>}
+                        />
                       )}
                     </div>
                   </>
@@ -579,7 +714,7 @@ export function JobsWorkspace({
               {applyingJob ? (
                 <div className="dialog-layer">
                   <button className="dialog-scrim" type="button" aria-label="Cancel application" onClick={() => setApplyingJob(null)} />
-                  <Card className="application-dialog" role="dialog" aria-modal="true" aria-labelledby="application-dialog-title">
+                  <Card className="application-dialog motion-dialog" role="dialog" aria-modal="true" aria-labelledby="application-dialog-title">
                     <h2 id="application-dialog-title">Apply for {applyingJob.title}</h2>
                     <Field label="Message to seeker" hint="Explain how you can help with this job.">
                       <TextArea
