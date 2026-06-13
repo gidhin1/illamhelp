@@ -412,8 +412,9 @@ export function ConnectionsScreen({
         {visibleMatches.length > 0 ? (
           <View style={styles.stackSmall}>
             <Text style={localStyles.sectionLabel}>Matches</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
             {visibleMatches.map((candidate) => (
-              <View key={candidate.userId} style={localStyles.personCard}>
+              <View key={candidate.userId} style={[localStyles.personCard, styles.carouselCard]}>
                 <View style={localStyles.personTitleRow}>
                   <Text style={localStyles.personName}>{candidate.displayName}</Text>
                   <Text style={styles.pill}>Discover</Text>
@@ -438,6 +439,7 @@ export function ConnectionsScreen({
                 />
               </View>
             ))}
+            </ScrollView>
           </View>
         ) : null}
       </SectionCard>
@@ -447,6 +449,7 @@ export function ConnectionsScreen({
         {!loading && connections.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No connections yet.</Text>
         ) : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
         {visibleConnections.map((connection) => {
           const currentUserId = user.publicUserId;
           const otherUser =
@@ -456,7 +459,7 @@ export function ConnectionsScreen({
           const canDecline = connection.status === "pending";
           const canBlock = connection.status !== "blocked";
           return (
-            <View key={connection.id} style={localStyles.personCard}>
+            <View key={connection.id} style={[localStyles.personCard, styles.carouselCard]}>
               <View style={localStyles.personTitleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={localStyles.personName}>{personName(otherUser)}</Text>
@@ -509,6 +512,7 @@ export function ConnectionsScreen({
             </View>
           );
         })}
+        </ScrollView>
         {nextCursor ? (
           <AppButton
             label={loading ? "Loading connections" : "Load more connections"}

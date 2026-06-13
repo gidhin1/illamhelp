@@ -13,6 +13,7 @@ import {} from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
@@ -119,7 +120,7 @@ export function ProfileScreen({
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaSuccess, setMediaSuccess] = useState<string | null>(null);
-  const [pickedProfileMediaFile, setPickedProfileMediaFile] = useState<PickedMediaFile | null>(null);
+  const [pickedProfileMediaFiles, setPickedProfileMediaFiles] = useState<PickedMediaFile[]>([]);
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
   const [publicMediaCursor, setPublicMediaCursor] = useState<string | null>(null);
@@ -235,82 +236,125 @@ export function ProfileScreen({
     setMediaSuccess(null);
     const result = await DocumentPicker.getDocumentAsync({
       type: ["image/*", "video/*"],
-      multiple: false,
+      multiple: true,
       copyToCacheDirectory: true
     });
     if (result.canceled) {
       return;
     }
+    const files: PickedMediaFile[] = [];
+    for (const asset of result.assets) {
+      if (!asset?.mimeType || !asset.size) {
+        setMediaError("Choose images or videos with readable file sizes.");
+        return;
+      }
+      if (!inferMediaKind(asset.mimeType)) {
+        setMediaError("Only profile photos and videos are supported.");
+        return;
+      }
+      files.push({
+        uri: asset.uri,
+        name: asset.name || `profile-media-${Date.now()}`,
+        mimeType: asset.mimeType,
+        size: asset.size
+      });
+    }
+    setPickedProfileMediaFiles((previous) => [...previous, ...files]);
+  }, []);
+
+  const onCaptureProfileMedia = useCallback(async (): Promise<void> => {
+    setMediaError(null);
+    setMediaSuccess(null);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setMediaError("Allow camera access to take profile photos or videos.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      quality: 0.85,
+      videoMaxDuration: 60
+    });
+    if (result.canceled) {
+      return;
+    }
     const asset = result.assets[0];
-    if (!asset?.mimeType || !asset.size) {
+    const mimeType = asset.mimeType ?? (asset.type === "video" ? "video/mp4" : "image/jpeg");
+    const size = asset.fileSize ?? 0;
+    if (!size) {
       setMediaError("Choose an image or video with a readable file size.");
       return;
     }
-    if (!inferMediaKind(asset.mimeType)) {
+    if (!inferMediaKind(mimeType)) {
       setMediaError("Only profile photos and videos are supported.");
       return;
     }
-    setPickedProfileMediaFile({
+    setPickedProfileMediaFiles((previous) => [...previous, {
       uri: asset.uri,
-      name: asset.name || `profile-media-${Date.now()}`,
-      mimeType: asset.mimeType,
-      size: asset.size
-    });
+      name: asset.fileName || `profile-media-${Date.now()}`,
+      mimeType,
+      size
+    }]);
   }, []);
 
   const onUploadProfileMedia = useCallback(async (): Promise<void> => {
-    if (!pickedProfileMediaFile) {
-      setMediaError("Choose a profile photo or video first.");
+    if (pickedProfileMediaFiles.length === 0) {
+      setMediaError("Choose one or more profile photos or videos first.");
       return;
     }
-    const kind = inferMediaKind(pickedProfileMediaFile.mimeType);
-    if (!kind) {
-      setMediaError("Only profile photos and videos are supported.");
+    const invalidFile = pickedProfileMediaFiles.find((file) => !inferMediaKind(file.mimeType));
+    if (invalidFile) {
+      setMediaError(`Only profile photos and videos are supported. Remove ${invalidFile.name}.`);
       return;
     }
     setMediaUploading(true);
     setMediaError(null);
     setMediaSuccess(null);
     try {
-      const ticket = await createMediaUploadTicket(
-        {
-          kind,
-          purpose: "profile",
-          contentType: pickedProfileMediaFile.mimeType,
-          fileSizeBytes: pickedProfileMediaFile.size,
-          checksumSha256: randomHex(64),
-          originalFileName: pickedProfileMediaFile.name
-        },
-        accessToken
-      );
+      const completedUploads: MediaAssetRecord[] = [];
+      for (const file of pickedProfileMediaFiles) {
+        const kind = inferMediaKind(file.mimeType);
+        if (!kind) continue;
+        const ticket = await createMediaUploadTicket(
+          {
+            kind,
+            purpose: "profile",
+            contentType: file.mimeType,
+            fileSizeBytes: file.size,
+            checksumSha256: randomHex(64),
+            originalFileName: file.name
+          },
+          accessToken
+        );
 
-      const uploadResponse = await fetch(ticket.uploadUrl, {
-        method: "PUT",
-        headers: ticket.requiredHeaders,
-        body: {
-          uri: pickedProfileMediaFile.uri,
-          name: pickedProfileMediaFile.name,
-          type: pickedProfileMediaFile.mimeType
-        } as unknown as RequestInit["body"]
-      });
+        const uploadResponse = await fetch(ticket.uploadUrl, {
+          method: "PUT",
+          headers: ticket.requiredHeaders,
+          body: {
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType
+          } as unknown as RequestInit["body"]
+        });
 
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed with status ${uploadResponse.status}`);
+        }
+
+        const etag = uploadResponse.headers.get("etag")?.replace(/"/g, "");
+        const completed = await completeMediaUpload(
+          ticket.mediaId,
+          { etag: etag || undefined },
+          accessToken
+        );
+        completedUploads.push(completed);
       }
-
-      const etag = uploadResponse.headers.get("etag")?.replace(/"/g, "");
-      const completed = await completeMediaUpload(
-        ticket.mediaId,
-        { etag: etag || undefined },
-        accessToken
-      );
-
       setMediaAssets((previous) => [
-        completed,
-        ...previous.filter((item) => item.id !== completed.id)
+        ...completedUploads,
+        ...previous.filter((item) => !completedUploads.some((completed) => completed.id === item.id))
       ]);
-      setPickedProfileMediaFile(null);
-      setMediaSuccess("Profile media uploaded. It will appear after review.");
+      setPickedProfileMediaFiles([]);
+      setMediaSuccess(`${completedUploads.length} profile ${completedUploads.length === 1 ? "file" : "files"} uploaded for review.`);
     } catch (requestError) {
       const message = asError(requestError, "Unable to upload media");
       setMediaError(message);
@@ -320,7 +364,7 @@ export function ProfileScreen({
     } finally {
       setMediaUploading(false);
     }
-  }, [accessToken, onSessionInvalid, pickedProfileMediaFile]);
+  }, [accessToken, onSessionInvalid, pickedProfileMediaFiles]);
 
   return (
     <ScrollView
@@ -467,8 +511,9 @@ export function ProfileScreen({
           title="Profile photos and videos"
           description="Show work examples and service proof. Approved media is visible to accepted connections."
           pickLabel="Add profile media"
+          cameraLabel="Take profile media"
           uploadLabel="Upload profile media"
-          pickedFile={pickedProfileMediaFile}
+          pickedFiles={pickedProfileMediaFiles}
           pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
           uploading={mediaUploading}
           error={mediaError}
@@ -477,7 +522,11 @@ export function ProfileScreen({
           onPick={() => {
             void onPickProfileMedia();
           }}
-          onClear={() => setPickedProfileMediaFile(null)}
+          onCameraPick={() => {
+            void onCaptureProfileMedia();
+          }}
+          onClear={() => setPickedProfileMediaFiles([])}
+          onRemove={(index) => setPickedProfileMediaFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index))}
           onUpload={() => {
             void onUploadProfileMedia();
           }}

@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import {
   ChangeEvent,
   FormEvent,
@@ -8,7 +9,6 @@ import {
   useRef,
   useState
 } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 import Link from "next/link";
 
 import {
@@ -21,7 +21,6 @@ import { PageShell } from "@/components/PageShell";
 import { PersonSummary } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
-import { DataTable } from "@/components/ui/DataTable";
 import {
   Banner,
   Button,
@@ -141,7 +140,7 @@ export default function ProfilePage(): JSX.Element {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [mediaAssets, setMediaAssets] = useState<MediaAssetRecord[]>([]);
   const [mediaCursor, setMediaCursor] = useState<string | null>(null);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
@@ -152,6 +151,7 @@ export default function ProfilePage(): JSX.Element {
   const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [recentJobs, setRecentJobs] = useState<DashboardResponse["recentJobs"]>([]);
 
   const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
@@ -229,48 +229,67 @@ export default function ProfilePage(): JSX.Element {
   }, [loadProfileData]);
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    const selected = event.target.files?.[0] ?? null;
-    setUploadFile(selected);
+    const selected = Array.from(event.target.files ?? []);
+    setUploadFiles((previous) => [...previous, ...selected]);
     setUploadError(null);
     setUploadSuccess(null);
   };
 
   const clearUploadFile = (): void => {
-    setUploadFile(null);
+    setUploadFiles([]);
     setUploadError(null);
     setUploadSuccess(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+  };
+
+  const removeUploadFile = (index: number): void => {
+    setUploadFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index));
+    setUploadError(null);
+    setUploadSuccess(null);
   };
 
   const onUploadMedia = async (): Promise<void> => {
     if (!accessToken) return;
-    if (!uploadFile) {
-      setUploadError("Choose a photo or video to upload.");
+    if (uploadFiles.length === 0) {
+      setUploadError("Choose one or more photos or videos to upload.");
       return;
     }
-    const contentType = uploadFile.type.trim().toLowerCase();
-    const kind = inferMediaKind(contentType);
-    if (!kind) {
-      setUploadError("Only professional image/video files are supported.");
+    const invalidFile = uploadFiles.find((file) => !inferMediaKind(file.type.trim().toLowerCase()));
+    if (invalidFile) {
+      setUploadError(`Only professional image/video files are supported. Remove ${invalidFile.name}.`);
       return;
     }
     setUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
     try {
-      const checksumSha256 = await sha256Hex(uploadFile);
-      const ticket = await createMediaUploadTicket(
-        { kind, purpose: "profile", contentType, fileSizeBytes: uploadFile.size, checksumSha256, originalFileName: uploadFile.name },
-        accessToken
+      const completedUploads: MediaAssetRecord[] = [];
+      for (const file of uploadFiles) {
+        const contentType = file.type.trim().toLowerCase();
+        const kind = inferMediaKind(contentType);
+        if (!kind) continue;
+        const checksumSha256 = await sha256Hex(file);
+        const ticket = await createMediaUploadTicket(
+          { kind, purpose: "profile", contentType, fileSizeBytes: file.size, checksumSha256, originalFileName: file.name },
+          accessToken
+        );
+        const uploadResponse = await fetch(ticket.uploadUrl, { method: "PUT", headers: ticket.requiredHeaders, body: file });
+        if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
+        const etagHeader = uploadResponse.headers.get("etag") ?? undefined;
+        const completed = await completeMediaUpload(ticket.mediaId, { etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined }, accessToken);
+        completedUploads.push(completed);
+      }
+      setMediaAssets((previous) => [
+        ...completedUploads,
+        ...previous.filter((item) => !completedUploads.some((completed) => completed.id === item.id))
+      ]);
+      setUploadSuccess(
+        `${completedUploads.length} profile ${completedUploads.length === 1 ? "file" : "files"} uploaded for review.`
       );
-      const uploadResponse = await fetch(ticket.uploadUrl, { method: "PUT", headers: ticket.requiredHeaders, body: uploadFile });
-      if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
-      const etagHeader = uploadResponse.headers.get("etag") ?? undefined;
-      const completed = await completeMediaUpload(ticket.mediaId, { etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined }, accessToken);
-      setMediaAssets((previous) => [completed, ...previous.filter((item) => item.id !== completed.id)]);
-      setUploadSuccess("Profile media uploaded. It will appear after review.");
-      setUploadFile(null);
+      setUploadFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
     } catch (requestError) {
       setUploadError(requestError instanceof Error ? requestError.message : "Unable to upload media file");
     } finally {
@@ -309,107 +328,106 @@ export default function ProfilePage(): JSX.Element {
     }
   };
 
-  const recentJobsColumns: ColumnDef<DashboardResponse["recentJobs"][0]>[] = [
-    {
-      accessorKey: "title",
-      header: "Job",
-      cell: ({ row }) => <span style={{ fontWeight: 600, color: "var(--ink)" }}>{row.original.title}</span>
-    },
-    {
-      accessorKey: "category",
-      header: "Category",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>
-    },
-    {
-      accessorKey: "locationText",
-      header: "Location",
-      cell: ({ row }) => <span className="muted-text">{row.original.locationText}</span>
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Date",
-      cell: ({ row }) => <span className="muted-text">{formatDate(row.original.createdAt).split(",")[0]}</span>
-    }
-  ];
-
   return (
     <PageShell>
       <section className="section">
         <div className="container stack">
           <SectionHeader
             eyebrow="Profile"
-            title="Manage Your Settings"
-            subtitle="Update identity details, review metrics, and control contact sharing."
+            title="Your public trust page"
+            subtitle="Lead with your identity, show approved work media, and keep private contact details protected."
           />
           <RequireSession>
             <div className="stack">
               {error ? <Banner tone="error">{error}</Banner> : null}
               {saveMessage ? <Banner tone="success">{saveMessage}</Banner> : null}
-              <div className="kpi-grid">
-                <div className="kpi">
-                  <div className="kpi-label">Your Jobs</div>
-                  <div className="kpi-value">{metrics.totalJobs}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Connections</div>
-                  <div className="kpi-value">{metrics.totalConnections}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Active Shares</div>
-                  <div className="kpi-value">{metrics.activeConsentGrants}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Media in Review</div>
-                  <div className="kpi-value">
-                    {mediaAssets.filter((item) => ["uploaded", "scanning", "ai_reviewed", "human_review_pending"].includes(item.state)).length}
-                  </div>
-                </div>
-              </div>
 
-              <div className="grid two" style={{ alignItems: "start" }}>
-                <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Profile summary</h3>
+              <div className="profile-story-layout">
+                <section className="profile-identity-panel" aria-labelledby="profile-identity-heading">
+                  <p className="surface-label">Human identity</p>
+                  <h2 id="profile-identity-heading">{profile?.displayName ?? "Your IllamHelp profile"}</h2>
                   {profile ? <PersonSummary userId={profile.userId} profile={profile} /> : null}
-                  <div className="data-row">
-                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Member ID</div>
-                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }} data-testid="profile-user-id">
-                      {profile?.userId ?? user?.publicUserId}
+                  <div className="profile-chip-row">
+                    <span data-testid="profile-user-id">Member ID: {profile?.userId ?? user?.publicUserId}</span>
+                    <span>{profile?.city || "City not set"}</span>
+                    <span>{profile?.serviceCategories.slice(0, 2).join(", ") || "Services not set"}</span>
+                  </div>
+                  <div className="media-hero-stats" aria-label="Profile summary">
+                    <div>
+                      <strong>{metrics.totalJobs}</strong>
+                      <span>Jobs</span>
+                    </div>
+                    <div>
+                      <strong>{metrics.totalConnections}</strong>
+                      <span>People</span>
+                    </div>
+                    <div>
+                      <strong>{metrics.activeConsentGrants}</strong>
+                      <span>Shares</span>
                     </div>
                   </div>
-                  <div className="data-row">
-                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Display name</div>
-                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{profile?.displayName ?? "-"}</div>
-                  </div>
-                </Card>
+                </section>
 
-                <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Safety Defaults</h3>
-                  <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                    Your contact information is permanently hidden from the public. Only approved mutual connections can securely view the details below.
-                  </p>
-                  <div className="data-row" style={{ marginTop: "10px" }}>
-                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Pending connections</div>
-                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{metrics.pendingConnections}</div>
+                <section className="profile-gallery-panel" aria-labelledby="profile-gallery-heading">
+                  <div className="media-section-title">
+                    <div>
+                      <p className="surface-label">Privacy state</p>
+                      <h3 id="profile-gallery-heading">Approved profile gallery</h3>
+                    </div>
+                    <StatusLabel tone="success">{approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile")).length} approved</StatusLabel>
                   </div>
-                  <div className="data-row">
-                    <div className="muted-text" style={{ fontSize: "0.85rem" }}>Contact requests</div>
-                    <div style={{ fontWeight: 600, fontSize: "1.1rem" }}>{metrics.consentRequests}</div>
-                  </div>
-                  <div style={{ marginTop: "10px" }}>
-                    <Link href="/consent" className="button-link">
-                      <Button variant="ghost">Manage contact sharing</Button>
-                    </Link>
-                  </div>
-                </Card>
+                  <MediaPreviewGrid
+                    items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
+                    emptyText="Approved profile photos and videos will appear here."
+                    testId="profile-approved-media-grid"
+                  />
+                  <p className="muted-text">Accepted connections can view approved profile photos and videos. Verification documents never appear here.</p>
+                </section>
               </div>
 
-              {form && (
-                <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Personal Info</h3>
+              <section className="media-section-stack" aria-labelledby="profile-media-upload-heading">
+                <Card className="media-composer-card stack">
+                  <MediaUploadPanel
+                    title="Profile photos and videos"
+                    description="Add work examples and service proof. New media is reviewed before it appears to connections."
+                    pickerLabel="Add profile media"
+                    cameraLabel="Take profile media"
+                    uploadLabel="Upload profile media"
+                    selectedFiles={uploadFiles}
+                    inputRef={fileInputRef}
+                    cameraInputRef={cameraInputRef}
+                    pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
+                    error={uploadError}
+                    success={uploadSuccess}
+                    uploading={uploading}
+                    testId="profile-media-upload"
+                    onFileChange={onFileChange}
+                    onCameraFileChange={onFileChange}
+                    onClearFile={clearUploadFile}
+                    onRemoveFile={removeUploadFile}
+                    onUpload={() => void onUploadMedia()}
+                  />
+                  {mediaAssets.length === 0 ? (
+                    <EmptyState title="No media uploaded" body="Add images or videos that help others understand your services." />
+                  ) : null}
+                  {mediaCursor ? (
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <Button type="button" variant="secondary" onClick={() => void loadMoreMedia()}>Load more media</Button>
+                    </div>
+                  ) : null}
+                </Card>
+              </section>
+
+              <div className="profile-action-grid">
+                {form && (
+                <Card className="stack profile-edit-card">
+                  <div className="media-section-title">
+                    <div>
+                      <p className="surface-label">Next safe action</p>
+                      <h3>Update profile details</h3>
+                    </div>
+                    <StatusLabel tone="info">Private fields protected</StatusLabel>
+                  </div>
                   <form className="grid two" onSubmit={onSave}>
                     <Field label="First Name" hint="Required">
                       <TextInput value={form.firstName} onChange={(e) => setForm(prev => prev ? { ...prev, firstName: e.target.value } : prev)} required />
@@ -439,50 +457,40 @@ export default function ProfilePage(): JSX.Element {
                       <TextInput value={form.fullAddress} onChange={(e) => setForm(prev => prev ? { ...prev, fullAddress: e.target.value } : prev)} />
                     </Field>
                     <div style={{ display: "flex", alignItems: "flex-end" }}>
-                      <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Profile"}</Button>
+                      <Button type="submit" disabled={saving}>{saving ? "Saving profile" : "Save profile"}</Button>
                     </div>
                   </form>
                 </Card>
-              )}
+                )}
 
-              <Card className="stack">
-                <MediaUploadPanel
-                  title="Profile photos and videos"
-                  description="Show work examples and service proof. Approved media is visible to accepted connections."
-                  pickerLabel="Add profile media"
-                  uploadLabel="Upload profile media"
-                  selectedFile={uploadFile}
-                  inputRef={fileInputRef}
-                  pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
-                  error={uploadError}
-                  success={uploadSuccess}
-                  uploading={uploading}
-                  testId="profile-media-upload"
-                  onFileChange={onFileChange}
-                  onClearFile={clearUploadFile}
-                  onUpload={() => void onUploadMedia()}
-                />
-                <div className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Approved profile gallery</h3>
-                  <MediaPreviewGrid
-                    items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
-                    emptyText="Approved profile photos and videos will appear here."
-                    testId="profile-approved-media-grid"
-                  />
-                </div>
-                {mediaAssets.length === 0 ? (
-                  <EmptyState title="No media uploaded" body="Add images or videos that help others understand your services." />
-                ) : null}
-                {mediaCursor ? (
-                  <div style={{ display: "flex", justifyContent: "center" }}>
-                    <Button type="button" variant="secondary" onClick={() => void loadMoreMedia()}>Load more media</Button>
+                <Card className="stack profile-privacy-card">
+                  <div className="media-section-title">
+                    <div>
+                      <p className="surface-label">Contact privacy</p>
+                      <h3>Safety defaults</h3>
+                    </div>
+                    <StatusLabel tone="success">Protected</StatusLabel>
                   </div>
-                ) : null}
-              </Card>
+                  <p className="muted-text">
+                    Contact information is hidden from the public. Approved mutual connections can view only what you explicitly share.
+                  </p>
+                  <div className="profile-chip-row">
+                    <span>{metrics.pendingConnections} pending people</span>
+                    <span>{metrics.consentRequests} contact requests</span>
+                    <span>{metrics.activeConsentGrants} active shares</span>
+                  </div>
+                  <Link href="/consent" className="button ghost">Manage contact sharing</Link>
+                </Card>
+              </div>
 
-              <Card className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Public Gallery Previews</h3>
-                <p className="muted-text">Preview approved profile photos and videos for a member.</p>
+              <Card className="stack profile-preview-tool">
+                <div className="media-section-title">
+                  <div>
+                    <p className="surface-label">Preview tool</p>
+                    <h3>Approved profile preview</h3>
+                  </div>
+                </div>
+                <p className="muted-text">Load another member profile gallery when you need to inspect approved media from a connection context.</p>
                 {publicGalleryError && <Banner tone="error">{publicGalleryError}</Banner>}
                 <div className="grid two" style={{ alignItems: "end" }}>
                   <Field label="Member to preview" hint="Use a public member ID when you need to inspect another profile gallery.">
@@ -506,15 +514,33 @@ export default function ProfilePage(): JSX.Element {
                 ) : null}
               </Card>
 
-              <Card className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Recent Jobs</h3>
+              <section className="media-section-stack" aria-labelledby="profile-recent-jobs-heading">
+                <div className="media-section-title">
+                  <div>
+                    <p className="surface-label">Recent activity</p>
+                    <h3 id="profile-recent-jobs-heading">Recent jobs</h3>
+                  </div>
+                </div>
                 {loading ? <p className="muted-text">Loading activity...</p> : null}
                 {!loading && recentJobs.length === 0 ? (
                   <EmptyState title="No recent activity" body="Create a job to view updates here." />
                 ) : (
-                  <DataTable ariaLabel="Recent jobs" columns={recentJobsColumns} data={recentJobs} />
+                  <div className="profile-recent-grid">
+                    {recentJobs.map((job, index) => (
+                      <Link
+                        href={`/jobs/${job.id}`}
+                        className="profile-recent-card motion-row-change"
+                        key={job.id}
+                        style={{ "--i": index } as CSSProperties & Record<"--i", number>}
+                      >
+                        <span>{job.title}</span>
+                        <strong>{job.category}</strong>
+                        <em>{job.status.replaceAll("_", " ")} · {job.locationText} · {formatDate(job.createdAt).split(",")[0]}</em>
+                      </Link>
+                    ))}
+                  </div>
                 )}
-              </Card>
+              </section>
             </div>
           </RequireSession>
         </div>

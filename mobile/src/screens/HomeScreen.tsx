@@ -108,11 +108,10 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     statsRow: {
       flexDirection: "row",
       gap: 10,
-      flexWrap: "wrap"
+      paddingRight: 10
     },
     statCard: {
-      flex: 1,
-      minWidth: 104,
+      width: 146,
       borderRadius: 12,
       padding: 16,
       backgroundColor: colors.surface,
@@ -151,6 +150,7 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       lineHeight: 25
     },
     jobCard: {
+      width: 292,
       borderRadius: 12,
       padding: 18,
       gap: 12,
@@ -301,7 +301,7 @@ export function HomeScreen({
 
       {error ? <Banner tone="error" message={error} /> : null}
 
-      <View style={localStyles.statsRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
         <View style={localStyles.statCard}>
           <Text style={localStyles.statLabel}>Jobs</Text>
           <Text style={localStyles.statValue}>{dashboard?.metrics.totalJobs ?? 0}</Text>
@@ -314,7 +314,7 @@ export function HomeScreen({
           <Text style={localStyles.statLabel}>Pending</Text>
           <Text style={localStyles.statValue}>{dashboard?.metrics.pendingConnections ?? 0}</Text>
         </View>
-      </View>
+      </ScrollView>
 
       <View style={localStyles.filterRow}>
         {([
@@ -358,13 +358,16 @@ export function HomeScreen({
           </SectionCard>
         ) : null}
 
-        {filteredJobs.map((job) => (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
+        {filteredJobs.map((job, index) => (
           <MotionView
             key={job.id}
             style={[
               localStyles.jobCard,
               job.status !== "posted" && job.status !== "closed" ? localStyles.jobCardActive : null
             ]}
+            variant="rise"
+            delay={Math.min(index * 42, 210)}
           >
             <View style={localStyles.jobMetaRow}>
               <Text style={localStyles.jobCategory}>{job.category}</Text>
@@ -378,6 +381,7 @@ export function HomeScreen({
             </View>
           </MotionView>
         ))}
+        </ScrollView>
       </View>
     </ScrollView>
   );

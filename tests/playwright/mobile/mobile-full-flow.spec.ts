@@ -53,6 +53,7 @@ test("mobile full flow covers primary functional routes from authenticated shell
 
   await page.getByTestId("tab-privacy").click();
   await expect(page.getByText("Share contact details safely")).toBeVisible();
+  await page.getByTestId("consent-view-ask").click();
   await expect(page.getByTestId("consent-request-submit")).toBeVisible();
 
   await page.getByTestId("tab-jobs-discover").click();

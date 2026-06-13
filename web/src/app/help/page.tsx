@@ -8,7 +8,7 @@ import { Card, SectionHeader } from "@/components/ui/primitives";
 const helpRoutes = [
   {
     title: "Privacy or contact sharing",
-    body: "Review active contact grants, revoke sharing, or check whether a request is still pending.",
+    body: "Review who can see your contact details, stop sharing, or check whether a request is still pending.",
     href: "/consent",
     action: "Open privacy"
   },

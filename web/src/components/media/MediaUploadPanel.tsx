@@ -1,6 +1,7 @@
 "use client";
 
-import { ChangeEvent, RefObject } from "react";
+import type { CSSProperties } from "react";
+import { ChangeEvent, RefObject, useEffect, useMemo } from "react";
 
 import { formatDate, MediaAssetRecord, PublicMediaAssetRecord } from "@/lib/api";
 import { Banner, Button } from "@/components/ui/primitives";
@@ -48,33 +49,55 @@ export function MediaUploadPanel({
   title,
   description,
   pickerLabel,
+  cameraLabel = "Take photo or video",
   uploadLabel,
-  selectedFile,
+  selectedFiles,
   inputRef,
+  cameraInputRef,
   pendingItems,
   error,
   success,
   uploading,
   testId,
   onFileChange,
+  onCameraFileChange,
   onClearFile,
+  onRemoveFile,
   onUpload
 }: {
   title: string;
   description: string;
   pickerLabel: string;
+  cameraLabel?: string;
   uploadLabel: string;
-  selectedFile: File | null;
+  selectedFiles: File[];
   inputRef: RefObject<HTMLInputElement | null>;
+  cameraInputRef?: RefObject<HTMLInputElement | null>;
   pendingItems: OwnerMedia[];
   error: string | null;
   success: string | null;
   uploading: boolean;
   testId: string;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onCameraFileChange?: (event: ChangeEvent<HTMLInputElement>) => void;
   onClearFile: () => void;
+  onRemoveFile?: (index: number) => void;
   onUpload: () => void;
 }): JSX.Element {
+  const hasSelection = selectedFiles.length > 0;
+  const uploadCopy = useMemo(() => {
+    if (uploading) return "Uploading...";
+    if (selectedFiles.length <= 1) return uploadLabel;
+    return `Upload ${selectedFiles.length} files`;
+  }, [selectedFiles.length, uploadLabel, uploading]);
+  const objectUrls = useMemo(() => selectedFiles.map((file) => URL.createObjectURL(file)), [selectedFiles]);
+
+  useEffect(() => {
+    return () => {
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [objectUrls]);
+
   return (
     <div className="media-upload-panel" data-testid={testId}>
       <div className="media-upload-header">
@@ -82,44 +105,100 @@ export function MediaUploadPanel({
           <h3>{title}</h3>
           <p className="muted-text">{description}</p>
         </div>
-        <label className="button media-picker-button">
-          <span>{pickerLabel}</span>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-            aria-label={pickerLabel}
-            onChange={onFileChange}
-          />
-        </label>
+        <div className="media-picker-actions">
+          <label className="button secondary media-picker-button">
+            <span>{cameraLabel}</span>
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*,video/*"
+              capture="environment"
+              aria-label={cameraLabel}
+              onChange={onCameraFileChange ?? onFileChange}
+            />
+          </label>
+          <label className="button media-picker-button">
+            <span>{pickerLabel}</span>
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+              aria-label={pickerLabel}
+              multiple
+              onChange={onFileChange}
+            />
+          </label>
+        </div>
       </div>
 
       {error ? <Banner tone="error">{error}</Banner> : null}
       {success ? <Banner tone="success">{success}</Banner> : null}
 
-      {selectedFile ? (
-        <div className="media-selected-row" data-testid={`${testId}-selected`}>
-          <div className="media-file-icon" aria-hidden="true">
-            {fileKindLabel(selectedFile).slice(0, 1)}
+      {hasSelection ? (
+        <div className="media-selected-row media-selected-row-stack" data-testid={`${testId}-selected`}>
+          <div className="media-selected-summary">
+            <div>
+              <strong>
+                {selectedFiles.length} selected {selectedFiles.length === 1 ? "file" : "files"}
+              </strong>
+              <span className="muted-text">
+                {selectedFiles.filter((file) => file.type.startsWith("image/")).length} photos ·{" "}
+                {selectedFiles.filter((file) => file.type.startsWith("video/")).length} videos · automatic ordering
+              </span>
+            </div>
+            <div className="media-selected-actions">
+              <Button type="button" variant="ghost" disabled={uploading} onClick={onClearFile}>
+                Clear selection
+              </Button>
+              <Button type="button" disabled={uploading} onClick={onUpload}>
+                {uploadCopy}
+              </Button>
+            </div>
           </div>
-          <div className="media-selected-copy">
-            <strong>{selectedFile.name}</strong>
-            <span className="muted-text">
-              {fileKindLabel(selectedFile)} · {formatBytes(selectedFile.size)}
-            </span>
-          </div>
-          <div className="media-selected-actions">
-            <Button type="button" variant="ghost" disabled={uploading} onClick={onClearFile}>
-              Remove file
-            </Button>
-            <Button type="button" disabled={uploading} onClick={onUpload}>
-              {uploading ? "Uploading..." : uploadLabel}
-            </Button>
+          <div className="media-selection-rail" aria-label="Selected media">
+            {selectedFiles.map((file, index) => (
+              <article
+                key={`${file.name}-${file.size}-${index}`}
+                className="media-selection-card"
+                style={{ "--i": index } as CSSProperties & Record<"--i", number>}
+              >
+                <div className="media-selection-thumb">
+                  {file.type.startsWith("image/") ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={objectUrls[index]} alt="" />
+                  ) : file.type.startsWith("video/") ? (
+                    <video muted playsInline preload="metadata" aria-hidden="true">
+                      <source src={objectUrls[index]} type={file.type} />
+                    </video>
+                  ) : (
+                    <div className="media-file-icon" aria-hidden="true">
+                      {fileKindLabel(file).slice(0, 1)}
+                    </div>
+                  )}
+                  <span className="media-kind-badge">{fileKindLabel(file)}</span>
+                </div>
+                <div className="media-selected-copy">
+                  <strong>{file.name}</strong>
+                  <span className="muted-text">{formatBytes(file.size)}</span>
+                </div>
+                {onRemoveFile ? (
+                  <button
+                    type="button"
+                    className="media-remove-button"
+                    disabled={uploading}
+                    onClick={() => onRemoveFile(index)}
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </article>
+            ))}
           </div>
         </div>
       ) : (
         <div className="media-upload-empty">
-          <p className="muted-text">Choose an image or video, then upload it for review.</p>
+          <p className="muted-text">Take media now or choose several photos and videos from your gallery.</p>
         </div>
       )}
 

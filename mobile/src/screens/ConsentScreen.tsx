@@ -17,6 +17,8 @@ import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard, SkeletonCard } from "../components";
 
+type ConsentView = "sharing" | "requests" | "ask" | "history";
+
 function toOptionalIsoString(value: string): string | undefined {
   if (!value.trim()) return undefined;
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
@@ -60,6 +62,7 @@ export function ConsentScreen({
   const [canViewField, setCanViewField] = useState<ConsentField>("phone");
   const [canViewResult, setCanViewResult] = useState<boolean | null>(null);
   const currentUserId = user.publicUserId;
+  const [activeView, setActiveView] = useState<ConsentView>("sharing");
   const acceptedConnections = useMemo(
     () => connections.filter((connection) => connection.status === "accepted"),
     [connections]
@@ -139,6 +142,15 @@ export function ConsentScreen({
   const activeSharedWithMe = useMemo(
     () => grants.filter((grant) => grant.status === "active" && grant.granteeUserId === currentUserId),
     [grants, currentUserId]
+  );
+  const privacyViews = useMemo(
+    () => [
+      { key: "sharing" as const, label: "Seeing my details", count: activeOwnedGrants.length },
+      { key: "requests" as const, label: "Requests", count: pendingIncomingRequests.length },
+      { key: "ask" as const, label: "Ask", count: activeSharedWithMe.length },
+      { key: "history" as const, label: "History", count: requests.length + grants.length }
+    ],
+    [activeOwnedGrants.length, activeSharedWithMe.length, grants.length, pendingIncomingRequests.length, requests.length]
   );
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -326,6 +338,31 @@ export function ConsentScreen({
       {error ? <Banner tone="error" message={error} testID="consent-error-banner" /> : null}
       {success ? <Banner tone="success" message={success} testID="consent-success-banner" /> : null}
 
+      <View style={styles.privacyTaskTabs} accessibilityRole="tablist">
+        {privacyViews.map((view) => {
+          const selected = activeView === view.key;
+          return (
+            <Pressable
+              key={view.key}
+              style={[styles.privacyTaskTab, selected ? styles.privacyTaskTabSelected : null]}
+              onPress={() => setActiveView(view.key)}
+              accessibilityRole="tab"
+              accessibilityLabel={`${view.label}, ${view.count}`}
+              accessibilityState={{ selected }}
+              testID={`consent-view-${view.key}`}
+            >
+              <Text style={[styles.privacyTaskTabLabel, selected ? styles.privacyTaskTabLabelSelected : null]}>
+                {view.label}
+              </Text>
+              <Text style={[styles.privacyTaskTabCount, selected ? styles.privacyTaskTabCountSelected : null]}>
+                {view.count}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {activeView === "sharing" ? (
       <SectionCard
         title="People seeing your details"
         subtitle="Stop sharing as soon as the job or visit is complete."
@@ -352,24 +389,30 @@ export function ConsentScreen({
             <Text style={styles.dataMeta}>Can see: {fieldsText(grant.grantedFields)}</Text>
           </Pressable>
         ))}
-        <InputField
-          label="Reason for stopping"
-          value={revokeReason}
-          onChangeText={setRevokeReason}
-          placeholder="Service completed"
-          testID="consent-revoke-reason"
-        />
-        <AppButton
-          label={submitting ? "Stopping sharing..." : "Stop sharing details"}
-          onPress={() => {
-            void onRevoke();
-          }}
-          variant="secondary"
-          disabled={submitting || revokeGrantId.length === 0}
-          testID="consent-revoke-submit"
-        />
+        {activeOwnedGrants.length > 0 ? (
+          <>
+            <InputField
+              label="Reason for stopping"
+              value={revokeReason}
+              onChangeText={setRevokeReason}
+              placeholder="Service completed"
+              testID="consent-revoke-reason"
+            />
+            <AppButton
+              label={submitting ? "Stopping sharing..." : "Stop sharing details"}
+              onPress={() => {
+                void onRevoke();
+              }}
+              variant="secondary"
+              disabled={submitting || revokeGrantId.length === 0}
+              testID="consent-revoke-submit"
+            />
+          </>
+        ) : null}
       </SectionCard>
+      ) : null}
 
+      {activeView === "requests" ? (
       <SectionCard
         title="Requests waiting for you"
         subtitle="Approve only the contact details needed for the job or visit."
@@ -413,54 +456,61 @@ export function ConsentScreen({
             </View>
           ) : null
         ))}
-        <InputField
-          label="Why you are approving"
-          value={grantPurpose}
-          onChangeText={setGrantPurpose}
-          placeholder="Approved for one-time call"
-          testID="consent-grant-purpose"
-        />
-        <InputField
-          label="Access ends after (optional)"
-          value={grantExpiresAt}
-          onChangeText={setGrantExpiresAt}
-          placeholder="Example: 2026-12-31 23:59"
-          testID="consent-grant-expires-at"
-        />
-        <View style={styles.roleRow}>
-          {CONSENT_FIELDS.map((field) => (
-            <Pressable
-              key={field}
-              style={[
-                styles.roleChip,
-                grantFields.includes(field) ? styles.roleChipSelected : null
-              ]}
-              onPress={() => toggleGrantField(field)}
-              accessibilityRole="checkbox"
-              accessibilityLabel={`Share ${CONSENT_FIELD_LABELS[field]}`}
-              accessibilityState={{ checked: grantFields.includes(field) }}
-            >
-              <Text
-                style={[
-                  styles.roleChipLabel,
-                  grantFields.includes(field) ? styles.roleChipLabelSelected : null
-                ]}
-              >
-                {CONSENT_FIELD_LABELS[field]}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        <AppButton
-          label={submitting ? "Sharing details..." : "Share selected details"}
-          onPress={() => {
-            void onGrant();
-          }}
-          disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}
-          testID="consent-grant-submit"
-        />
+        {pendingIncomingRequests.length > 0 ? (
+          <>
+            <InputField
+              label="Why you are approving"
+              value={grantPurpose}
+              onChangeText={setGrantPurpose}
+              placeholder="Approved for one-time call"
+              testID="consent-grant-purpose"
+            />
+            <InputField
+              label="Access ends after (optional)"
+              value={grantExpiresAt}
+              onChangeText={setGrantExpiresAt}
+              placeholder="Example: 2026-12-31 23:59"
+              testID="consent-grant-expires-at"
+            />
+            <View style={styles.roleRow}>
+              {CONSENT_FIELDS.map((field) => (
+                <Pressable
+                  key={field}
+                  style={[
+                    styles.roleChip,
+                    grantFields.includes(field) ? styles.roleChipSelected : null
+                  ]}
+                  onPress={() => toggleGrantField(field)}
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={`Share ${CONSENT_FIELD_LABELS[field]}`}
+                  accessibilityState={{ checked: grantFields.includes(field) }}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipLabel,
+                      grantFields.includes(field) ? styles.roleChipLabelSelected : null
+                    ]}
+                  >
+                    {CONSENT_FIELD_LABELS[field]}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+            <AppButton
+              label={submitting ? "Sharing details..." : "Share selected details"}
+              onPress={() => {
+                void onGrant();
+              }}
+              disabled={submitting || grantFields.length === 0 || grantRequestId.length === 0}
+              testID="consent-grant-submit"
+            />
+          </>
+        ) : null}
       </SectionCard>
+      ) : null}
 
+      {activeView === "ask" ? (
+      <>
       <SectionCard
         title="Request contact details"
         subtitle="Ask for the smallest set of details needed for a job or visit."
@@ -535,6 +585,24 @@ export function ConsentScreen({
         />
       </SectionCard>
 
+      <SectionCard title="People who shared with you">
+        {activeSharedWithMe.length === 0 ? (
+          <Text style={styles.cardBodyMuted}>No contact details are shared with you right now.</Text>
+        ) : null}
+        {activeSharedWithMe.map((grant) => (
+          <View key={grant.id} style={styles.dataRow}>
+            <Text style={styles.dataTitle}>{personName(grant.ownerUserId)}</Text>
+            <Text style={styles.dataMeta}>{personMeta(grant.ownerUserId)}</Text>
+            <Text style={styles.dataMeta}>Member ID: {grant.ownerUserId}</Text>
+            <Text style={styles.dataMeta}>Shared with you: {fieldsText(grant.grantedFields)}</Text>
+          </View>
+        ))}
+      </SectionCard>
+      </>
+      ) : null}
+
+      {activeView === "history" ? (
+      <>
       <SectionCard title="Check sharing status">
         <Text style={styles.fieldLabel}>Connected person</Text>
         <View style={styles.roleRow}>
@@ -605,20 +673,6 @@ export function ConsentScreen({
         ) : null}
       </SectionCard>
 
-      <SectionCard title="People who shared with you">
-        {activeSharedWithMe.length === 0 ? (
-          <Text style={styles.cardBodyMuted}>No contact details are shared with you right now.</Text>
-        ) : null}
-        {activeSharedWithMe.map((grant) => (
-          <View key={grant.id} style={styles.dataRow}>
-            <Text style={styles.dataTitle}>{personName(grant.ownerUserId)}</Text>
-            <Text style={styles.dataMeta}>{personMeta(grant.ownerUserId)}</Text>
-            <Text style={styles.dataMeta}>Member ID: {grant.ownerUserId}</Text>
-            <Text style={styles.dataMeta}>Shared with you: {fieldsText(grant.grantedFields)}</Text>
-          </View>
-        ))}
-      </SectionCard>
-
       <SectionCard title="Recent privacy records">
         {loading ? <SkeletonCard /> : null}
         {!loading && requests.length === 0 && grants.length === 0 ? (
@@ -687,6 +741,8 @@ export function ConsentScreen({
           testID="consent-refresh"
         />
       </SectionCard>
+      </>
+      ) : null}
     </ScrollView>
   );
 }

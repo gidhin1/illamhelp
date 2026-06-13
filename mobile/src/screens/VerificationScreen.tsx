@@ -302,7 +302,7 @@ export function VerificationScreen({
             description="Choose an image or video from this device, then upload it privately for review."
             pickLabel="Add private document"
             uploadLabel="Upload private document"
-            pickedFile={pickedDocumentFile}
+            pickedFiles={pickedDocumentFile ? [pickedDocumentFile] : []}
             pendingItems={pendingReviewMedia(documentMediaAssets)}
             uploading={documentUploading}
             error={documentError}
@@ -312,6 +312,7 @@ export function VerificationScreen({
               void onPickDocument();
             }}
             onClear={() => setPickedDocumentFile(null)}
+            onRemove={() => setPickedDocumentFile(null)}
             onUpload={() => {
               void onUploadDocument();
             }}

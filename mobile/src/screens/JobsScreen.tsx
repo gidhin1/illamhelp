@@ -17,6 +17,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
@@ -97,7 +98,7 @@ export function JobsScreen({
   >({});
   const [ownJobManagerVisible, setOwnJobManagerVisible] = useState(false);
   const [jobMediaUploading, setJobMediaUploading] = useState(false);
-  const [pickedJobMediaFile, setPickedJobMediaFile] = useState<PickedMediaFile | null>(null);
+  const [pickedJobMediaFiles, setPickedJobMediaFiles] = useState<PickedMediaFile[]>([]);
 
   const [selectedOwnJobId, setSelectedOwnJobId] = useState<string | null>(null);
   const [selectedOwnJobApplications, setSelectedOwnJobApplications] = useState<
@@ -525,76 +526,119 @@ export function JobsScreen({
     setJobActionSuccess(null);
     const result = await DocumentPicker.getDocumentAsync({
       type: ["image/*", "video/*"],
-      multiple: false,
+      multiple: true,
       copyToCacheDirectory: true
     });
     if (result.canceled) {
       return;
     }
+    const files: PickedMediaFile[] = [];
+    for (const asset of result.assets) {
+      if (!asset?.mimeType || !asset.size) {
+        setJobActionError("Choose images or videos with readable file sizes.");
+        return;
+      }
+      if (!inferMediaKind(asset.mimeType)) {
+        setJobActionError("Only job photos and videos are supported.");
+        return;
+      }
+      files.push({
+        uri: asset.uri,
+        name: asset.name || `job-media-${Date.now()}`,
+        mimeType: asset.mimeType,
+        size: asset.size
+      });
+    }
+    setPickedJobMediaFiles((previous) => [...previous, ...files]);
+  };
+
+  const onCaptureJobMedia = async (): Promise<void> => {
+    setJobActionError(null);
+    setJobActionSuccess(null);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setJobActionError("Allow camera access to take job photos or videos.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      quality: 0.85,
+      videoMaxDuration: 60
+    });
+    if (result.canceled) {
+      return;
+    }
     const asset = result.assets[0];
-    if (!asset?.mimeType || !asset.size) {
+    const mimeType = asset.mimeType ?? (asset.type === "video" ? "video/mp4" : "image/jpeg");
+    const size = asset.fileSize ?? 0;
+    if (!size) {
       setJobActionError("Choose an image or video with a readable file size.");
       return;
     }
-    if (!inferMediaKind(asset.mimeType)) {
+    if (!inferMediaKind(mimeType)) {
       setJobActionError("Only job photos and videos are supported.");
       return;
     }
-    setPickedJobMediaFile({
+    setPickedJobMediaFiles((previous) => [...previous, {
       uri: asset.uri,
-      name: asset.name || `job-media-${Date.now()}`,
-      mimeType: asset.mimeType,
-      size: asset.size
-    });
+      name: asset.fileName || `job-media-${Date.now()}`,
+      mimeType,
+      size
+    }]);
   };
 
   const onUploadPickedJobMedia = async (jobId: string): Promise<void> => {
-    if (!pickedJobMediaFile) {
-      setJobActionError("Choose a job photo or video first.");
+    if (pickedJobMediaFiles.length === 0) {
+      setJobActionError("Choose one or more job photos or videos first.");
       return;
     }
-    const kind = inferMediaKind(pickedJobMediaFile.mimeType);
-    if (!kind) {
-      setJobActionError("Only job photos and videos are supported.");
+    const invalidFile = pickedJobMediaFiles.find((file) => !inferMediaKind(file.mimeType));
+    if (invalidFile) {
+      setJobActionError(`Only job photos and videos are supported. Remove ${invalidFile.name}.`);
       return;
     }
     setJobMediaUploading(true);
     setJobActionError(null);
     setJobActionSuccess(null);
     try {
-      const ticket = await createMediaUploadTicket(
-        {
-          kind,
-          purpose: "job",
-          jobId,
-          contentType: pickedJobMediaFile.mimeType,
-          fileSizeBytes: pickedJobMediaFile.size,
-          checksumSha256: randomHex(64),
-          originalFileName: pickedJobMediaFile.name
-        },
-        accessToken
-      );
-      const uploadResponse = await fetch(ticket.uploadUrl, {
-        method: "PUT",
-        headers: ticket.requiredHeaders,
-        body: {
-          uri: pickedJobMediaFile.uri,
-          name: pickedJobMediaFile.name,
-          type: pickedJobMediaFile.mimeType
-        } as unknown as RequestInit["body"]
-      });
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      for (const file of pickedJobMediaFiles) {
+        const kind = inferMediaKind(file.mimeType);
+        if (!kind) continue;
+        const ticket = await createMediaUploadTicket(
+          {
+            kind,
+            purpose: "job",
+            jobId,
+            contentType: file.mimeType,
+            fileSizeBytes: file.size,
+            checksumSha256: randomHex(64),
+            originalFileName: file.name
+          },
+          accessToken
+        );
+        const uploadResponse = await fetch(ticket.uploadUrl, {
+          method: "PUT",
+          headers: ticket.requiredHeaders,
+          body: {
+            uri: file.uri,
+            name: file.name,
+            type: file.mimeType
+          } as unknown as RequestInit["body"]
+        });
+        if (!uploadResponse.ok) {
+          throw new Error(`Upload failed with status ${uploadResponse.status}`);
+        }
+        const etag = uploadResponse.headers.get("etag")?.replace(/"/g, "");
+        await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
       }
-      const etag = uploadResponse.headers.get("etag")?.replace(/"/g, "");
-      await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
       const page = await listJobMediaPage(jobId, accessToken);
       setJobMediaByJobId((previous) => ({
         ...previous,
         [jobId]: page.items.filter((asset) => asset.purpose === "job")
       }));
-      setPickedJobMediaFile(null);
-      setJobActionSuccess("Job media uploaded. It will appear after review.");
+      const uploadedCount = pickedJobMediaFiles.length;
+      setPickedJobMediaFiles([]);
+      setJobActionSuccess(`${uploadedCount} job ${uploadedCount === 1 ? "file" : "files"} uploaded for review.`);
     } catch (requestError) {
       const message = asError(requestError, "Unable to upload job media");
       setJobActionError(message);
@@ -612,7 +656,7 @@ export function JobsScreen({
     }
 
     return (
-      <View style={styles.stackSmall}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
         {rows.map((job) => {
           const application = myApplicationsByJob[job.id] ?? null;
           const canApply =
@@ -627,7 +671,7 @@ export function JobsScreen({
           const isAssignedProvider = job.assignedProviderUserId === currentUserId;
 
           return (
-            <View key={job.id} style={styles.dataRow}>
+            <View key={job.id} style={[styles.dataRow, styles.carouselCard]}>
               <Text style={styles.dataTitle}>{job.title}</Text>
               <Text style={styles.dataMeta}>
                 {job.category} · {job.locationText}
@@ -708,7 +752,7 @@ export function JobsScreen({
             </View>
           );
         })}
-      </View>
+      </ScrollView>
     );
   };
 
@@ -845,13 +889,13 @@ export function JobsScreen({
                 {!loading && jobsPostedByMe.length === 0 ? (
                   <Text style={styles.cardBodyMuted}>You have not posted any jobs yet.</Text>
                 ) : null}
-                <View style={styles.stackSmall}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
                   {jobsPostedByMe.map((job) => {
                     const isCountLoading = applicantCountsLoadingByJob[job.id] ?? true;
                     const applicantCount = isCountLoading ? null : applicantCountsByJob[job.id] ?? 0;
                     const noApplicants = applicantCount === 0;
                     return (
-                      <View key={job.id} style={styles.dataRow}>
+                      <View key={job.id} style={[styles.dataRow, styles.carouselCard]}>
                         <Text style={styles.dataTitle}>{job.title}</Text>
                         <Text style={styles.dataMeta}>
                           {job.category} · {job.locationText}
@@ -896,7 +940,7 @@ export function JobsScreen({
                       </View>
                     );
                   })}
-                </View>
+                </ScrollView>
               </SectionCard>
             </>
           ) : null}
@@ -953,23 +997,28 @@ export function JobsScreen({
             testID="jobs-decision-reason"
           />
           <MediaUploadPanel
-            title="Job photos and videos"
-            description="Add context for the work. Approved media follows this job's visibility rules."
-            pickLabel="Add job media"
-            uploadLabel="Upload job media"
-            pickedFile={pickedJobMediaFile}
-            pendingItems={pendingReviewMedia(jobMediaByJobId[selectedOwnJob.id] ?? [])}
+          title="Job photos and videos"
+          description="Add context for the work. Approved media follows this job's visibility rules."
+          pickLabel="Add job media"
+          cameraLabel="Take job media"
+          uploadLabel="Upload job media"
+          pickedFiles={pickedJobMediaFiles}
+          pendingItems={pendingReviewMedia(jobMediaByJobId[selectedOwnJob.id] ?? [])}
             uploading={jobMediaUploading}
             error={null}
             success={null}
             testID={`jobs-upload-media-${selectedOwnJob.id}`}
-            onPick={() => {
-              void onPickJobMedia();
-            }}
-            onClear={() => setPickedJobMediaFile(null)}
-            onUpload={() => {
-              void onUploadPickedJobMedia(selectedOwnJob.id);
-            }}
+          onPick={() => {
+            void onPickJobMedia();
+          }}
+          onCameraPick={() => {
+            void onCaptureJobMedia();
+          }}
+          onClear={() => setPickedJobMediaFiles([])}
+          onRemove={(index) => setPickedJobMediaFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index))}
+          onUpload={() => {
+            void onUploadPickedJobMedia(selectedOwnJob.id);
+          }}
           />
           <MediaPreviewList
             items={approvedMedia(jobMediaByJobId[selectedOwnJob.id] ?? [])}

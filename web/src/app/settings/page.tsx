@@ -25,7 +25,7 @@ export default function SettingsPage(): JSX.Element {
               </Card>
               <Card className="stack">
                 <h3 style={{ fontFamily: "var(--font-display)" }}>Privacy state</h3>
-                <p className="muted-text">Review contact sharing grants and stop sharing when a request no longer needs access.</p>
+                <p className="muted-text">Review who can see your contact details and stop sharing when a request no longer needs access.</p>
                 <Link className="button ghost" href="/consent">Review privacy</Link>
               </Card>
               <Card className="stack">
