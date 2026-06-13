@@ -1,3 +1,4 @@
+import { createElement, type ComponentType } from "react";
 import {
   Bell,
   BriefcaseBusiness,
@@ -23,34 +24,38 @@ type IconProps = {
   color?: string;
 };
 
-const iconRenderers = {
-  home: House,
-  people: UsersRound,
-  profile: UserRound,
-  verify: ShieldCheck,
-  jobs: BriefcaseBusiness,
-  alerts: Bell,
-  privacy: LockKeyhole,
-  settings: Settings,
-  help: CircleHelp,
-  menu: Menu,
-  theme: Moon,
-  chevronDown: ChevronDown,
-  chevronRight: ChevronRight
-} satisfies Record<AppNavIcon, typeof House>;
+type NativeIconProps = {
+  color?: string;
+  size?: number;
+  strokeWidth?: number;
+};
+
+type NativeIconComponent = ComponentType<NativeIconProps>;
+
+const asNativeIcon = (Icon: unknown): NativeIconComponent => Icon as NativeIconComponent;
+
+const iconRenderers: Record<AppNavIcon, NativeIconComponent> = {
+  home: asNativeIcon(House),
+  people: asNativeIcon(UsersRound),
+  profile: asNativeIcon(UserRound),
+  verify: asNativeIcon(ShieldCheck),
+  jobs: asNativeIcon(BriefcaseBusiness),
+  alerts: asNativeIcon(Bell),
+  privacy: asNativeIcon(LockKeyhole),
+  settings: asNativeIcon(Settings),
+  help: asNativeIcon(CircleHelp),
+  menu: asNativeIcon(Menu),
+  theme: asNativeIcon(Moon),
+  chevronDown: asNativeIcon(ChevronDown),
+  chevronRight: asNativeIcon(ChevronRight)
+};
 
 export function NavIcon({
   name,
   size = 22,
   color = theme.colors.ink
 }: IconProps): JSX.Element {
-  const Icon = iconRenderers[name] ?? House;
+  const Icon = iconRenderers[name] ?? iconRenderers.home;
 
-  return (
-    <Icon
-      color={color}
-      size={size}
-      strokeWidth={2}
-    />
-  );
+  return createElement(Icon, { color, size, strokeWidth: 2 }) as JSX.Element;
 }

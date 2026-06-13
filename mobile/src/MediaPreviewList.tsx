@@ -8,6 +8,17 @@ import { AppButton } from "./components";
 import { formatBytes } from "./utils";
 import { useAppStyles } from "./theme-context";
 
+type ExpoVideoViewProps = {
+  player: unknown;
+  style: unknown;
+  contentFit: "cover" | "contain";
+  nativeControls?: boolean;
+  allowsFullscreen?: boolean;
+  accessibilityLabel?: string;
+};
+
+const ExpoVideoView = VideoView as unknown as (props: ExpoVideoViewProps) => JSX.Element;
+
 function VideoSurface({
   uri,
   fit,
@@ -30,7 +41,7 @@ function VideoSurface({
   });
 
   return (
-    <VideoView
+    <ExpoVideoView
       player={player}
       style={fit === "cover" ? styles.mediaPreviewVideo : styles.mediaViewerVideo}
       contentFit={fit}
