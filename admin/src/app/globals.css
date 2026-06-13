@@ -112,6 +112,77 @@ input, textarea, select {
     transform var(--motion-press) var(--ease-out);
 }
 
+/* Product motion system */
+:where(.button, .nav-item-hover, .admin-sidebar-action, .admin-review-segmented button, .theme-chip, .verification-decision-actions button) :where(svg) {
+  transition:
+    color var(--motion-state) var(--ease-out),
+    stroke var(--motion-state) var(--ease-out),
+    fill var(--motion-state) var(--ease-out),
+    transform var(--motion-press) var(--ease-out);
+  transform-origin: center;
+}
+
+:where(.button, .nav-item-hover, .admin-sidebar-action, .admin-review-segmented button, .theme-chip, .verification-decision-actions button):where(:hover, :focus-visible) :where(svg) {
+  transform: translateY(-1px) scale(1.06);
+}
+
+:where(.button, .nav-item-hover, .admin-sidebar-action, .admin-review-segmented button, .theme-chip, .verification-decision-actions button):active :where(svg) {
+  transform: scale(0.92);
+}
+
+:where(.nav-item-hover.active, .admin-review-segmented button.active) :where(svg) {
+  animation: iconSelectedPop 300ms var(--ease-out) both;
+}
+
+:where(.card, .kpi, .admin-next-review-card, .admin-queue-health > div, .admin-pending-item, .admin-review-panel, .table-card-row, .data-table tbody tr, .verification-queue-item, .moderation-queue-item) {
+  transform-origin: center;
+  transition:
+    background-color var(--motion-state) var(--ease-out),
+    border-color var(--motion-state) var(--ease-out),
+    color var(--motion-state) var(--ease-out),
+    box-shadow var(--motion-state) var(--ease-out),
+    opacity var(--motion-state) var(--ease-out),
+    transform var(--motion-state) var(--ease-out);
+}
+
+:where(.card, .kpi, .admin-next-review-card, .admin-queue-health > div, .admin-pending-item, .admin-review-panel, .table-card-row):where(:hover, :focus-within) {
+  transform: translateY(-2px);
+}
+
+:where(.input, .textarea, select.input) {
+  transition:
+    background-color var(--motion-state) var(--ease-out),
+    border-color var(--motion-state) var(--ease-out),
+    box-shadow var(--motion-state) var(--ease-out),
+    transform var(--motion-press) var(--ease-out);
+}
+
+:where(.input, .textarea, select.input):focus {
+  transform: translateY(-1px);
+}
+
+:where(.status-label, .pill, .badge) {
+  transition:
+    background-color var(--motion-state) var(--ease-out),
+    border-color var(--motion-state) var(--ease-out),
+    color var(--motion-state) var(--ease-out),
+    transform var(--motion-press) var(--ease-out);
+}
+
+.section-header,
+.admin-review-topbar {
+  animation: sectionHeaderIn 300ms var(--ease-out) both;
+}
+
+.section-header + :where(.stack, .grid, .card, section, div),
+.admin-review-shell {
+  animation: sectionBodyIn 340ms var(--ease-out) 60ms both;
+}
+
+:where(.motion-dialog, .admin-review-detail-panel, .moderation-details-panel, .verification-review-panel) {
+  will-change: transform, opacity;
+}
+
 /* Layout Utilities */
 .stack {
   display: flex;
@@ -1033,6 +1104,40 @@ input, textarea, select {
   from {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes iconSelectedPop {
+  0% {
+    transform: scale(0.9);
+  }
+  58% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes sectionHeaderIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sectionBodyIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
   }
   to {
     opacity: 1;

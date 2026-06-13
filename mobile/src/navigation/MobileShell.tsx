@@ -98,6 +98,19 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     bottomItemActive: {
       backgroundColor: colors.surface
     },
+    navIconShell: {
+      width: 34,
+      height: 30,
+      borderRadius: 999,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "transparent"
+    },
+    navIconShellActive: {
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.line
+    },
     bottomItemLabel: {
       color: colors.muted,
       fontSize: 11,
@@ -194,6 +207,20 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     },
     drawerItemActive: {
       backgroundColor: colors.surface
+    },
+    drawerIconShell: {
+      width: 34,
+      height: 34,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.line
+    },
+    drawerIconShellActive: {
+      backgroundColor: colors.surface,
+      borderColor: colors.brand
     },
     drawerItemLabel: {
       color: colors.ink,
@@ -426,7 +453,12 @@ export function MobileShell({
               accessibilityState={{ selected: active }}
               testID={`tab-${item.key}`}
             >
-              <View>
+              <View
+                style={[
+                  styles.navIconShell,
+                  active ? styles.navIconShellActive : null
+                ]}
+              >
                 <NavIcon
                   name={item.icon}
                   size={24}
@@ -502,7 +534,9 @@ export function MobileShell({
                             accessibilityLabel="Jobs"
                             accessibilityState={{ expanded: jobsExpanded, selected: active }}
                           >
-                            <NavIcon name={item.icon} size={22} color={active ? theme.colors.brand : theme.colors.ink} />
+                            <View style={[styles.drawerIconShell, active ? styles.drawerIconShellActive : null]}>
+                              <NavIcon name={item.icon} size={22} color={active ? theme.colors.brand : theme.colors.ink} />
+                            </View>
                             <Text style={styles.drawerItemLabel}>{item.label}</Text>
                             <NavIcon
                               name={jobsExpanded ? "chevronDown" : "chevronRight"}
@@ -559,7 +593,7 @@ export function MobileShell({
                         accessibilityLabel={item.label}
                         accessibilityState={{ selected: active }}
                       >
-                        <View>
+                        <View style={[styles.drawerIconShell, active ? styles.drawerIconShellActive : null]}>
                           <NavIcon
                             name={item.icon}
                             size={22}

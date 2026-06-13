@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { formatDate, PublicMediaAssetRecord } from "@/lib/api";
 
@@ -25,14 +25,85 @@ export function MediaPreviewGrid({
   testId?: string;
 }): JSX.Element {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const activeAsset = activeIndex === null ? null : items[activeIndex] ?? null;
+  const viewerOpen = activeAsset !== null;
+
+  const scrollToIndex = (nextIndex: number): void => {
+    const boundedIndex = Math.max(0, Math.min(items.length - 1, nextIndex));
+    const rail = railRef.current;
+    const slide = rail?.children.item(boundedIndex) as HTMLElement | null;
+    setCurrentIndex(boundedIndex);
+    slide?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+  };
+
+  const onRailScroll = (): void => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const slideWidth = rail.clientWidth || 1;
+    setCurrentIndex(Math.max(0, Math.min(items.length - 1, Math.round(rail.scrollLeft / slideWidth))));
+  };
+
+  const showActiveIndex = (nextIndex: number): void => {
+    const boundedIndex = Math.max(0, Math.min(items.length - 1, nextIndex));
+    setCurrentIndex(boundedIndex);
+    setActiveIndex(boundedIndex);
+  };
+
+  const focusableViewerElements = (): HTMLElement[] => {
+    const viewer = viewerRef.current;
+    if (!viewer) return [];
+    return Array.from(
+      viewer.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), video[controls], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
+  };
+
+  useEffect(() => {
+    if (!viewerOpen) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    window.setTimeout(() => closeButtonRef.current?.focus(), 0);
+
+    return () => {
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+    };
+  }, [viewerOpen]);
 
   useEffect(() => {
     if (!activeAsset) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") setActiveIndex(null);
-      if (event.key === "ArrowRight") setActiveIndex((previous) => (previous === null ? previous : Math.min(items.length - 1, previous + 1)));
-      if (event.key === "ArrowLeft") setActiveIndex((previous) => (previous === null ? previous : Math.max(0, previous - 1)));
+      if (event.key === "ArrowRight") setActiveIndex((previous) => {
+        if (previous === null) return previous;
+        const nextIndex = Math.min(items.length - 1, previous + 1);
+        setCurrentIndex(nextIndex);
+        return nextIndex;
+      });
+      if (event.key === "ArrowLeft") setActiveIndex((previous) => {
+        if (previous === null) return previous;
+        const nextIndex = Math.max(0, previous - 1);
+        setCurrentIndex(nextIndex);
+        return nextIndex;
+      });
+      if (event.key === "Tab") {
+        const focusable = focusableViewerElements();
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -48,50 +119,105 @@ export function MediaPreviewGrid({
 
   return (
     <>
-      <div className="media-grid media-carousel" data-testid={testId} aria-label="Approved media carousel">
-        {items.map((asset, index) => (
-          <article
-            key={asset.id}
-            className="media-tile"
-            data-testid={testId ? `${testId}-item` : undefined}
-            style={{ "--i": index } as CSSProperties & Record<"--i", number>}
-          >
-            <button
-              type="button"
-              className="media-card-button"
-              onClick={() => setActiveIndex(index)}
-              aria-label={`Open approved ${mediaPurposeLabel(asset.purpose)} ${asset.kind}`}
+      <div className="media-story-card" data-testid={testId} aria-label="Approved media carousel">
+        <div
+          ref={railRef}
+          className="media-story-rail"
+          onScroll={onRailScroll}
+          tabIndex={0}
+          aria-label={`${items.length} approved media item${items.length === 1 ? "" : "s"}`}
+        >
+          {items.map((asset, index) => (
+            <article
+              key={asset.id}
+              className="media-story-slide media-tile"
+              data-testid={testId ? `${testId}-item` : undefined}
+              style={{ "--i": index } as CSSProperties & Record<"--i", number>}
+              aria-label={`${index + 1} of ${items.length}: approved ${mediaPurposeLabel(asset.purpose)} ${asset.kind}`}
             >
-              <span className="media-frame">
+              <div className="media-frame">
                 {asset.kind === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={asset.downloadUrl}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    width={640}
-                    height={800}
-                  />
+                  <button
+                    type="button"
+                    className="media-frame-button"
+                    onClick={() => showActiveIndex(index)}
+                    aria-label={`Maximise approved ${mediaPurposeLabel(asset.purpose)} photo`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={asset.downloadUrl}
+                      alt={`Approved ${mediaPurposeLabel(asset.purpose)} photo`}
+                      loading="lazy"
+                      decoding="async"
+                      width={640}
+                      height={800}
+                    />
+                  </button>
                 ) : (
-                  <video muted playsInline preload="metadata" aria-hidden="true">
+                  <video
+                    className="media-inline-video"
+                    controls
+                    muted
+                    playsInline
+                    preload="metadata"
+                    poster={undefined}
+                    aria-label={`Approved ${mediaPurposeLabel(asset.purpose)} video`}
+                  >
                     <source src={asset.downloadUrl} type={asset.contentType} />
                   </video>
                 )}
                 <span className="media-kind-badge">{asset.kind === "image" ? "Photo" : "Video"}</span>
                 {asset.kind === "video" ? <span className="media-play-badge" aria-hidden="true">Play</span> : null}
-              </span>
-              <span className="media-meta">
-                <strong>{asset.kind === "image" ? "Photo" : "Video"}</strong>
-                <span>{formatBytes(asset.fileSizeBytes)} · {formatDate(asset.createdAt).split(",")[0]}</span>
-              </span>
-            </button>
-          </article>
-        ))}
+                <button
+                  type="button"
+                  className="media-maximise-button"
+                  onClick={() => showActiveIndex(index)}
+                  aria-label={`Maximise approved ${mediaPurposeLabel(asset.purpose)} ${asset.kind}`}
+                >
+                  Maximise
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        {items.length > 1 ? (
+          <div className="media-carousel-dots" aria-label="Media slides">
+            {items.map((asset, index) => (
+              <button
+                key={asset.id}
+                type="button"
+                className={index === currentIndex ? "active" : undefined}
+                onClick={() => scrollToIndex(index)}
+                aria-label={`Show media ${index + 1} of ${items.length}`}
+                aria-current={index === currentIndex ? "true" : undefined}
+              />
+            ))}
+          </div>
+        ) : null}
+        <div className="media-story-footer">
+          <div className="media-meta">
+            <strong>{items[currentIndex]?.kind === "video" ? "Video" : "Photo"}</strong>
+            <span>
+              {formatBytes(items[currentIndex]?.fileSizeBytes ?? items[0].fileSizeBytes)} ·{" "}
+              {formatDate(items[currentIndex]?.createdAt ?? items[0].createdAt).split(",")[0]}
+            </span>
+          </div>
+          {items.length > 1 ? (
+            <div className="media-story-actions" aria-label="Carousel controls">
+              <button type="button" onClick={() => scrollToIndex(currentIndex - 1)} disabled={currentIndex === 0}>
+                Previous
+              </button>
+              <button type="button" onClick={() => scrollToIndex(currentIndex + 1)} disabled={currentIndex === items.length - 1}>
+                Next
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
       {activeAsset ? (
         <div className="media-viewer-backdrop" role="presentation" onMouseDown={() => setActiveIndex(null)}>
           <section
+            ref={viewerRef}
             className="media-viewer"
             role="dialog"
             aria-modal="true"
@@ -103,7 +229,7 @@ export function MediaPreviewGrid({
                 <strong>{activeAsset.kind === "image" ? "Photo" : "Video"}</strong>
                 <span>{formatBytes(activeAsset.fileSizeBytes)} · {formatDate(activeAsset.createdAt).split(",")[0]}</span>
               </div>
-              <button type="button" className="media-viewer-close" onClick={() => setActiveIndex(null)}>
+              <button ref={closeButtonRef} type="button" className="media-viewer-close" onClick={() => setActiveIndex(null)}>
                 Close
               </button>
             </div>
@@ -123,7 +249,9 @@ export function MediaPreviewGrid({
                   type="button"
                   className="button secondary"
                   disabled={activeIndex === 0}
-                  onClick={() => setActiveIndex((previous) => (previous === null ? previous : Math.max(0, previous - 1)))}
+                  onClick={() => {
+                    if (activeIndex !== null) showActiveIndex(activeIndex - 1);
+                  }}
                 >
                   Previous media
                 </button>
@@ -132,15 +260,14 @@ export function MediaPreviewGrid({
                   type="button"
                   className="button secondary"
                   disabled={activeIndex === items.length - 1}
-                  onClick={() => setActiveIndex((previous) => (previous === null ? previous : Math.min(items.length - 1, previous + 1)))}
+                  onClick={() => {
+                    if (activeIndex !== null) showActiveIndex(activeIndex + 1);
+                  }}
                 >
                   Next media
                 </button>
               </div>
             ) : null}
-            <a href={activeAsset.downloadUrl} target="_blank" rel="noreferrer" className="media-viewer-link">
-              Open original file
-            </a>
           </section>
         </div>
       ) : null}

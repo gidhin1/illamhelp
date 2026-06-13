@@ -117,7 +117,7 @@ export default function RegisterPage(): JSX.Element {
                 <TextInput
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="StrongPass#2026"
+                  placeholder="Create a password"
                   type="password"
                   required
                   minLength={8}

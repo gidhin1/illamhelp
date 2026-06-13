@@ -49,7 +49,7 @@ export default function LoginPage(): JSX.Element {
                 <TextInput
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  placeholder="anita_worker_01"
+                  placeholder="Enter your username or email"
                   required
                   autoComplete="username"
                 />
@@ -58,7 +58,7 @@ export default function LoginPage(): JSX.Element {
                 <TextInput
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="StrongPass#2026"
+                  placeholder="Enter your password"
                   type="password"
                   required
                   autoComplete="current-password"

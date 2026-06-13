@@ -6,6 +6,7 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState
 } from "react";
@@ -93,6 +94,22 @@ function inferMediaKind(contentType: string): MediaKind | null {
   return null;
 }
 
+function resolveUploadMedia(file: File): { kind: MediaKind; contentType: string } | null {
+  const normalizedType = file.type.trim().toLowerCase();
+  const kindFromType = inferMediaKind(normalizedType);
+  if (kindFromType) {
+    return { kind: kindFromType, contentType: normalizedType };
+  }
+  const extension = file.name.split(".").at(-1)?.toLowerCase();
+  if (extension && ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"].includes(extension)) {
+    return { kind: "image", contentType: extension === "jpg" ? "image/jpeg" : `image/${extension}` };
+  }
+  if (extension && ["mp4", "mov", "m4v", "webm", "quicktime"].includes(extension)) {
+    return { kind: "video", contentType: extension === "mov" ? "video/quicktime" : `video/${extension}` };
+  }
+  return null;
+}
+
 async function sha256Hex(file: File): Promise<string> {
   if (!globalThis.crypto?.subtle) {
     throw new Error("Browser does not support file checksums.");
@@ -144,6 +161,11 @@ export default function ProfilePage(): JSX.Element {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  const [profilePictureFile, setProfilePictureFile] = useState<File | null>(null);
+  const [profilePictureUploading, setProfilePictureUploading] = useState(false);
+  const [profilePictureError, setProfilePictureError] = useState<string | null>(null);
+  const [profilePictureSuccess, setProfilePictureSuccess] = useState<string | null>(null);
+  const [pendingProfilePicture, setPendingProfilePicture] = useState<MediaAssetRecord | null>(null);
   
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
@@ -152,7 +174,18 @@ export default function ProfilePage(): JSX.Element {
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const profilePictureInputRef = useRef<HTMLInputElement | null>(null);
   const [recentJobs, setRecentJobs] = useState<DashboardResponse["recentJobs"]>([]);
+
+  const profileApprovedMedia = useMemo(
+    () => approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile")),
+    [publicMediaAssets]
+  );
+  const currentProfilePicture = useMemo(
+    () => profileApprovedMedia.find((asset) => asset.kind === "image") ?? null,
+    [profileApprovedMedia]
+  );
+  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState<string | null>(null);
 
   const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
     const normalizedOwnerId = ownerUserId.trim().toLowerCase();
@@ -228,6 +261,16 @@ export default function ProfilePage(): JSX.Element {
     void loadProfileData();
   }, [loadProfileData]);
 
+  useEffect(() => {
+    if (!profilePictureFile) {
+      setProfilePicturePreviewUrl(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(profilePictureFile);
+    setProfilePicturePreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [profilePictureFile]);
+
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const selected = Array.from(event.target.files ?? []);
     setUploadFiles((previous) => [...previous, ...selected]);
@@ -249,37 +292,48 @@ export default function ProfilePage(): JSX.Element {
     setUploadSuccess(null);
   };
 
+  const uploadProfileFiles = async (files: File[]): Promise<MediaAssetRecord[]> => {
+    if (!accessToken) throw new Error("Sign in before uploading profile media.");
+    const invalidFile = files.find((file) => !resolveUploadMedia(file));
+    if (invalidFile) {
+      throw new Error(`Only professional image/video files are supported. Remove ${invalidFile.name}.`);
+    }
+    const completedUploads: MediaAssetRecord[] = [];
+    for (const file of files) {
+      const resolvedMedia = resolveUploadMedia(file);
+      if (!resolvedMedia) continue;
+      const checksumSha256 = await sha256Hex(file);
+      const ticket = await createMediaUploadTicket(
+        {
+          kind: resolvedMedia.kind,
+          purpose: "profile",
+          contentType: resolvedMedia.contentType,
+          fileSizeBytes: file.size,
+          checksumSha256,
+          originalFileName: file.name
+        },
+        accessToken
+      );
+      const uploadResponse = await fetch(ticket.uploadUrl, { method: "PUT", headers: ticket.requiredHeaders, body: file });
+      if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      const etagHeader = uploadResponse.headers.get("etag") ?? undefined;
+      const completed = await completeMediaUpload(ticket.mediaId, { etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined }, accessToken);
+      completedUploads.push(completed);
+    }
+    return completedUploads;
+  };
+
   const onUploadMedia = async (): Promise<void> => {
     if (!accessToken) return;
     if (uploadFiles.length === 0) {
       setUploadError("Choose one or more photos or videos to upload.");
       return;
     }
-    const invalidFile = uploadFiles.find((file) => !inferMediaKind(file.type.trim().toLowerCase()));
-    if (invalidFile) {
-      setUploadError(`Only professional image/video files are supported. Remove ${invalidFile.name}.`);
-      return;
-    }
     setUploading(true);
     setUploadError(null);
     setUploadSuccess(null);
     try {
-      const completedUploads: MediaAssetRecord[] = [];
-      for (const file of uploadFiles) {
-        const contentType = file.type.trim().toLowerCase();
-        const kind = inferMediaKind(contentType);
-        if (!kind) continue;
-        const checksumSha256 = await sha256Hex(file);
-        const ticket = await createMediaUploadTicket(
-          { kind, purpose: "profile", contentType, fileSizeBytes: file.size, checksumSha256, originalFileName: file.name },
-          accessToken
-        );
-        const uploadResponse = await fetch(ticket.uploadUrl, { method: "PUT", headers: ticket.requiredHeaders, body: file });
-        if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
-        const etagHeader = uploadResponse.headers.get("etag") ?? undefined;
-        const completed = await completeMediaUpload(ticket.mediaId, { etag: etagHeader ? etagHeader.replaceAll('"', "") : undefined }, accessToken);
-        completedUploads.push(completed);
-      }
+      const completedUploads = await uploadProfileFiles(uploadFiles);
       setMediaAssets((previous) => [
         ...completedUploads,
         ...previous.filter((item) => !completedUploads.some((completed) => completed.id === item.id))
@@ -294,6 +348,45 @@ export default function ProfilePage(): JSX.Element {
       setUploadError(requestError instanceof Error ? requestError.message : "Unable to upload media file");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const onProfilePictureChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const selected = event.target.files?.[0] ?? null;
+    setProfilePictureError(null);
+    setProfilePictureSuccess(null);
+    if (selected && resolveUploadMedia(selected)?.kind !== "image") {
+      setProfilePictureFile(null);
+      setProfilePictureError("Choose an image file for your profile picture.");
+      return;
+    }
+    setProfilePictureFile(selected);
+  };
+
+  const onUploadProfilePicture = async (): Promise<void> => {
+    if (!accessToken) return;
+    if (!profilePictureFile) {
+      setProfilePictureError("Choose an image to upload as your profile picture.");
+      return;
+    }
+    setProfilePictureUploading(true);
+    setProfilePictureError(null);
+    setProfilePictureSuccess(null);
+    try {
+      const completedUploads = await uploadProfileFiles([profilePictureFile]);
+      const completedPicture = completedUploads.find((asset) => asset.kind === "image") ?? null;
+      setMediaAssets((previous) => [
+        ...completedUploads,
+        ...previous.filter((item) => !completedUploads.some((completed) => completed.id === item.id))
+      ]);
+      setPendingProfilePicture(completedPicture);
+      setProfilePictureSuccess("Profile picture uploaded for review.");
+      setProfilePictureFile(null);
+      if (profilePictureInputRef.current) profilePictureInputRef.current.value = "";
+    } catch (requestError) {
+      setProfilePictureError(requestError instanceof Error ? requestError.message : "Unable to upload profile picture");
+    } finally {
+      setProfilePictureUploading(false);
     }
   };
 
@@ -345,13 +438,74 @@ export default function ProfilePage(): JSX.Element {
               <div className="profile-story-layout">
                 <section className="profile-identity-panel" aria-labelledby="profile-identity-heading">
                   <p className="surface-label">Human identity</p>
-                  <h2 id="profile-identity-heading">{profile?.displayName ?? "Your IllamHelp profile"}</h2>
-                  {profile ? <PersonSummary userId={profile.userId} profile={profile} /> : null}
+                  <div className="profile-picture-lockup">
+                    <div className="profile-picture-frame">
+                      {profilePicturePreviewUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={profilePicturePreviewUrl} alt="Selected profile picture preview" />
+                      ) : currentProfilePicture ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={currentProfilePicture.downloadUrl} alt="Approved profile picture" />
+                      ) : (
+                        <span>{(profile?.displayName ?? "I").slice(0, 1).toUpperCase()}</span>
+                      )}
+                      {pendingProfilePicture || profilePictureFile ? (
+                        <em className="profile-picture-state">
+                          {profilePictureUploading ? "Uploading" : "Review"}
+                        </em>
+                      ) : null}
+                    </div>
+                    <div>
+                      <h2 id="profile-identity-heading">{profile?.displayName ?? "Your IllamHelp profile"}</h2>
+                      {profile ? <PersonSummary userId={profile.userId} profile={profile} /> : null}
+                    </div>
+                  </div>
                   <div className="profile-chip-row">
                     <span data-testid="profile-user-id">Member ID: {profile?.userId ?? user?.publicUserId}</span>
                     <span>{profile?.city || "City not set"}</span>
                     <span>{profile?.serviceCategories.slice(0, 2).join(", ") || "Services not set"}</span>
                   </div>
+                  <Card className="profile-picture-uploader stack">
+                    <div className="media-section-title">
+                      <div>
+                        <p className="surface-label">Profile picture</p>
+                        <h3>Set your first visual cue</h3>
+                      </div>
+                      <StatusLabel tone={currentProfilePicture ? "success" : "warning"}>
+                        {currentProfilePicture ? "Approved" : pendingProfilePicture ? "In review" : "Needs media"}
+                      </StatusLabel>
+                    </div>
+                    <p className="muted-text">
+                      Profile pictures use the same profile-media review and are visible only where profile media is allowed.
+                    </p>
+                    {profilePictureError ? <Banner tone="error">{profilePictureError}</Banner> : null}
+                    {profilePictureSuccess ? <Banner tone="success">{profilePictureSuccess}</Banner> : null}
+                    {profilePictureFile ? (
+                      <div className="profile-picture-selection">
+                        <strong>{profilePictureFile.name}</strong>
+                        <span>{Math.round(profilePictureFile.size / 1024)} KB selected</span>
+                      </div>
+                    ) : null}
+                    <div className="media-picker-actions">
+                      <label className="button secondary media-picker-button">
+                        <span>Choose profile picture</span>
+                        <input
+                          ref={profilePictureInputRef}
+                          type="file"
+                          accept="image/*"
+                          aria-label="Choose profile picture"
+                          onChange={onProfilePictureChange}
+                        />
+                      </label>
+                      <Button
+                        type="button"
+                        disabled={profilePictureUploading || !profilePictureFile}
+                        onClick={() => void onUploadProfilePicture()}
+                      >
+                        {profilePictureUploading ? "Uploading picture" : "Upload picture"}
+                      </Button>
+                    </div>
+                  </Card>
                   <div className="media-hero-stats" aria-label="Profile summary">
                     <div>
                       <strong>{metrics.totalJobs}</strong>
@@ -374,10 +528,10 @@ export default function ProfilePage(): JSX.Element {
                       <p className="surface-label">Privacy state</p>
                       <h3 id="profile-gallery-heading">Approved profile gallery</h3>
                     </div>
-                    <StatusLabel tone="success">{approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile")).length} approved</StatusLabel>
+                    <StatusLabel tone="success">{profileApprovedMedia.length} approved</StatusLabel>
                   </div>
                   <MediaPreviewGrid
-                    items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
+                    items={profileApprovedMedia}
                     emptyText="Approved profile photos and videos will appear here."
                     testId="profile-approved-media-grid"
                   />

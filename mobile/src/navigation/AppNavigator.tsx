@@ -14,6 +14,7 @@ import { ConnectionsScreen } from "../screens/ConnectionsScreen";
 import { ConsentScreen } from "../screens/ConsentScreen";
 import { VerificationScreen } from "../screens/VerificationScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
+import { PublicProfileScreen } from "../screens/PublicProfileScreen";
 import { AppButton, SectionCard } from "../components";
 
 function GuidanceScreen({
@@ -69,12 +70,14 @@ export function AppNavigator({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [jobsExpanded, setJobsExpanded] = useState(false);
   const [currentRoute, setCurrentRoute] = useState<MobileRouteKey>("home");
+  const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null);
 
   useEffect(() => {
     setDrawerOpen(false);
   }, [currentRoute]);
 
   const navigateTo = (key: MobileRouteKey): void => {
+    setSelectedProfileUserId(null);
     setCurrentRoute(key);
   };
 
@@ -96,12 +99,35 @@ export function AppNavigator({
   );
 
   const renderRoute = (): React.ReactNode => {
+    if (selectedProfileUserId) {
+      return (
+        <PublicProfileScreen
+          accessToken={accessToken}
+          user={user}
+          targetUserId={selectedProfileUserId}
+          onBack={() => setSelectedProfileUserId(null)}
+          onSessionInvalid={signOut}
+        />
+      );
+    }
+
     switch (currentRoute) {
       case "home":
-        return <HomeScreen accessToken={accessToken} onSessionInvalid={signOut} />;
+        return (
+          <HomeScreen
+            accessToken={accessToken}
+            onSessionInvalid={signOut}
+            onOpenJobs={() => navigateTo("jobs-discover")}
+          />
+        );
       case "people":
         return (
-          <ConnectionsScreen accessToken={accessToken} user={user} onSessionInvalid={signOut} />
+          <ConnectionsScreen
+            accessToken={accessToken}
+            user={user}
+            onSessionInvalid={signOut}
+            onDiscoverProfile={(userId) => setSelectedProfileUserId(userId)}
+          />
         );
       case "profile":
         return (
@@ -164,7 +190,7 @@ export function AppNavigator({
               },
               {
                 title: "Privacy state",
-                body: "Contact sharing is controlled from Privacy. You can review active grants and revoke them when needed."
+                body: "Contact sharing is controlled from Privacy. You can review active shares and stop them when needed."
               },
               {
                 title: "Next safe action",

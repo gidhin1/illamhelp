@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from "react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
@@ -36,6 +37,7 @@ import {
 } from "@/lib/api";
 
 export default function ConnectionsPage(): JSX.Element {
+  const router = useRouter();
   const { accessToken, user } = useSession();
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -223,6 +225,34 @@ export default function ConnectionsPage(): JSX.Element {
       setSearchLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!accessToken || searchResults.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        searchResults.map(async (candidate) => {
+          try {
+            const page = await listPublicApprovedMediaPage(candidate.userId, accessToken);
+            return [candidate.userId, page.items.filter((asset) => asset.purpose === "profile")] as const;
+          } catch {
+            return [candidate.userId, []] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfileMediaByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries)
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, searchResults]);
 
   const onAccept = async (connectionId: string): Promise<void> => {
     if (!accessToken) return;
@@ -435,7 +465,23 @@ export default function ConnectionsPage(): JSX.Element {
                           {candidate.serviceCategories.length > 0 ? (
                             <div className="muted-text">Services: {candidate.serviceCategories.join(", ")}</div>
                           ) : null}
+                          <div className="people-privacy-row">
+                            <span>{profileMediaByUserId[candidate.userId]?.length ?? 0} visible profile media</span>
+                            <span>Privacy-filtered profile</span>
+                          </div>
+                          <MediaPreviewGrid
+                            items={profileMediaByUserId[candidate.userId] ?? []}
+                            emptyText="No approved profile media is visible to you yet."
+                            testId={`people-search-profile-media-${candidate.userId}`}
+                          />
                           <div className="people-card-actions">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => router.push(`/profile/${encodeURIComponent(candidate.userId)}`)}
+                            >
+                              Discover
+                            </Button>
                             <Button type="button" disabled={requestLoading} onClick={() => void submitConnectionRequest({ targetUserId: candidate.userId })}>
                               Send request
                             </Button>

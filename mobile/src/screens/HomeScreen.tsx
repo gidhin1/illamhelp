@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardResponse, formatDate, getMyDashboard } from "../api";
-import { Banner, MotionView, SectionCard } from "../components";
+import { AppButton, Banner, MotionView, SectionCard } from "../components";
 import { asError, shouldForceSignOut } from "../utils";
 import { useAppStyles, useAppTheme } from "../theme-context";
 
@@ -221,10 +221,12 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
 
 export function HomeScreen({
   accessToken,
-  onSessionInvalid
+  onSessionInvalid,
+  onOpenJobs
 }: {
   accessToken: string;
   onSessionInvalid: () => void;
+  onOpenJobs?: () => void;
 }): JSX.Element {
   const styles = useAppStyles();
   const theme = useAppTheme();
@@ -359,15 +361,13 @@ export function HomeScreen({
         ) : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
-        {filteredJobs.map((job, index) => (
-          <MotionView
+        {filteredJobs.map((job) => (
+          <View
             key={job.id}
             style={[
               localStyles.jobCard,
               job.status !== "posted" && job.status !== "closed" ? localStyles.jobCardActive : null
             ]}
-            variant="rise"
-            delay={Math.min(index * 42, 210)}
           >
             <View style={localStyles.jobMetaRow}>
               <Text style={localStyles.jobCategory}>{job.category}</Text>
@@ -379,7 +379,15 @@ export function HomeScreen({
               <Text style={localStyles.jobFooterText}>Posted {formatDate(job.createdAt)}</Text>
               <Text style={localStyles.privacyNote}>Check profile before sharing contact details</Text>
             </View>
-          </MotionView>
+            {onOpenJobs ? (
+              <AppButton
+                label="Open jobs"
+                onPress={onOpenJobs}
+                variant="secondary"
+                testID={`home-open-job-${job.id}`}
+              />
+            ) : null}
+          </View>
         ))}
         </ScrollView>
       </View>

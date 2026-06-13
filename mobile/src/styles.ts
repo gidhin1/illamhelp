@@ -201,8 +201,8 @@ export function createAppStyles(theme: AppTheme) {
     opacity: 0.6
   },
   buttonPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.985 }]
+    opacity: 0.9,
+    transform: [{ scale: 0.965 }]
   },
   buttonLabel: {
     color: theme.colors.onStrong,
@@ -216,7 +216,12 @@ export function createAppStyles(theme: AppTheme) {
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderWidth: 1
+    borderWidth: 1,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1
   },
   bannerError: {
     backgroundColor: theme.colors.surfaceAlt,
@@ -255,7 +260,12 @@ export function createAppStyles(theme: AppTheme) {
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    gap: 4
+    gap: 4,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   kpiLabel: {
     color: theme.colors.muted,
@@ -275,7 +285,12 @@ export function createAppStyles(theme: AppTheme) {
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    gap: 3
+    gap: 3,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   dataRowSelected: {
     backgroundColor: theme.colors.surface,
@@ -328,7 +343,12 @@ export function createAppStyles(theme: AppTheme) {
     backgroundColor: theme.colors.surfaceAlt,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    gap: 7
+    gap: 7,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   mediaPreviewCardPressed: {
     transform: [{ scale: 0.985 }],
@@ -378,6 +398,56 @@ export function createAppStyles(theme: AppTheme) {
     fontSize: 11,
     fontWeight: "700",
     lineHeight: 14
+  },
+  mediaPlayPill: {
+    position: "absolute",
+    right: 8,
+    bottom: 8,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    backgroundColor: "rgba(26, 22, 37, 0.72)"
+  },
+  mediaMaximisePill: {
+    position: "absolute",
+    right: 8,
+    top: 8,
+    minHeight: 32,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.94)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.72)"
+  },
+  mediaMaximiseText: {
+    color: theme.colors.ink,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 14
+  },
+  mediaCarouselDots: {
+    minHeight: 18,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6
+  },
+  mediaCarouselDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: theme.colors.line
+  },
+  mediaCarouselDotActive: {
+    width: 20,
+    backgroundColor: theme.colors.brand,
+    shadowColor: theme.colors.brand,
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 1
   },
   mediaViewerBackdrop: {
     flex: 1,
@@ -514,9 +584,9 @@ export function createAppStyles(theme: AppTheme) {
     backgroundColor: theme.colors.surface,
     borderColor: theme.colors.brand,
     shadowColor: theme.colors.shadow,
-    shadowOpacity: 0.06,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 1
   },
   roleChipLabel: {
@@ -547,7 +617,12 @@ export function createAppStyles(theme: AppTheme) {
   },
   privacyTaskTabSelected: {
     borderColor: theme.colors.brand,
-    backgroundColor: theme.colors.surfaceAlt
+    backgroundColor: theme.colors.surfaceAlt,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   privacyTaskTabLabel: {
     color: theme.colors.ink,
@@ -597,7 +672,12 @@ export function createAppStyles(theme: AppTheme) {
     gap: 6
   },
   tabButtonSelected: {
-    backgroundColor: theme.colors.surface
+    backgroundColor: theme.colors.surface,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   tabButtonLabel: {
     color: theme.colors.muted,
@@ -630,7 +710,12 @@ export function createAppStyles(theme: AppTheme) {
     paddingVertical: 4,
     borderWidth: 1,
     borderColor: theme.colors.line,
-    backgroundColor: theme.colors.surfaceAlt
+    backgroundColor: theme.colors.surfaceAlt,
+    shadowColor: theme.colors.shadow,
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1
   },
   statusLabelSuccess: {
     borderColor: theme.colors.success

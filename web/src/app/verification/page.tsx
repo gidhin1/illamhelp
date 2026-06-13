@@ -94,7 +94,7 @@ export default function VerificationPage(): JSX.Element {
                 accessToken
             );
             setVerification(result);
-            setSuccess("Verification request submitted! We'll review your documents shortly.");
+            setSuccess("Verification request submitted. We'll review your documents shortly.");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to submit verification request");
         } finally {
@@ -247,7 +247,7 @@ export default function VerificationPage(): JSX.Element {
                                         </Field>
                                         <div style={{ marginTop: "var(--spacing-md)" }}>
                                             <Button type="submit" disabled={submitting}>
-                                                {submitting ? "Submitting..." : "Submit Verification"}
+                                                {submitting ? "Submitting..." : "Submit verification"}
                                             </Button>
                                         </div>
                                     </form>

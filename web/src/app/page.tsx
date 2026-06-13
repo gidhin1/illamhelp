@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowRight,
   BriefcaseBusiness,
   CheckCircle2,
   Home,
   LockKeyhole,
   MapPin,
+  PlayCircle,
   ShieldCheck,
+  Sparkles,
   Users
 } from "lucide-react";
 
@@ -123,7 +126,7 @@ export default function HomePage(): JSX.Element {
                         Posted {formatDate(job.createdAt)}
                       </div>
                       <div style={{ marginTop: "var(--spacing-md)", display: "flex", gap: "var(--spacing-sm)" }}>
-                        <Link href="/jobs" className="button-link">
+                        <Link href={`/jobs/${job.id}`} className="button-link">
                           <Button variant="secondary">View details</Button>
                         </Link>
                       </div>
@@ -148,71 +151,97 @@ export default function HomePage(): JSX.Element {
 
   return (
     <PageShell>
-      <section className="home-hero" aria-labelledby="home-title">
+      <section className="home-hero home-hero-overdrive" aria-labelledby="home-title">
         <div className="home-hero-copy">
           <div className="home-brand-mark" aria-hidden="true">
             <Home size={26} />
           </div>
-          <p className="home-hero-kicker">Household help with privacy controls built in</p>
+          <p className="home-hero-kicker">Trust signal studio for household work</p>
           <h1 id="home-title" className="home-hero-title">
-            Find trusted help before the work reaches your doorstep.
+            Know the person, privacy, and next step before work reaches home.
           </h1>
           <p className="home-hero-subtitle">
-            Post household jobs, review providers, and share contact details only after you choose who can see them.
+            IllamHelp turns every job into a clear trust workflow: identity first, private media where it belongs, and contact sharing only when you choose.
           </p>
           <div className="home-hero-actions">
             <Link href="/auth/register" className="button home-primary-action">
-              Create account
+              Create account <ArrowRight size={18} aria-hidden="true" />
             </Link>
             <Link href="/auth/login" className="button secondary home-secondary-action">
               Sign in
             </Link>
           </div>
           <div className="home-hero-trustbar" aria-label="IllamHelp safety highlights">
-            <span>Private contact sharing</span>
-            <span>Profile and media review</span>
-            <span>Clear job status</span>
+            <span>Human identity first</span>
+            <span>Privacy state visible</span>
+            <span>Next safe action named</span>
           </div>
         </div>
 
-        <div className="home-trust-scene" aria-label="IllamHelp trust workflow preview">
+        <div className="home-trust-scene home-trust-studio" aria-label="IllamHelp trust workflow preview">
           <div className="home-scene-status">
             <span className="home-live-dot" aria-hidden="true" />
-            Safe next action: review applicant profile
+            Safe next action: review Arun&apos;s profile
           </div>
           <div className="home-scene-topline">
             <span>Kochi, 8:40 AM</span>
             <span>Kitchen leak repair</span>
           </div>
-          <div className="home-job-card">
-            <div className="home-job-icon">
-              <BriefcaseBusiness size={24} aria-hidden="true" />
+          <div className="home-studio-board">
+            <div className="home-person-card">
+              <div className="home-person-avatar" aria-hidden="true">A</div>
+              <div>
+                <span className="home-card-label">Applicant</span>
+                <strong>Arun M.</strong>
+                <span>Plumber, Kakkanad</span>
+              </div>
+              <ShieldCheck size={22} aria-hidden="true" />
             </div>
-            <div>
-              <strong>Urgent plumber needed</strong>
-              <span>Kakkanad, today</span>
+
+            <div className="home-workflow-track" aria-hidden="true">
+              <span className="active" />
+              <span className="active" />
+              <span />
+            </div>
+
+            <div className="home-job-card">
+              <div className="home-job-icon">
+                <BriefcaseBusiness size={24} aria-hidden="true" />
+              </div>
+              <div>
+                <span className="home-card-label">Job</span>
+                <strong>Urgent plumber needed</strong>
+                <span>Kakkanad, today</span>
+              </div>
+            </div>
+
+            <div className="home-media-proof-card">
+              <div className="home-media-frame">
+                <PlayCircle size={30} aria-hidden="true" />
+                <span>Work sample video</span>
+              </div>
+              <div>
+                <strong>Approved profile media</strong>
+                <span>Visible to accepted connections only.</span>
+              </div>
             </div>
           </div>
-          <div className="home-route-line" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
+
           <div className="home-proof-grid">
             <div className="home-proof-card strong">
               <ShieldCheck size={22} aria-hidden="true" />
-              <strong>Profile checked</strong>
-              <span>Verification and media review stay visible.</span>
-            </div>
-            <div className="home-proof-card">
-              <Users size={22} aria-hidden="true" />
-              <strong>Apply with context</strong>
-              <span>Providers share skills, location, and work examples.</span>
+              <strong>Identity reviewed</strong>
+              <span>Real person context comes before action.</span>
             </div>
             <div className="home-proof-card">
               <LockKeyhole size={22} aria-hidden="true" />
-              <strong>Contact stays private</strong>
-              <span>You approve sharing when the match feels right.</span>
+              <strong>Privacy locked</strong>
+              <span>Contact details stay hidden until approved.</span>
+            </div>
+            <div className="home-proof-card">
+              <Sparkles size={22} aria-hidden="true" />
+              <strong>Action is obvious</strong>
+              <span>Review, accept, message, or wait.</span>
             </div>
           </div>
           <div className="home-location-chip">
@@ -224,26 +253,26 @@ export default function HomePage(): JSX.Element {
 
       <section className="home-proof-section" aria-label="Why households use IllamHelp">
         <div className="home-proof-intro">
-          <h2>Trust is not a badge here. It is a workflow.</h2>
+          <h2>Trust is not a badge here. It is the order of the page.</h2>
           <p>
-            Every important step names who can act next: job owner, provider, connection, or moderator.
+            Every important surface starts with a human, shows the privacy state, and names the next action.
           </p>
         </div>
         <div className="home-proof-steps">
           <div>
             <CheckCircle2 size={20} aria-hidden="true" />
-            <strong>Post the work clearly</strong>
-            <span>Category, location, visibility, and job media sit with the request.</span>
+            <strong>Human identity</strong>
+            <span>Provider, job owner, applicant, and connection context come before raw records.</span>
           </div>
           <div>
             <CheckCircle2 size={20} aria-hidden="true" />
-            <strong>Review people before sharing</strong>
-            <span>Profiles, approved media, and applications stay inspectable.</span>
+            <strong>Privacy state</strong>
+            <span>Profile media, job media, documents, and contact details each have visible rules.</span>
           </div>
           <div>
             <CheckCircle2 size={20} aria-hidden="true" />
-            <strong>Keep contact details controlled</strong>
-            <span>Sharing is explicit, reversible, and shown in plain language.</span>
+            <strong>Next safe action</strong>
+            <span>The interface says what to do next without forcing a risky step.</span>
           </div>
         </div>
       </section>
