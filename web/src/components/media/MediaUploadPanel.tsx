@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { ChangeEvent, RefObject, useEffect, useMemo } from "react";
 
 import { formatDate, MediaAssetRecord, PublicMediaAssetRecord } from "@/lib/api";
+import { createSafeMediaObjectUrl, revokeSafeObjectUrl } from "@/lib/safe-object-url";
 import { Banner, Button } from "@/components/ui/primitives";
 
 type OwnerMedia = MediaAssetRecord | PublicMediaAssetRecord;
@@ -90,13 +91,22 @@ export function MediaUploadPanel({
     if (selectedFiles.length <= 1) return uploadLabel;
     return `Upload ${selectedFiles.length} files`;
   }, [selectedFiles.length, uploadLabel, uploading]);
-  const objectUrls = useMemo(() => selectedFiles.map((file) => URL.createObjectURL(file)), [selectedFiles]);
+  const previewItems = useMemo(
+    () =>
+      selectedFiles.map((file) => ({
+        file,
+        objectUrl: createSafeMediaObjectUrl(file, { videos: true })
+      })),
+    [selectedFiles]
+  );
 
   useEffect(() => {
     return () => {
-      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+      previewItems.forEach((item) => {
+        if (item.objectUrl) revokeSafeObjectUrl(item.objectUrl);
+      });
     };
-  }, [objectUrls]);
+  }, [previewItems]);
 
   return (
     <div className="media-upload-panel" data-testid={testId}>
@@ -156,19 +166,19 @@ export function MediaUploadPanel({
             </div>
           </div>
           <div className="media-selection-rail" aria-label="Selected media">
-            {selectedFiles.map((file, index) => (
+            {previewItems.map(({ file, objectUrl }, index) => (
               <article
                 key={`${file.name}-${file.size}-${index}`}
                 className="media-selection-card"
                 style={{ "--i": index } as CSSProperties & Record<"--i", number>}
               >
                 <div className="media-selection-thumb">
-                  {file.type.startsWith("image/") ? (
+                  {objectUrl && file.type.startsWith("image/") ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={objectUrls[index]} alt="" />
-                  ) : file.type.startsWith("video/") ? (
+                    <img src={objectUrl} alt="" />
+                  ) : objectUrl && file.type.startsWith("video/") ? (
                     <video muted playsInline preload="metadata" aria-hidden="true">
-                      <source src={objectUrls[index]} type={file.type} />
+                      <source src={objectUrl} type={file.type} />
                     </video>
                   ) : (
                     <div className="media-file-icon" aria-hidden="true">

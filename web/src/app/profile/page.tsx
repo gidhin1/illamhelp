@@ -46,6 +46,7 @@ import {
   ProfileRecord,
   updateMyProfile
 } from "@/lib/api";
+import { createSafeMediaObjectUrl, revokeSafeObjectUrl, type SafeObjectUrl } from "@/lib/safe-object-url";
 
 interface ProfileMetrics {
   totalJobs: number;
@@ -185,7 +186,7 @@ export default function ProfilePage(): JSX.Element {
     () => profileApprovedMedia.find((asset) => asset.kind === "image") ?? null,
     [profileApprovedMedia]
   );
-  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState<string | null>(null);
+  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState<SafeObjectUrl | null>(null);
 
   const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
     const normalizedOwnerId = ownerUserId.trim().toLowerCase();
@@ -266,9 +267,11 @@ export default function ProfilePage(): JSX.Element {
       setProfilePicturePreviewUrl(null);
       return;
     }
-    const objectUrl = URL.createObjectURL(profilePictureFile);
+    const objectUrl = createSafeMediaObjectUrl(profilePictureFile);
     setProfilePicturePreviewUrl(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
+    return () => {
+      if (objectUrl) revokeSafeObjectUrl(objectUrl);
+    };
   }, [profilePictureFile]);
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
