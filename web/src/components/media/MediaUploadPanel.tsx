@@ -1,10 +1,9 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { ChangeEvent, RefObject, useEffect, useMemo } from "react";
+import { ChangeEvent, RefObject, useMemo } from "react";
 
 import { formatDate, MediaAssetRecord, PublicMediaAssetRecord } from "@/lib/api";
-import { createSafeMediaObjectUrl, revokeSafeObjectUrl } from "@/lib/safe-object-url";
 import { Banner, Button } from "@/components/ui/primitives";
 
 type OwnerMedia = MediaAssetRecord | PublicMediaAssetRecord;
@@ -91,23 +90,6 @@ export function MediaUploadPanel({
     if (selectedFiles.length <= 1) return uploadLabel;
     return `Upload ${selectedFiles.length} files`;
   }, [selectedFiles.length, uploadLabel, uploading]);
-  const previewItems = useMemo(
-    () =>
-      selectedFiles.map((file) => ({
-        file,
-        objectUrl: createSafeMediaObjectUrl(file, { videos: true })
-      })),
-    [selectedFiles]
-  );
-
-  useEffect(() => {
-    return () => {
-      previewItems.forEach((item) => {
-        if (item.objectUrl) revokeSafeObjectUrl(item.objectUrl);
-      });
-    };
-  }, [previewItems]);
-
   return (
     <div className="media-upload-panel" data-testid={testId}>
       <div className="media-upload-header">
@@ -166,25 +148,16 @@ export function MediaUploadPanel({
             </div>
           </div>
           <div className="media-selection-rail" aria-label="Selected media">
-            {previewItems.map(({ file, objectUrl }, index) => (
+            {selectedFiles.map((file, index) => (
               <article
                 key={`${file.name}-${file.size}-${index}`}
                 className="media-selection-card"
                 style={{ "--i": index } as CSSProperties & Record<"--i", number>}
               >
                 <div className="media-selection-thumb">
-                  {objectUrl && file.type.startsWith("image/") ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={objectUrl} alt="" />
-                  ) : objectUrl && file.type.startsWith("video/") ? (
-                    <video muted playsInline preload="metadata" aria-hidden="true">
-                      <source src={objectUrl} type={file.type} />
-                    </video>
-                  ) : (
-                    <div className="media-file-icon" aria-hidden="true">
-                      {fileKindLabel(file).slice(0, 1)}
-                    </div>
-                  )}
+                  <div className="media-file-icon" aria-hidden="true">
+                    {fileKindLabel(file).slice(0, 1)}
+                  </div>
                   <span className="media-kind-badge">{fileKindLabel(file)}</span>
                 </div>
                 <div className="media-selected-copy">

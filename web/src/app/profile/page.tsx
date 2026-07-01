@@ -46,7 +46,6 @@ import {
   ProfileRecord,
   updateMyProfile
 } from "@/lib/api";
-import { createSafeMediaObjectUrl, revokeSafeObjectUrl, type SafeObjectUrl } from "@/lib/safe-object-url";
 
 interface ProfileMetrics {
   totalJobs: number;
@@ -186,7 +185,6 @@ export default function ProfilePage(): JSX.Element {
     () => profileApprovedMedia.find((asset) => asset.kind === "image") ?? null,
     [profileApprovedMedia]
   );
-  const [profilePicturePreviewUrl, setProfilePicturePreviewUrl] = useState<SafeObjectUrl | null>(null);
 
   const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
     const normalizedOwnerId = ownerUserId.trim().toLowerCase();
@@ -261,18 +259,6 @@ export default function ProfilePage(): JSX.Element {
   useEffect(() => {
     void loadProfileData();
   }, [loadProfileData]);
-
-  useEffect(() => {
-    if (!profilePictureFile) {
-      setProfilePicturePreviewUrl(null);
-      return;
-    }
-    const objectUrl = createSafeMediaObjectUrl(profilePictureFile);
-    setProfilePicturePreviewUrl(objectUrl);
-    return () => {
-      if (objectUrl) revokeSafeObjectUrl(objectUrl);
-    };
-  }, [profilePictureFile]);
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
     const selected = Array.from(event.target.files ?? []);
@@ -443,10 +429,7 @@ export default function ProfilePage(): JSX.Element {
                   <p className="surface-label">Human identity</p>
                   <div className="profile-picture-lockup">
                     <div className="profile-picture-frame">
-                      {profilePicturePreviewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={profilePicturePreviewUrl} alt="Selected profile picture preview" />
-                      ) : currentProfilePicture ? (
+                      {currentProfilePicture ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={currentProfilePicture.downloadUrl} alt="Approved profile picture" />
                       ) : (
