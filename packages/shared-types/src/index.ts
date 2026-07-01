@@ -1,3 +1,6 @@
+export * from "./analytics";
+export * from "./legal";
+
 export type UserRole = "seeker" | "provider" | "admin" | "support";
 
 export type ConnectionStatus = "pending" | "accepted" | "declined" | "blocked";

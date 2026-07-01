@@ -21,6 +21,8 @@ const navLinks = [
   { href: "/audit", label: "Consent + Audit", Icon: FileSearch }
 ];
 
+const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+
 export function NavBar(): React.JSX.Element {
   const pathname = usePathname();
   const { user, hasAdminAccess, signOut } = useSession();
@@ -172,6 +174,12 @@ export function NavBar(): React.JSX.Element {
           >
              <LogOut size={18} /> <span className="sidebar-label">Sign Out</span>
           </Button>
+          <div className="sidebar-label" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14, fontSize: "0.78rem" }}>
+            <a href={`${webAppUrl}/privacy-policy`} target="_blank" rel="noreferrer">Privacy</a>
+            <a href={`${webAppUrl}/terms`} target="_blank" rel="noreferrer">Terms</a>
+            <a href={`${webAppUrl}/faq`} target="_blank" rel="noreferrer">FAQ</a>
+            <a href={`${webAppUrl}/help`} target="_blank" rel="noreferrer">Help</a>
+          </div>
         </div>
       ) : (
         <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>

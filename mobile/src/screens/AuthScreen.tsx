@@ -1,6 +1,12 @@
-import { useMemo } from "react";
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useMemo, useState } from "react";
+import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { LegalHelpContent, type LegalHelpTab } from "./LegalHelpScreen";
+
+import { styles } from "../styles";
+import { AppButton, Banner, InputField, SectionCard, AuthMode, MotionView } from "../components";
+import { useAppTheme } from "../theme-context";
+
 export interface LoginFormState {
   username: string;
   password: string;
@@ -12,10 +18,8 @@ export interface RegisterFormState {
   username: string;
   phone: string;
   password: string;
+  legalAccepted: boolean;
 }
-import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard, AuthMode, MotionView } from "../components";
-import { useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
@@ -220,6 +224,71 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       color: colors.muted,
       fontSize: 13,
       lineHeight: 20
+    },
+    legalAcceptance: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: 10,
+      borderRadius: 12,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: colors.line,
+      backgroundColor: colors.surfaceAlt
+    },
+    checkbox: {
+      width: 22,
+      height: 22,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: colors.line,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface
+    },
+    checkboxActive: {
+      borderColor: colors.brand,
+      backgroundColor: colors.brand
+    },
+    checkboxMark: {
+      color: colors.onStrong,
+      fontSize: 14,
+      fontWeight: "900"
+    },
+    legalLinkRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 8
+    },
+    legalLink: {
+      color: colors.brandText,
+      fontSize: 13,
+      fontWeight: "800"
+    },
+    modalBackdrop: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.46)",
+      justifyContent: "flex-end"
+    },
+    modalPanel: {
+      maxHeight: "88%",
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      padding: 18,
+      backgroundColor: colors.bg,
+      borderWidth: 1,
+      borderColor: colors.line
+    },
+    modalHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      marginBottom: 14
+    },
+    modalTitle: {
+      color: colors.ink,
+      fontSize: 20,
+      fontWeight: "800"
     }
   });
 }
@@ -249,6 +318,7 @@ export function AuthScreen({
 }): JSX.Element {
   const theme = useAppTheme();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
+  const [legalModalTab, setLegalModalTab] = useState<LegalHelpTab | null>(null);
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -458,6 +528,52 @@ export function AuthScreen({
               textContentType="newPassword"
               testID="auth-register-password"
             />
+            <Pressable
+              onPress={() => setRegisterForm({ ...registerForm, legalAccepted: !registerForm.legalAccepted })}
+              style={({ pressed }) => [
+                localStyles.legalAcceptance,
+                pressed ? styles.buttonPressed : null
+              ]}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: registerForm.legalAccepted }}
+              accessibilityLabel="Accept current Terms and Privacy Policy"
+              testID="auth-register-legal-acceptance"
+            >
+              <View style={[localStyles.checkbox, registerForm.legalAccepted ? localStyles.checkboxActive : null]}>
+                {registerForm.legalAccepted ? <Text style={localStyles.checkboxMark}>✓</Text> : null}
+              </View>
+              <View style={{ flex: 1, gap: 8 }}>
+                <Text style={localStyles.legal}>
+                  I agree to the current Terms and Conditions and Privacy Policy.
+                </Text>
+                <View style={localStyles.legalLinkRow}>
+                  <Pressable
+                    onPress={() => setLegalModalTab("terms")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Terms and Conditions"
+                    testID="auth-open-terms"
+                  >
+                    <Text style={localStyles.legalLink}>Terms</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setLegalModalTab("privacy")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Privacy Policy"
+                    testID="auth-open-privacy-policy"
+                  >
+                    <Text style={localStyles.legalLink}>Privacy Policy</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setLegalModalTab("faq")}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open FAQ"
+                    testID="auth-open-faq"
+                  >
+                    <Text style={localStyles.legalLink}>FAQ</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Pressable>
             <AppButton
               label={busy ? "Creating..." : "Create account"}
               onPress={() => {
@@ -472,6 +588,24 @@ export function AuthScreen({
         <Text style={localStyles.legal}>
           By continuing, you agree to a trust-first experience where contact details stay protected until you explicitly approve sharing.
         </Text>
+        <Modal
+          visible={legalModalTab !== null}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setLegalModalTab(null)}
+        >
+          <View style={localStyles.modalBackdrop}>
+            <View style={localStyles.modalPanel}>
+              <View style={localStyles.modalHeader}>
+                <Text style={localStyles.modalTitle}>IllamHelp legal</Text>
+                <AppButton label="Close" variant="ghost" onPress={() => setLegalModalTab(null)} />
+              </View>
+              <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
+                <LegalHelpContent initialTab={legalModalTab ?? "help"} compact />
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );

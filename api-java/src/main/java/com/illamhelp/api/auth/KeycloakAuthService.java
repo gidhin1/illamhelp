@@ -236,9 +236,11 @@ public class KeycloakAuthService {
   }
 
   private AuthSession session(Map<String, Object> token, String userId, String username, List<String> roles) {
+    String analyticsUserId = authUserService.getAnalyticsUserIdByUserId(userId).orElse(null);
     return new AuthSession(
         userId,
         username,
+        analyticsUserId,
         username,
         userTypeFromRoles(roles),
         roles,
@@ -326,7 +328,8 @@ public class KeycloakAuthService {
     return "both";
   }
 
-  public record AuthSession(String userId, String publicUserId, String username, String userType, List<String> roles,
-      String accessToken, Long expiresIn, String refreshToken, Long refreshExpiresIn, String tokenType, String scope) {
+  public record AuthSession(String userId, String publicUserId, String analyticsUserId, String username, String userType,
+      List<String> roles, String accessToken, Long expiresIn, String refreshToken, Long refreshExpiresIn,
+      String tokenType, String scope) {
   }
 }

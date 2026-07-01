@@ -5,8 +5,10 @@ import static com.illamhelp.api.TestFixtures.properties;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -36,17 +38,22 @@ class AuthTests {
   void controllerDelegatesAuthenticationAndRegistrationProfileCreation() {
     KeycloakAuthService auth = mock(KeycloakAuthService.class);
     ProfilesService profiles = mock(ProfilesService.class);
-    AuthController controller = new AuthController(auth, profiles, properties());
-    var register = new AuthController.RegisterRequest("member", "password", "First", "Last", "m@test.io", "1234", "both");
+    PolicyAcceptanceService policy = mock(PolicyAcceptanceService.class);
+    AuthUserService users = mock(AuthUserService.class);
+    when(users.getAnalyticsUserIdByUserId("u1")).thenReturn(Optional.of("analytics-u1"));
+    AuthController controller = new AuthController(auth, profiles, policy, users, properties());
+    var register = registerRequest("member", "password", "First", "Last", "m@test.io", "12345678");
     when(auth.login("u", "p")).thenReturn(authSession("u", "member", "both", List.of("both"), "token"));
     when(auth.register(register)).thenReturn(authSession("u1", "member", "both", List.of("both"), "token"));
 
     assertThat(controller.login(new AuthController.LoginRequest("u", "p")).accessToken()).isEqualTo("token");
     assertThat(controller.register(register).userId()).isEqualTo("u1");
     assertThat(controller.logout(new AuthController.RefreshRequest("refresh")).success()).isTrue();
-    assertThat(controller.me(jwt("u1")).userId()).isEqualTo("u1");
+    assertThat(controller.me(jwt("u1")).analyticsUserId()).isEqualTo("analytics-u1");
     verify(auth).login("u", "p");
-    verify(profiles).upsertFromRegistration("u1", "First", "Last", "m@test.io", "1234");
+    verify(policy).validateRegistrationAcceptance(register);
+    verify(policy).recordRegistrationAcceptance("u1", register);
+    verify(profiles).upsertFromRegistration("u1", "First", "Last", "m@test.io", "12345678");
     verify(auth).logout("refresh");
   }
 
@@ -77,6 +84,15 @@ class AuthTests {
   }
 
   @Test
+  void readsAnalyticsUserIdFromRepository() {
+    UserRepository repository = mock(UserRepository.class);
+    UUID id = UUID.randomUUID();
+    when(repository.findAnalyticsUserIdByUserId(id.toString())).thenReturn(Optional.of("analytics-id"));
+
+    assertThat(new AuthUserService(repository).getAnalyticsUserIdByUserId(id.toString())).contains("analytics-id");
+  }
+
+  @Test
   void keycloakLoginMapsTransportFailureToUnauthorizedApiError() {
     RestClient.Builder builder = mock(RestClient.Builder.class);
     RestClient client = mock(RestClient.class);
@@ -93,6 +109,7 @@ class AuthTests {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     AuthUserService users = mock(AuthUserService.class);
+    when(users.getAnalyticsUserIdByUserId("user-1")).thenReturn(Optional.of("analytics-user-1"));
     KeycloakAuthService service = new KeycloakAuthService(properties(), users, builder, new ObjectMapper());
     String payload = Base64.getUrlEncoder().withoutPadding().encodeToString("""
         {"sub":"user-1","resource_access":{"account":{"roles":["admin"]},"illamhelp-api":{"roles":["provider"]}}}
@@ -107,6 +124,7 @@ class AuthTests {
     KeycloakAuthService.AuthSession session = service.login("provider.name", "secret");
 
     assertThat(session.userId()).isEqualTo("user-1");
+    assertThat(session.analyticsUserId()).isEqualTo("analytics-user-1");
     assertThat(session.userType()).isEqualTo("provider");
     assertThat(session.roles()).isEqualTo(List.of("provider"));
     verify(users).syncUserFromToken("user-1", List.of("provider"), "provider.name");
@@ -118,13 +136,15 @@ class AuthTests {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     AuthUserService users = mock(AuthUserService.class);
+    when(users.getAnalyticsUserIdByUserId("created-user")).thenReturn(Optional.of("analytics-created"));
     KeycloakAuthService service = new KeycloakAuthService(properties(), users, builder, new ObjectMapper());
     String payload = Base64.getUrlEncoder().withoutPadding().encodeToString("""
         {"sub":"created-user","resource_access":{"illamhelp-api":{"roles":["both","ignored"]}}}
         """.getBytes(StandardCharsets.UTF_8));
     String token = "header." + payload + ".signature";
     var request = new AuthController.RegisterRequest(
-        " New.Member ", "StrongPass#2026", " Anita ", "", " Anita@Example.com ", null, "both");
+        " New.Member ", "StrongPass#2026", " Anita ", "", " Anita@Example.com ", null, "both",
+        LegalPolicyVersions.TERMS, LegalPolicyVersions.PRIVACY_POLICY, "2026-06-14T12:00:00Z", "web");
 
     server.expect(requestTo("http://localhost:8080/realms/master/protocol/openid-connect/token"))
         .andExpect(method(HttpMethod.POST))
@@ -150,6 +170,7 @@ class AuthTests {
     KeycloakAuthService.AuthSession session = service.register(request);
 
     assertThat(session.userId()).isEqualTo("created-user");
+    assertThat(session.analyticsUserId()).isEqualTo("analytics-created");
     assertThat(session.username()).isEqualTo("new.member");
     assertThat(session.userType()).isEqualTo("both");
     assertThat(session.roles()).isEqualTo(List.of("both"));
@@ -164,7 +185,8 @@ class AuthTests {
     KeycloakAuthService service = new KeycloakAuthService(
         properties(), mock(AuthUserService.class), builder, new ObjectMapper());
     var request = new AuthController.RegisterRequest(
-        "member", "StrongPass#2026", "First", "Last", "member@example.com", null, "both");
+        "member", "StrongPass#2026", "First", "Last", "member@example.com", null, "both",
+        LegalPolicyVersions.TERMS, LegalPolicyVersions.PRIVACY_POLICY, "2026-06-14T12:00:00Z", "web");
 
     server.expect(requestTo("http://localhost:8080/realms/master/protocol/openid-connect/token"))
         .andExpect(method(HttpMethod.POST))
@@ -187,6 +209,7 @@ class AuthTests {
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     AuthUserService users = mock(AuthUserService.class);
     when(users.getUsernameByUserId("refreshed-user")).thenReturn(Optional.of("public_name"));
+    when(users.getAnalyticsUserIdByUserId("refreshed-user")).thenReturn(Optional.of("analytics-refreshed"));
     KeycloakAuthService service = new KeycloakAuthService(properties(), users, builder, new ObjectMapper());
     String payload = Base64.getUrlEncoder().withoutPadding().encodeToString("""
         {"sub":"refreshed-user","resource_access":{"illamhelp-api":{"roles":["seeker"]}}}
@@ -200,6 +223,7 @@ class AuthTests {
 
     KeycloakAuthService.AuthSession refreshed = service.refresh("refresh-token");
     assertThat(refreshed.username()).isEqualTo("public_name");
+    assertThat(refreshed.analyticsUserId()).isEqualTo("analytics-refreshed");
     assertThat(refreshed.userType()).isEqualTo("seeker");
     service.logout("refresh-token");
 
@@ -221,9 +245,46 @@ class AuthTests {
         missingAdminCredentials, mock(AuthUserService.class), builder, new ObjectMapper());
 
     assertThatThrownBy(() -> service.register(new AuthController.RegisterRequest(
-        "member", "password", "First", null, "m@test.io", null, "both")))
+        "member", "password", "First", null, "m@test.io", null, "both",
+        LegalPolicyVersions.TERMS, LegalPolicyVersions.PRIVACY_POLICY, "2026-06-14T12:00:00Z", "web")))
         .isInstanceOf(ApiException.class)
         .hasMessage("Keycloak admin credentials are not configured");
+  }
+
+  @Test
+  void policyAcceptanceRejectsMissingOrStaleVersions() {
+    PolicyAcceptanceService service = new PolicyAcceptanceService(mock(PolicyAcceptanceRepository.class), mock(com.illamhelp.api.audit.AuditService.class));
+
+    assertThatThrownBy(() -> service.validateRegistrationAcceptance(registerRequest(
+        "member", "StrongPass#2026", "First", "Last", "member@example.com", "12345678",
+        "old", LegalPolicyVersions.PRIVACY_POLICY, "2026-06-14T12:00:00Z", "web")))
+        .isInstanceOf(ApiException.class)
+        .hasMessage("Accept the current Terms and Conditions to create an account")
+        .extracting("status")
+        .isEqualTo(HttpStatus.BAD_REQUEST);
+
+    assertThatThrownBy(() -> service.validateRegistrationAcceptance(registerRequest(
+        "member", "StrongPass#2026", "First", "Last", "member@example.com", "12345678",
+        LegalPolicyVersions.TERMS, LegalPolicyVersions.PRIVACY_POLICY, "not-a-date", "web")))
+        .isInstanceOf(ApiException.class)
+        .hasMessage("acceptedLegalAt must be a valid ISO timestamp");
+  }
+
+  @Test
+  void policyAcceptancePersistsTwoRowsAndWritesAuditEvents() {
+    PolicyAcceptanceRepository repository = mock(PolicyAcceptanceRepository.class);
+    com.illamhelp.api.audit.AuditService audit = mock(com.illamhelp.api.audit.AuditService.class);
+    PolicyAcceptanceService service = new PolicyAcceptanceService(repository, audit);
+    String userId = UUID.randomUUID().toString();
+    var request = registerRequest("member", "StrongPass#2026", "First", "Last", "member@example.com", "12345678");
+
+    service.recordRegistrationAcceptance(userId, request);
+
+    verify(repository, times(2)).save(any(PolicyAcceptanceEntity.class));
+    verify(audit).logEvent(userId, userId, "policy_terms_accepted", "registration",
+        Map.of("version", LegalPolicyVersions.TERMS, "source", "web"));
+    verify(audit).logEvent(userId, userId, "policy_privacy_accepted", "registration",
+        Map.of("version", LegalPolicyVersions.PRIVACY_POLICY, "source", "web"));
   }
 
   @Test
@@ -249,6 +310,20 @@ class AuthTests {
   private KeycloakAuthService.AuthSession authSession(
       String userId, String username, String userType, List<String> roles, String accessToken) {
     return new KeycloakAuthService.AuthSession(
-        userId, username, username, userType, roles, accessToken, 300L, "refresh", 600L, "Bearer", null);
+        userId, username, "analytics-" + userId, username, userType, roles, accessToken, 300L, "refresh", 600L,
+        "Bearer", null);
+  }
+
+  private AuthController.RegisterRequest registerRequest(
+      String username, String password, String firstName, String lastName, String email, String phone) {
+    return registerRequest(username, password, firstName, lastName, email, phone,
+        LegalPolicyVersions.TERMS, LegalPolicyVersions.PRIVACY_POLICY, "2026-06-14T12:00:00Z", "web");
+  }
+
+  private AuthController.RegisterRequest registerRequest(
+      String username, String password, String firstName, String lastName, String email, String phone,
+      String termsVersion, String privacyVersion, String acceptedAt, String source) {
+    return new AuthController.RegisterRequest(
+        username, password, firstName, lastName, email, phone, "both", termsVersion, privacyVersion, acceptedAt, source);
   }
 }

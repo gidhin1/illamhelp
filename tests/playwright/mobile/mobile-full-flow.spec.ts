@@ -18,6 +18,7 @@ async function registerAccount(page: Page): Promise<void> {
   await page.getByLabel("Email").fill(`${userId}@example.com`);
   await page.getByLabel("User ID").fill(userId);
   await page.getByLabel("Password").fill("StrongPass#2026");
+  await page.getByTestId("auth-register-legal-acceptance").click();
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByText("Your next steps")).toBeVisible();
 }

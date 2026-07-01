@@ -7,9 +7,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.illamhelp.api.analytics.AnalyticsEventPublisher;
+import com.illamhelp.api.auth.AuthUserService;
 import com.illamhelp.api.audit.AuditService;
 import com.illamhelp.api.common.ApiException;
 import com.illamhelp.api.consent.ConsentService;
@@ -129,7 +132,9 @@ class ProfileTests {
     AuditService audit = mock(AuditService.class);
     ProfilesService profiles = mock(ProfilesService.class);
     NotificationService notifications = mock(NotificationService.class);
-    VerificationService service = new VerificationService(repository, audit, profiles, notifications);
+    AuthUserService users = mock(AuthUserService.class);
+    AnalyticsEventPublisher analytics = mock(AnalyticsEventPublisher.class);
+    VerificationService service = new VerificationService(repository, audit, profiles, notifications, users, analytics);
     when(repository.activeForUser("u")).thenReturn(List.of());
     VerificationRequestRepository.VerificationRecordRow inserted = verificationRecordRow("r", "u", "identity", "pending", "2026-05-26T10:00:00Z");
     when(repository.insertRequest(org.mockito.ArgumentMatchers.eq("u"), any(String[].class), org.mockito.ArgumentMatchers.eq("identity"),
@@ -145,19 +150,42 @@ class ProfileTests {
         verificationRecordRow("r", "u", "identity", "approved", "2026-05-26T10:00:00Z");
     when(repository.reviewUpdate("r", "admin", "approved", null))
         .thenReturn(approvedRow);
+    when(users.getAnalyticsUserIdByUserId("u")).thenReturn(java.util.Optional.of("analytics-u"));
     VerificationService.VerificationRecord reviewed =
         service.review("r", "admin", new VerificationService.ReviewVerificationInput("approved", null));
     assertThat(reviewed.status()).isEqualTo("approved");
     verify(profiles).setVerified("u", true);
     verify(notifications).create(org.mockito.ArgumentMatchers.eq("u"), org.mockito.ArgumentMatchers.eq("verification_approved"),
         any(), any(), any());
+    verify(analytics).publishProviderVerified("analytics-u", "r");
+  }
+
+  @Test
+  void verificationRejectionDoesNotEmitPrimaryConversion() {
+    VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
+    NotificationService notifications = mock(NotificationService.class);
+    AuthUserService users = mock(AuthUserService.class);
+    AnalyticsEventPublisher analytics = mock(AnalyticsEventPublisher.class);
+    VerificationService service = new VerificationService(repository, mock(AuditService.class),
+        mock(ProfilesService.class), notifications, users, analytics);
+    VerificationRequestRepository.ReviewTargetRow reviewTarget = reviewTarget("r", "u", "pending");
+    VerificationRequestRepository.VerificationRecordRow rejectedRow =
+        verificationRecordRow("r", "u", "identity", "rejected", "2026-05-26T10:00:00Z");
+    when(repository.findReviewTarget("r")).thenReturn(reviewTarget);
+    when(repository.reviewUpdate("r", "admin", "rejected", null)).thenReturn(rejectedRow);
+
+    service.review("r", "admin", new VerificationService.ReviewVerificationInput("rejected", null));
+
+    verify(users, never()).getAnalyticsUserIdByUserId("u");
+    verify(analytics, never()).publishProviderVerified(any(), any());
   }
 
   @Test
   void verificationReturnsNullBeforeFirstSubmission() {
     VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
     VerificationService service = new VerificationService(repository, mock(AuditService.class),
-        mock(ProfilesService.class), mock(NotificationService.class));
+        mock(ProfilesService.class), mock(NotificationService.class), mock(AuthUserService.class),
+        mock(AnalyticsEventPublisher.class));
     when(repository.latestForUser("u")).thenReturn(null);
 
     assertThat(service.getMyVerification("u")).isNull();
@@ -167,7 +195,8 @@ class ProfileTests {
   void verificationAdminListUsesBoundedCursorPage() {
     VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
     VerificationService service = new VerificationService(repository, mock(AuditService.class),
-        mock(ProfilesService.class), mock(NotificationService.class));
+        mock(ProfilesService.class), mock(NotificationService.class), mock(AuthUserService.class),
+        mock(AnalyticsEventPublisher.class));
     VerificationRequestRepository.VerificationRecordRow row1 =
         verificationRecordRow("r1", "u1", "identity", "pending", "2026-05-26T10:00:00Z");
     VerificationRequestRepository.VerificationRecordRow row2 =
@@ -186,7 +215,7 @@ class ProfileTests {
     VerificationRequestRepository repository = mock(VerificationRequestRepository.class);
     NotificationService notifications = mock(NotificationService.class);
     VerificationService service = new VerificationService(repository, mock(AuditService.class),
-        mock(ProfilesService.class), notifications);
+        mock(ProfilesService.class), notifications, mock(AuthUserService.class), mock(AnalyticsEventPublisher.class));
 
     assertThatThrownBy(() -> service.review("missing", "admin", new VerificationService.ReviewVerificationInput("approved", null)))
         .isInstanceOf(ApiException.class).hasMessage("Verification request not found");

@@ -25,6 +25,7 @@ import {
     submitVerification,
     VerificationRecord
 } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 
 const STATUS_STYLES: Record<string, { label: string; tone: "info" | "success" | "warning" | "error" }> = {
     pending: { label: "Pending review", tone: "warning" },
@@ -63,6 +64,15 @@ export default function VerificationPage(): JSX.Element {
             setLoading(false);
         }
     }, [accessToken]);
+
+    useEffect(() => {
+        trackEvent("verification_started", {
+            surface: "web",
+            document_type: documentType
+        });
+        // Track once when the user lands in the verification flow; document changes are not separate starts.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         void loadVerification();

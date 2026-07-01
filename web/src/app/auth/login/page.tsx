@@ -74,6 +74,12 @@ export default function LoginPage(): JSX.Element {
               </div>
             </form>
           </Card>
+          <div className="legal-link-row auth-legal-row">
+            <Link href="/privacy-policy">Privacy Policy</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/faq">FAQ</Link>
+            <Link href="/help">Help</Link>
+          </div>
         </div>
       </section>
     </PageShell>

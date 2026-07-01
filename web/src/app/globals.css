@@ -3737,6 +3737,68 @@ input, textarea, select {
   gap: var(--spacing-md);
 }
 
+.legal-document h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.2rem, 2vw, 1.55rem);
+}
+
+.legal-link-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.legal-link-row a:not(.button) {
+  color: var(--brand-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.legal-link-row a:not(.button):hover {
+  text-decoration: underline;
+}
+
+.auth-legal-row {
+  justify-content: center;
+  margin-top: var(--spacing-md);
+  font-size: var(--font-sm);
+}
+
+.home-legal-band {
+  padding-top: 0;
+}
+
+.home-legal-band .legal-link-row {
+  justify-content: center;
+}
+
+.legal-acceptance-field {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.legal-acceptance-field input {
+  margin-top: 4px;
+  min-width: 18px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.legal-acceptance-field a {
+  color: var(--brand-text);
+  font-weight: 700;
+}
+
 /* Motion-safe reveals only when authored on a surface. */
 @media (prefers-reduced-motion: no-preference) {
   .motion-enter {
@@ -3761,5 +3823,52 @@ input, textarea, select {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+.analytics-consent-banner {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  width: min(680px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(18px);
+}
+
+.analytics-consent-banner p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.analytics-consent-detail {
+  font-size: 0.9rem;
+}
+
+.analytics-consent-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .analytics-consent-banner {
+    grid-template-columns: 1fr;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+  }
+
+  .analytics-consent-actions {
+    justify-content: flex-start;
   }
 }

@@ -7,6 +7,8 @@ import com.illamhelp.api.audit.AuditEventEntity;
 import com.illamhelp.api.audit.AuditEventRepository;
 import com.illamhelp.api.auth.UserEntity;
 import com.illamhelp.api.auth.UserRepository;
+import com.illamhelp.api.auth.PolicyAcceptanceEntity;
+import com.illamhelp.api.auth.PolicyAcceptanceRepository;
 import com.illamhelp.api.connections.ConnectionEntity;
 import com.illamhelp.api.connections.ConnectionRepository;
 import com.illamhelp.api.consent.ConsentGrantEntity;
@@ -40,17 +42,18 @@ class PersistenceContractTest {
 
   @Test
   void entitiesMapToPreservedDatabaseTables() {
-    Map<Class<?>, String> entities = Map.of(
-        AuditEventEntity.class, "audit_events",
-        UserEntity.class, "users",
-        ConnectionEntity.class, "connections",
-        ConsentGrantEntity.class, "pii_consent_grants",
-        InternalEventOutboxEntity.class, "internal_event_outbox",
-        JobEntity.class, "jobs",
-        MediaAssetEntity.class, "media_assets",
-        NotificationEntity.class, "notifications",
-        ProfileEntity.class, "profiles",
-        VerificationRequestEntity.class, "verification_requests");
+    Map<Class<?>, String> entities = Map.ofEntries(
+        Map.entry(AuditEventEntity.class, "audit_events"),
+        Map.entry(UserEntity.class, "users"),
+        Map.entry(ConnectionEntity.class, "connections"),
+        Map.entry(ConsentGrantEntity.class, "pii_consent_grants"),
+        Map.entry(InternalEventOutboxEntity.class, "internal_event_outbox"),
+        Map.entry(JobEntity.class, "jobs"),
+        Map.entry(MediaAssetEntity.class, "media_assets"),
+        Map.entry(NotificationEntity.class, "notifications"),
+        Map.entry(PolicyAcceptanceEntity.class, "policy_acceptances"),
+        Map.entry(ProfileEntity.class, "profiles"),
+        Map.entry(VerificationRequestEntity.class, "verification_requests"));
 
     entities.forEach((type, table) -> {
       assertThat(type).hasAnnotation(Entity.class);
@@ -61,7 +64,7 @@ class PersistenceContractTest {
   @Test
   void springDataRepositoriesOwnDeclaredNativeQueries() {
     Class<?>[] repositories = {
-        AuditEventRepository.class, UserRepository.class, ConnectionRepository.class, ConsentRepository.class,
+        AuditEventRepository.class, UserRepository.class, PolicyAcceptanceRepository.class, ConnectionRepository.class, ConsentRepository.class,
         InternalEventOutboxRepository.class, JobRepository.class, MediaAssetRepository.class, NotificationRepository.class, ProfileRepository.class,
         VerificationRequestRepository.class
     };

@@ -276,6 +276,16 @@ export default function HomePage(): JSX.Element {
           </div>
         </div>
       </section>
+      <section className="section home-legal-band" aria-label="Legal and support links">
+        <div className="container">
+          <div className="legal-link-row">
+            <Link href="/privacy-policy">Privacy Policy</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/faq">FAQ</Link>
+            <Link href="/help">Help</Link>
+          </div>
+        </div>
+      </section>
     </PageShell>
   );
 }

@@ -106,3 +106,6 @@ illamhelp:
   open-search-password: ${OPENSEARCH_PASSWORD:}
   open-search-index-jobs: ${OPENSEARCH_INDEX_JOBS:jobs}
   open-search-timeout-ms: ${OPENSEARCH_TIMEOUT_MS:750}
+  analytics:
+    ga4-measurement-id: ${ILLAMHELP_ANALYTICS_GA4_MEASUREMENT_ID:}
+    ga4-api-secret: ${ILLAMHELP_ANALYTICS_GA4_API_SECRET:}

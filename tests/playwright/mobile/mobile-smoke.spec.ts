@@ -21,6 +21,7 @@ async function fillRegister(page: Page, userId: string): Promise<void> {
 async function registerAccount(page: Page): Promise<void> {
   await openRegister(page);
   await fillRegister(page, uniqueUserId());
+  await page.getByTestId("auth-register-legal-acceptance").click();
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByText("Your next steps")).toBeVisible();
 }

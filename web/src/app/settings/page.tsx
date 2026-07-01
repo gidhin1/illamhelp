@@ -38,6 +38,15 @@ export default function SettingsPage(): JSX.Element {
                 <p className="muted-text">Need help deciding where to go next? Use the support guide to route privacy, media, and job issues.</p>
                 <Link className="button ghost" href="/help">Open help</Link>
               </Card>
+              <Card className="stack">
+                <h3 style={{ fontFamily: "var(--font-display)" }}>Legal documents</h3>
+                <p className="muted-text">Review the current Privacy Policy, Terms, and common support questions.</p>
+                <div className="legal-link-row">
+                  <Link className="button ghost" href="/privacy-policy">Privacy Policy</Link>
+                  <Link className="button ghost" href="/terms">Terms</Link>
+                  <Link className="button ghost" href="/faq">FAQ</Link>
+                </div>
+              </Card>
             </div>
           </RequireSession>
         </div>

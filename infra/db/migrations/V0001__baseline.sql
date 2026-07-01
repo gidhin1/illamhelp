@@ -59,11 +59,24 @@ CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   role user_role NOT NULL,
   username TEXT NOT NULL,
+  analytics_user_id UUID NOT NULL DEFAULT gen_random_uuid(),
   email_masked TEXT,
   phone_masked TEXT,
   verified BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE policy_acceptances (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  document_type TEXT NOT NULL CHECK (document_type IN ('privacy_policy', 'terms')),
+  version TEXT NOT NULL,
+  accepted_at TIMESTAMPTZ NOT NULL,
+  source TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (user_id, document_type, version)
 );
 
 CREATE TABLE profiles (
@@ -385,6 +398,8 @@ CREATE TRIGGER trg_connection_search_jobs
 
 CREATE UNIQUE INDEX users_username_unique_idx ON users (LOWER(username));
 CREATE INDEX idx_users_verified ON users (verified) WHERE verified = TRUE;
+CREATE UNIQUE INDEX idx_users_analytics_user_id ON users (analytics_user_id);
+CREATE INDEX idx_policy_acceptances_user_accepted_at_desc ON policy_acceptances (user_id, accepted_at DESC);
 CREATE INDEX idx_jobs_seeker_user_id ON jobs (seeker_user_id);
 CREATE INDEX idx_jobs_assigned_provider_created_at_desc ON jobs (assigned_provider_user_id, created_at DESC, id DESC)
   WHERE assigned_provider_user_id IS NOT NULL;

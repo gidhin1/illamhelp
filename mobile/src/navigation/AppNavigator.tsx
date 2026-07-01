@@ -15,7 +15,9 @@ import { ConsentScreen } from "../screens/ConsentScreen";
 import { VerificationScreen } from "../screens/VerificationScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { PublicProfileScreen } from "../screens/PublicProfileScreen";
+import { LegalHelpScreen } from "../screens/LegalHelpScreen";
 import { AppButton, SectionCard } from "../components";
+import { identifyAnalyticsUser, trackPageView } from "../analytics";
 
 function GuidanceScreen({
   title,
@@ -74,6 +76,14 @@ export function AppNavigator({
 
   useEffect(() => {
     setDrawerOpen(false);
+  }, [currentRoute]);
+
+  useEffect(() => {
+    identifyAnalyticsUser(user.analyticsUserId);
+  }, [user.analyticsUserId]);
+
+  useEffect(() => {
+    trackPageView(currentRoute);
   }, [currentRoute]);
 
   const navigateTo = (key: MobileRouteKey): void => {
@@ -202,29 +212,7 @@ export function AppNavigator({
           />
         );
       case "help":
-        return (
-          <GuidanceScreen
-            kicker="Help"
-            title="Support and safety"
-            body="Find the right next step for privacy, verification, media, and job issues."
-            rows={[
-              {
-                title: "Human identity",
-                body: "If a person or applicant looks wrong, capture the member ID and review their profile context first."
-              },
-              {
-                title: "Privacy state",
-                body: "For contact sharing or document concerns, start in Privacy or Verification. ID documents never belong in profile media."
-              },
-              {
-                title: "Next safe action",
-                body: "For job problems, open Jobs and use the job detail context before sharing new contact details."
-              }
-            ]}
-            primaryAction="Open alerts"
-            onPrimaryAction={() => navigateTo("alerts")}
-          />
-        );
+        return <LegalHelpScreen />;
       default:
         return <HomeScreen accessToken={accessToken} onSessionInvalid={signOut} />;
     }

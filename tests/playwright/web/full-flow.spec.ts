@@ -180,6 +180,10 @@ async function resetBrowserSession(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    window.localStorage.setItem(
+      "illamhelp.analyticsConsent.v1",
+      JSON.stringify({ analytics: "granted", ads: "denied", updatedAt: new Date().toISOString() })
+    );
     document.cookie = "illamhelp_access_token=; Path=/; Max-Age=0; SameSite=Lax";
   });
 
@@ -293,6 +297,7 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionRespo
     await page.getByLabel("User ID").fill(user.username);
     await page.getByLabel("Phone (optional)").fill("+919876543210");
     await page.getByLabel("Password").fill(user.password);
+    await page.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
 
     const submitButton = page.locator("form button[type='submit']").first();
     const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
@@ -374,15 +379,12 @@ async function sendConnectionRequestByUi(page: Page, targetUserId: string): Prom
   await page.getByLabel("Find a person").fill(targetUserId);
   await page.getByRole("button", { name: /Search people|Search/i }).click();
 
-  const matchCard = page
-    .locator("article, .card")
-    .filter({ hasText: targetUserId })
-    .first();
+  const matchCard = page.getByRole("article").filter({ hasText: targetUserId }).first();
 
   if (await matchCard.isVisible().catch(() => false)) {
-    await matchCard.getByRole("button", { name: /Send request|Connect/i }).click();
+    await matchCard.getByRole("button", { name: /^(Send request|Connect)$/i }).click();
   } else {
-    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByRole("button", { name: "Send request" }).last().click();
   }
 
   await waitForSuccessMessage(page, "Connection request sent.");
@@ -822,7 +824,7 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
     await memberPage.getByRole("button", { name: "Submit Verification" }).click();
     await waitForSuccessMessage(
       memberPage,
-      "Verification request submitted! We'll review your documents shortly."
+      "Verification request submitted. We'll review your documents shortly."
     );
     await expect(memberPage.getByText("Pending review").first()).toBeVisible();
 
