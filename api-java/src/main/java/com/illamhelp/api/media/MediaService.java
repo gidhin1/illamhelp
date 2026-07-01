@@ -44,7 +44,8 @@ public class MediaService {
 
   public MediaPage<PublicMediaRecord> listApprovedForOwner(String ownerUserId, Integer limit, String cursorValue) {
     String internalOwnerUserId = resolveInternalUserId(ownerUserId);
-    AuthenticatedUser publicViewer = new AuthenticatedUser(internalOwnerUserId, ownerUserId, List.of(), "public", internalOwnerUserId);
+    AuthenticatedUser publicViewer = new AuthenticatedUser(internalOwnerUserId, ownerUserId, null, List.of(), "public",
+        internalOwnerUserId);
     return listProfileMedia(publicViewer, internalOwnerUserId, limit, cursorValue);
   }
 

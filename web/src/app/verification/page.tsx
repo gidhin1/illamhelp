@@ -25,6 +25,7 @@ import {
     submitVerification,
     VerificationRecord
 } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 
 const STATUS_STYLES: Record<string, { label: string; tone: "info" | "success" | "warning" | "error" }> = {
     pending: { label: "Pending review", tone: "warning" },
@@ -65,6 +66,15 @@ export default function VerificationPage(): JSX.Element {
     }, [accessToken]);
 
     useEffect(() => {
+        trackEvent("verification_started", {
+            surface: "web",
+            document_type: documentType
+        });
+        // Track once when the user lands in the verification flow; document changes are not separate starts.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
         void loadVerification();
     }, [loadVerification]);
 
@@ -94,7 +104,7 @@ export default function VerificationPage(): JSX.Element {
                 accessToken
             );
             setVerification(result);
-            setSuccess("Verification request submitted! We'll review your documents shortly.");
+            setSuccess("Verification request submitted. We'll review your documents shortly.");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to submit verification request");
         } finally {
@@ -247,7 +257,7 @@ export default function VerificationPage(): JSX.Element {
                                         </Field>
                                         <div style={{ marginTop: "var(--spacing-md)" }}>
                                             <Button type="submit" disabled={submitting}>
-                                                {submitting ? "Submitting..." : "Submit Verification"}
+                                                {submitting ? "Submitting..." : "Submit verification"}
                                             </Button>
                                         </div>
                                     </form>

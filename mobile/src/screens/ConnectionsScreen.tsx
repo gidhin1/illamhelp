@@ -103,11 +103,13 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
 export function ConnectionsScreen({
   accessToken,
   user,
-  onSessionInvalid
+  onSessionInvalid,
+  onDiscoverProfile
 }: {
   accessToken: string;
   user: AuthenticatedUser;
   onSessionInvalid: () => void;
+  onDiscoverProfile: (userId: string) => void;
 }): JSX.Element {
   const theme = useAppTheme();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
@@ -177,6 +179,33 @@ export function ConnectionsScreen({
       cancelled = true;
     };
   }, [acceptedConnections, accessToken, user.publicUserId]);
+
+  useEffect(() => {
+    if (visibleMatches.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        visibleMatches.map(async (candidate) => {
+          try {
+            const page = await listPublicApprovedMediaPage(candidate.userId, accessToken);
+            return [candidate.userId, page.items.filter((asset) => asset.purpose === "profile")] as const;
+          } catch {
+            return [candidate.userId, []] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfileMediaByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries)
+        }));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, visibleMatches]);
 
   useEffect(() => {
     const ids = Array.from(
@@ -412,8 +441,9 @@ export function ConnectionsScreen({
         {visibleMatches.length > 0 ? (
           <View style={styles.stackSmall}>
             <Text style={localStyles.sectionLabel}>Matches</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
             {visibleMatches.map((candidate) => (
-              <View key={candidate.userId} style={localStyles.personCard}>
+              <View key={candidate.userId} style={[localStyles.personCard, styles.carouselCard]}>
                 <View style={localStyles.personTitleRow}>
                   <Text style={localStyles.personName}>{candidate.displayName}</Text>
                   <Text style={styles.pill}>Discover</Text>
@@ -427,6 +457,20 @@ export function ConnectionsScreen({
                     Services: {candidate.serviceCategories.join(", ")}
                   </Text>
                 ) : null}
+                <Text style={localStyles.personMeta}>
+                  {(profileMediaByUserId[candidate.userId] ?? []).length} visible profile media · Privacy-filtered profile
+                </Text>
+                <MediaPreviewList
+                  items={profileMediaByUserId[candidate.userId] ?? []}
+                  emptyText="No approved profile media is visible to you yet."
+                  testID={`connections-match-profile-media-${candidate.userId}`}
+                />
+                <AppButton
+                  label="Discover"
+                  onPress={() => onDiscoverProfile(candidate.userId)}
+                  variant="ghost"
+                  testID={`connections-match-discover-${candidate.userId}`}
+                />
                 <AppButton
                   label="Connect"
                   onPress={() => {
@@ -438,6 +482,7 @@ export function ConnectionsScreen({
                 />
               </View>
             ))}
+            </ScrollView>
           </View>
         ) : null}
       </SectionCard>
@@ -447,6 +492,7 @@ export function ConnectionsScreen({
         {!loading && connections.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No connections yet.</Text>
         ) : null}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
         {visibleConnections.map((connection) => {
           const currentUserId = user.publicUserId;
           const otherUser =
@@ -456,7 +502,7 @@ export function ConnectionsScreen({
           const canDecline = connection.status === "pending";
           const canBlock = connection.status !== "blocked";
           return (
-            <View key={connection.id} style={localStyles.personCard}>
+            <View key={connection.id} style={[localStyles.personCard, styles.carouselCard]}>
               <View style={localStyles.personTitleRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={localStyles.personName}>{personName(otherUser)}</Text>
@@ -509,6 +555,7 @@ export function ConnectionsScreen({
             </View>
           );
         })}
+        </ScrollView>
         {nextCursor ? (
           <AppButton
             label={loading ? "Loading connections" : "Load more connections"}

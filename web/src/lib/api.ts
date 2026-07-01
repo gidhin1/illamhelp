@@ -1,5 +1,7 @@
 import { createMediaClient } from "@illamhelp/media-client";
 
+import { trackEvent, utmParams } from "./analytics";
+
 export type UserType = "seeker" | "provider" | "both";
 export type AppRole = "both" | "seeker" | "provider" | "admin" | "support";
 
@@ -40,6 +42,7 @@ export class ApiRequestError extends Error {
 export interface AuthSessionResponse {
   userId: string;
   publicUserId: string;
+  analyticsUserId: string | null;
   username: string;
   userType: UserType;
   roles: AppRole[];
@@ -54,6 +57,7 @@ export interface AuthSessionResponse {
 export interface AuthenticatedUser {
   userId: string;
   publicUserId: string;
+  analyticsUserId: string | null;
   roles: AppRole[];
   userType: UserType;
   tokenSubject: string;
@@ -290,10 +294,22 @@ export function register(payload: {
   firstName: string;
   lastName?: string;
   phone?: string;
+  acceptedTermsVersion: string;
+  acceptedPrivacyPolicyVersion: string;
+  acceptedLegalAt: string;
+  acceptanceSource: "web" | "mobile";
 }): Promise<AuthSessionResponse> {
   return apiRequest<AuthSessionResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify(payload)
+  }).then((session) => {
+    trackEvent("signup_completed", {
+      surface: "web",
+      method: "password",
+      user_type: session.userType,
+      ...utmParams()
+    });
+    return session;
   });
 }
 
@@ -304,6 +320,12 @@ export function login(payload: {
   return apiRequest<AuthSessionResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify(payload)
+  }).then((session) => {
+    trackEvent("login_completed", {
+      surface: "web",
+      method: "password"
+    });
+    return session;
   });
 }
 
@@ -364,7 +386,14 @@ export function createJob(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((job) => {
+    trackEvent("job_created", {
+      surface: "web",
+      category: payload.category,
+      visibility: payload.visibility
+    });
+    return job;
+  });
 }
 
 export function applyToJob(
@@ -379,7 +408,12 @@ export function applyToJob(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((application) => {
+    trackEvent("job_applied", {
+      surface: "web"
+    });
+    return application;
+  });
 }
 
 export function listJobApplications(
@@ -541,7 +575,13 @@ export function requestConnection(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((connection) => {
+    trackEvent("connection_requested", {
+      surface: "web",
+      source: payload.targetUserId ? "profile" : "search"
+    });
+    return connection;
+  });
 }
 
 export function searchConnections(
@@ -570,7 +610,12 @@ export function acceptConnection(
       method: "POST"
     },
     accessToken
-  );
+  ).then((connection) => {
+    trackEvent("connection_accepted", {
+      surface: "web"
+    });
+    return connection;
+  });
 }
 
 export function declineConnection(
@@ -659,7 +704,13 @@ export function updateMyProfile(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((profile) => {
+    trackEvent("profile_updated", {
+      surface: "web",
+      fields_changed_count: Object.values(payload).filter((value) => value !== undefined).length
+    });
+    return profile;
+  });
 }
 
 export function listConsentRequests(accessToken: string): Promise<AccessRequestRecord[]> {
@@ -700,7 +751,13 @@ export function requestConsentAccess(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((request) => {
+    trackEvent("consent_requested", {
+      surface: "web",
+      field_count: payload.requestedFields.length
+    });
+    return request;
+  });
 }
 
 export function grantConsent(
@@ -719,7 +776,13 @@ export function grantConsent(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((grant) => {
+    trackEvent("consent_granted", {
+      surface: "web",
+      field_count: payload.grantedFields.length
+    });
+    return grant;
+  });
 }
 
 export function revokeConsent(
@@ -734,7 +797,12 @@ export function revokeConsent(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((grant) => {
+    trackEvent("consent_revoked", {
+      surface: "web"
+    });
+    return grant;
+  });
 }
 
 export function canViewConsent(
@@ -794,7 +862,23 @@ export function completeMediaUpload(
   payload: { etag?: string },
   accessToken: string
 ): Promise<MediaAssetRecord> {
-  return mediaClient.completeMediaUpload(mediaId, payload, accessToken);
+  return mediaClient.completeMediaUpload(mediaId, payload, accessToken).then((asset) => {
+    if (asset.purpose === "profile") {
+      trackEvent("profile_media_uploaded", {
+        surface: "web",
+        media_kind: asset.kind,
+        media_count: 1
+      });
+    }
+    if (asset.purpose === "job") {
+      trackEvent("job_media_uploaded", {
+        surface: "web",
+        media_kind: asset.kind,
+        media_count: 1
+      });
+    }
+    return asset;
+  });
 }
 
 export function listVerificationDocumentsPage(
@@ -856,7 +940,14 @@ export function submitVerification(
       body: JSON.stringify(payload)
     },
     accessToken
-  );
+  ).then((record) => {
+    trackEvent("verification_submitted", {
+      surface: "web",
+      document_type: payload.documentType,
+      document_count: payload.documentMediaIds.length
+    });
+    return record;
+  });
 }
 
 export function getMyVerification(accessToken: string): Promise<VerificationRecord | null> {

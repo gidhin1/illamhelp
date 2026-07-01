@@ -1,6 +1,44 @@
+import path from "node:path";
+
 import { expect, Page, test } from "@playwright/test";
 
-import { makeUser, waitForSuccessMessage } from "../utils/flow-helpers";
+import { makeUser, parseMemberId, waitForSuccessMessage } from "../utils/flow-helpers";
+
+const serviceProofImage = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "service-proof-sink.png"
+);
+const commonsValveImage = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "commons-plumbing-valve.jpg"
+);
+const commonsPlumberImage = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "commons-plumber-under-sink.jpg"
+);
+const serviceProofVideo = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "service-proof-video.mp4"
+);
+const sampleVideo = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "sample-video-640x360.mp4"
+);
 
 function isAuthRateLimitedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
@@ -63,6 +101,10 @@ async function resetBrowserSession(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    window.localStorage.setItem(
+      "illamhelp.analyticsConsent.v1",
+      JSON.stringify({ analytics: "granted", ads: "denied", updatedAt: new Date().toISOString() })
+    );
     document.cookie = "illamhelp_access_token=; Path=/; Max-Age=0; SameSite=Lax";
   });
 
@@ -81,6 +123,7 @@ async function registerByUi(page: Page): Promise<void> {
     await page.getByLabel("User ID").fill(user.username);
     await page.getByLabel("Phone (optional)").fill("+919876543210");
     await page.getByLabel("Password").fill(user.password);
+    await page.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
 
     const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
     await page.locator("form button[type='submit']").first().click();
@@ -106,8 +149,11 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
 
   await clickMainNav(page, "Profile");
   const memberIdText = (await page.getByTestId("profile-user-id").textContent()) ?? "";
-  const memberId = memberIdText.trim();
+  const memberId = parseMemberId(memberIdText, "profile media owner id");
   expect(memberId.length).toBeGreaterThan(2);
+
+  await expect(page.getByRole("heading", { name: "Your public trust page" })).toBeVisible();
+  await expect(page.getByText(/Verification documents never appear here/i)).toBeVisible();
 
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
@@ -116,16 +162,21 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
   await page.getByRole("button", { name: "Save profile" }).click();
   await waitForSuccessMessage(page, "Profile updated.");
 
-  const payload = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/a9sAAAAASUVORK5CYII=",
-    "base64"
-  );
   await page
-    .locator("input[type='file']")
-    .setInputFiles({ name: "work-proof.png", mimeType: "image/png", buffer: payload });
-  await page.getByRole("button", { name: "Upload" }).click();
-  await waitForSuccessMessage(page, "Profile media uploaded. It will appear after review.");
-  await expect(page.getByText("scanning").first()).toBeVisible();
+    .getByLabel("Add profile media")
+    .setInputFiles([serviceProofImage, commonsValveImage, commonsPlumberImage, serviceProofVideo, sampleVideo]);
+  await expect(page.getByTestId("profile-media-upload-selected")).toContainText("5 selected files");
+  await expect(page.getByTestId("profile-media-upload-selected")).toContainText("3 photos");
+  await expect(page.getByTestId("profile-media-upload-selected")).toContainText("2 videos");
+  await expect(page.getByText("service-proof-sink.png").first()).toBeVisible();
+  await expect(page.getByText("commons-plumbing-valve.jpg").first()).toBeVisible();
+  await expect(page.getByText("commons-plumber-under-sink.jpg").first()).toBeVisible();
+  await expect(page.getByText("service-proof-video.mp4").first()).toBeVisible();
+  await expect(page.getByText("sample-video-640x360.mp4").first()).toBeVisible();
+  await page.getByRole("button", { name: "Upload 5 files" }).click();
+  await waitForSuccessMessage(page, "5 profile files uploaded for review.");
+  await expect(page.getByTestId("profile-media-upload-pending")).toContainText(/Photo|Video/);
+  await expect(page.getByTestId("profile-media-upload-pending")).toContainText(/uploaded|scanning|ai reviewed|human review pending/i);
 
   await page.getByTestId("profile-public-owner-input").fill(memberId);
   await page.getByTestId("profile-public-load-button").click();

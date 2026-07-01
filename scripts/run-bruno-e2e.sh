@@ -93,7 +93,11 @@ json_escape_register_payload() {
       email,
       password,
       firstName: "Auto",
-      lastName: "Runner"
+      lastName: "Runner",
+      acceptedTermsVersion: "2026-06-14",
+      acceptedPrivacyPolicyVersion: "2026-06-14",
+      acceptedLegalAt: new Date().toISOString(),
+      acceptanceSource: "web"
     }));
   ' "${username}" "${email}" "${password}"
 }

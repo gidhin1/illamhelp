@@ -152,6 +152,7 @@ async function registerWebUser(page: Page, user: E2eUser): Promise<AuthSession> 
     await page.getByLabel("User ID").fill(user.username);
     await page.getByLabel("Phone (optional)").fill("+919876543210");
     await page.getByLabel("Password").fill(user.password);
+    await page.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
 
     const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
     await page.locator("form button[type='submit']").first().click();

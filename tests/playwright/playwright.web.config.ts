@@ -1,8 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
+import { loadEnvConfig } from "@next/env";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { pickBaseUrl, pickServerTarget } from "./server-targets";
+
+const initialRepoRoot = existsSync(resolve(process.cwd(), "web", "package.json"))
+  ? process.cwd()
+  : resolve(process.cwd(), "..", "..");
+loadEnvConfig(resolve(initialRepoRoot, "web"));
 
 const apiTarget = pickServerTarget(process.env.PW_API_BASE_ORIGIN, "http://localhost:4000", "http://localhost:4010");
 const webTarget = pickBaseUrl(
@@ -19,6 +25,8 @@ const webBaseUrl = webTarget.baseUrl;
 const adminBaseUrl = adminTarget.baseUrl;
 const apiBaseOrigin = apiTarget.baseUrl;
 const apiBaseUrl = process.env.PW_API_BASE_URL ?? `${apiBaseOrigin.replace(/\/$/, "")}/api/v1`;
+const ga4MeasurementId = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID ?? "G-PLAYWRIGHT";
+const e2eAnalyticsConsent = process.env.PW_E2E_ANALYTICS_CONSENT ?? "";
 const playwrightAuthRateLimitMax = process.env.PW_AUTH_RATE_LIMIT_MAX ?? "2000";
 const apiPort = new URL(apiBaseOrigin).port || "4010";
 function originsFor(baseUrl: string): string[] {
@@ -90,7 +98,7 @@ export default defineConfig({
       reuseExistingServer: reuseExistingServer || apiTarget.reuseExistingServer
     },
     {
-      command: `NEXT_PUBLIC_API_BASE_URL="${apiBaseUrl}" bash ./scripts/start-web-playwright.sh`,
+      command: `NEXT_PUBLIC_API_BASE_URL="${apiBaseUrl}" NEXT_PUBLIC_GA4_MEASUREMENT_ID="${ga4MeasurementId}" NEXT_PUBLIC_E2E_ANALYTICS_CONSENT="${e2eAnalyticsConsent}" bash ./scripts/start-web-playwright.sh`,
       url: webBaseUrl,
       timeout: 240_000,
       cwd: repoRoot,

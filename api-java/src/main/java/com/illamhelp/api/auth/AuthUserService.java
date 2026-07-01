@@ -25,6 +25,10 @@ public class AuthUserService {
     return userRepository.findById(UUID.fromString(userId)).map(UserEntity::getUsername);
   }
 
+  public Optional<String> getAnalyticsUserIdByUserId(String userId) {
+    return userRepository.findAnalyticsUserIdByUserId(userId);
+  }
+
   private String normalizePublicUserId(String value, String userId) {
     String raw = value == null ? "" : value.trim().toLowerCase();
     if (raw.length() >= 3 && raw.length() <= 40 && raw.matches("^[a-z0-9._-]+$")) {

@@ -11,8 +11,9 @@ import {
 
 import {} from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import {} from "../theme";
 import { styles } from "../styles";
 import { AppButton, Banner, InputField, SectionCard } from "../components";
@@ -48,7 +49,27 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       justifyContent: "center",
       backgroundColor: colors.surfaceAlt,
       borderWidth: 1,
-      borderColor: colors.line
+      borderColor: colors.line,
+      overflow: "hidden"
+    },
+    avatarImage: {
+      width: "100%",
+      height: "100%"
+    },
+    avatarBadge: {
+      position: "absolute",
+      right: 4,
+      bottom: 4,
+      borderRadius: 999,
+      backgroundColor: colors.ink,
+      paddingHorizontal: 7,
+      paddingVertical: 3
+    },
+    avatarBadgeText: {
+      color: colors.onStrong,
+      fontSize: 10,
+      fontWeight: "800",
+      lineHeight: 13
     },
     avatarText: {
       color: colors.ink,
@@ -95,6 +116,22 @@ function inferMediaKind(contentType: string): MediaKind | null {
   return null;
 }
 
+function resolveUploadMedia(file: PickedMediaFile): { kind: MediaKind; contentType: string } | null {
+  const normalizedType = file.mimeType.trim().toLowerCase();
+  const kindFromType = inferMediaKind(normalizedType);
+  if (kindFromType) {
+    return { kind: kindFromType, contentType: normalizedType };
+  }
+  const extension = file.name.split(".").at(-1)?.toLowerCase();
+  if (extension && ["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"].includes(extension)) {
+    return { kind: "image", contentType: extension === "jpg" ? "image/jpeg" : `image/${extension}` };
+  }
+  if (extension && ["mp4", "mov", "m4v", "webm"].includes(extension)) {
+    return { kind: "video", contentType: extension === "mov" ? "video/quicktime" : `video/${extension}` };
+  }
+  return null;
+}
+
 export function ProfileScreen({
   accessToken,
   user,
@@ -119,12 +156,25 @@ export function ProfileScreen({
   const [mediaUploading, setMediaUploading] = useState(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [mediaSuccess, setMediaSuccess] = useState<string | null>(null);
-  const [pickedProfileMediaFile, setPickedProfileMediaFile] = useState<PickedMediaFile | null>(null);
+  const [pickedProfileMediaFiles, setPickedProfileMediaFiles] = useState<PickedMediaFile[]>([]);
+  const [pickedProfilePictureFile, setPickedProfilePictureFile] = useState<PickedMediaFile | null>(null);
+  const [profilePictureUploading, setProfilePictureUploading] = useState(false);
+  const [profilePictureError, setProfilePictureError] = useState<string | null>(null);
+  const [profilePictureSuccess, setProfilePictureSuccess] = useState<string | null>(null);
+  const [pendingProfilePicture, setPendingProfilePicture] = useState<MediaAssetRecord | null>(null);
   const [publicGalleryOwner, setPublicGalleryOwner] = useState("");
   const [publicMediaAssets, setPublicMediaAssets] = useState<PublicMediaAssetRecord[]>([]);
   const [publicMediaCursor, setPublicMediaCursor] = useState<string | null>(null);
   const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
+  const profileApprovedMedia = useMemo(
+    () => approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile")),
+    [publicMediaAssets]
+  );
+  const currentProfilePicture = useMemo(
+    () => profileApprovedMedia.find((asset) => asset.kind === "image") ?? null,
+    [profileApprovedMedia]
+  );
 
   const loadPublicGallery = useCallback(async (ownerUserId: string): Promise<void> => {
     const normalizedOwnerId = ownerUserId.trim().toLowerCase();
@@ -235,51 +285,94 @@ export function ProfileScreen({
     setMediaSuccess(null);
     const result = await DocumentPicker.getDocumentAsync({
       type: ["image/*", "video/*"],
-      multiple: false,
+      multiple: true,
       copyToCacheDirectory: true
     });
     if (result.canceled) {
       return;
     }
+    const files: PickedMediaFile[] = [];
+    for (const asset of result.assets) {
+      if (!asset?.mimeType || !asset.size) {
+        setMediaError("Choose images or videos with readable file sizes.");
+        return;
+      }
+      if (!resolveUploadMedia({
+        uri: asset.uri,
+        name: asset.name || `profile-media-${Date.now()}`,
+        mimeType: asset.mimeType,
+        size: asset.size
+      })) {
+        setMediaError("Only profile photos and videos are supported.");
+        return;
+      }
+      files.push({
+        uri: asset.uri,
+        name: asset.name || `profile-media-${Date.now()}`,
+        mimeType: asset.mimeType,
+        size: asset.size
+      });
+    }
+    setPickedProfileMediaFiles((previous) => [...previous, ...files]);
+  }, []);
+
+  const onCaptureProfileMedia = useCallback(async (): Promise<void> => {
+    setMediaError(null);
+    setMediaSuccess(null);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setMediaError("Allow camera access to take profile photos or videos.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      quality: 0.85,
+      videoMaxDuration: 60
+    });
+    if (result.canceled) {
+      return;
+    }
     const asset = result.assets[0];
-    if (!asset?.mimeType || !asset.size) {
+    const mimeType = asset.mimeType ?? (asset.type === "video" ? "video/mp4" : "image/jpeg");
+    const size = asset.fileSize ?? 0;
+    if (!size) {
       setMediaError("Choose an image or video with a readable file size.");
       return;
     }
-    if (!inferMediaKind(asset.mimeType)) {
+    if (!resolveUploadMedia({
+      uri: asset.uri,
+      name: asset.fileName || `profile-media-${Date.now()}`,
+      mimeType,
+      size
+    })) {
       setMediaError("Only profile photos and videos are supported.");
       return;
     }
-    setPickedProfileMediaFile({
+    setPickedProfileMediaFiles((previous) => [...previous, {
       uri: asset.uri,
-      name: asset.name || `profile-media-${Date.now()}`,
-      mimeType: asset.mimeType,
-      size: asset.size
-    });
+      name: asset.fileName || `profile-media-${Date.now()}`,
+      mimeType,
+      size
+    }]);
   }, []);
 
-  const onUploadProfileMedia = useCallback(async (): Promise<void> => {
-    if (!pickedProfileMediaFile) {
-      setMediaError("Choose a profile photo or video first.");
-      return;
+  const uploadProfileFiles = useCallback(async (files: PickedMediaFile[]): Promise<MediaAssetRecord[]> => {
+    const invalidFile = files.find((file) => !resolveUploadMedia(file));
+    if (invalidFile) {
+      throw new Error(`Only profile photos and videos are supported. Remove ${invalidFile.name}.`);
     }
-    const kind = inferMediaKind(pickedProfileMediaFile.mimeType);
-    if (!kind) {
-      setMediaError("Only profile photos and videos are supported.");
-      return;
-    }
-    setMediaUploading(true);
-    setMediaError(null);
-    setMediaSuccess(null);
-    try {
+    const completedUploads: MediaAssetRecord[] = [];
+    for (const file of files) {
+      const resolvedMedia = resolveUploadMedia(file);
+      if (!resolvedMedia) continue;
       const ticket = await createMediaUploadTicket(
         {
-          kind,
+          kind: resolvedMedia.kind,
           purpose: "profile",
-          contentType: pickedProfileMediaFile.mimeType,
-          fileSizeBytes: pickedProfileMediaFile.size,
+          contentType: resolvedMedia.contentType,
+          fileSizeBytes: file.size,
           checksumSha256: randomHex(64),
-          originalFileName: pickedProfileMediaFile.name
+          originalFileName: file.name
         },
         accessToken
       );
@@ -288,9 +381,9 @@ export function ProfileScreen({
         method: "PUT",
         headers: ticket.requiredHeaders,
         body: {
-          uri: pickedProfileMediaFile.uri,
-          name: pickedProfileMediaFile.name,
-          type: pickedProfileMediaFile.mimeType
+          uri: file.uri,
+          name: file.name,
+          type: resolvedMedia.contentType
         } as unknown as RequestInit["body"]
       });
 
@@ -304,13 +397,27 @@ export function ProfileScreen({
         { etag: etag || undefined },
         accessToken
       );
+      completedUploads.push(completed);
+    }
+    return completedUploads;
+  }, [accessToken]);
 
+  const onUploadProfileMedia = useCallback(async (): Promise<void> => {
+    if (pickedProfileMediaFiles.length === 0) {
+      setMediaError("Choose one or more profile photos or videos first.");
+      return;
+    }
+    setMediaUploading(true);
+    setMediaError(null);
+    setMediaSuccess(null);
+    try {
+      const completedUploads = await uploadProfileFiles(pickedProfileMediaFiles);
       setMediaAssets((previous) => [
-        completed,
-        ...previous.filter((item) => item.id !== completed.id)
+        ...completedUploads,
+        ...previous.filter((item) => !completedUploads.some((completed) => completed.id === item.id))
       ]);
-      setPickedProfileMediaFile(null);
-      setMediaSuccess("Profile media uploaded. It will appear after review.");
+      setPickedProfileMediaFiles([]);
+      setMediaSuccess(`${completedUploads.length} profile ${completedUploads.length === 1 ? "file" : "files"} uploaded for review.`);
     } catch (requestError) {
       const message = asError(requestError, "Unable to upload media");
       setMediaError(message);
@@ -320,7 +427,86 @@ export function ProfileScreen({
     } finally {
       setMediaUploading(false);
     }
-  }, [accessToken, onSessionInvalid, pickedProfileMediaFile]);
+  }, [onSessionInvalid, pickedProfileMediaFiles, uploadProfileFiles]);
+
+  const setProfilePictureFromAsset = useCallback((asset: ImagePicker.ImagePickerAsset): void => {
+    const mimeType = asset.mimeType ?? "image/jpeg";
+    const size = asset.fileSize ?? 0;
+    const fileName = asset.fileName || `profile-picture-${Date.now()}.jpg`;
+    const file: PickedMediaFile = {
+      uri: asset.uri,
+      name: fileName,
+      mimeType,
+      size
+    };
+    if (!size) {
+      setProfilePictureError("Choose an image with a readable file size.");
+      return;
+    }
+    if (resolveUploadMedia(file)?.kind !== "image") {
+      setProfilePictureError("Choose an image file for your profile picture.");
+      return;
+    }
+    setPickedProfilePictureFile(file);
+    setProfilePictureError(null);
+    setProfilePictureSuccess(null);
+  }, []);
+
+  const onPickProfilePicture = useCallback(async (): Promise<void> => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsEditing: true,
+      aspect: [1, 1]
+    });
+    if (result.canceled) return;
+    setProfilePictureFromAsset(result.assets[0]);
+  }, [setProfilePictureFromAsset]);
+
+  const onCaptureProfilePicture = useCallback(async (): Promise<void> => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setProfilePictureError("Allow camera access to take a profile picture.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.9,
+      allowsEditing: true,
+      aspect: [1, 1]
+    });
+    if (result.canceled) return;
+    setProfilePictureFromAsset(result.assets[0]);
+  }, [setProfilePictureFromAsset]);
+
+  const onUploadProfilePicture = useCallback(async (): Promise<void> => {
+    if (!pickedProfilePictureFile) {
+      setProfilePictureError("Choose a profile picture first.");
+      return;
+    }
+    setProfilePictureUploading(true);
+    setProfilePictureError(null);
+    setProfilePictureSuccess(null);
+    try {
+      const completedUploads = await uploadProfileFiles([pickedProfilePictureFile]);
+      const completedPicture = completedUploads.find((asset) => asset.kind === "image") ?? null;
+      setMediaAssets((previous) => [
+        ...completedUploads,
+        ...previous.filter((item) => !completedUploads.some((completed) => completed.id === item.id))
+      ]);
+      setPendingProfilePicture(completedPicture);
+      setPickedProfilePictureFile(null);
+      setProfilePictureSuccess("Profile picture uploaded for review.");
+    } catch (requestError) {
+      const message = asError(requestError, "Unable to upload profile picture");
+      setProfilePictureError(message);
+      if (shouldForceSignOut(message)) {
+        onSessionInvalid();
+      }
+    } finally {
+      setProfilePictureUploading(false);
+    }
+  }, [onSessionInvalid, pickedProfilePictureFile, uploadProfileFiles]);
 
   return (
     <ScrollView
@@ -337,12 +523,25 @@ export function ProfileScreen({
       {error ? <Banner tone="error" message={error} /> : null}
       {success ? <Banner tone="success" message={success} /> : null}
       <View style={localStyles.header}>
-        <View style={localStyles.headerRow}>
-          <View style={localStyles.avatar}>
-            <Text style={localStyles.avatarText}>
-              {(profile?.displayName ?? user.publicUserId).slice(0, 1).toUpperCase()}
-            </Text>
-          </View>
+	        <View style={localStyles.headerRow}>
+	          <View style={localStyles.avatar}>
+	            {pickedProfilePictureFile ? (
+	              <Image source={{ uri: pickedProfilePictureFile.uri }} style={localStyles.avatarImage} resizeMode="cover" />
+	            ) : currentProfilePicture ? (
+	              <Image source={{ uri: currentProfilePicture.downloadUrl }} style={localStyles.avatarImage} resizeMode="cover" />
+	            ) : (
+	              <Text style={localStyles.avatarText}>
+	                {(profile?.displayName ?? user.publicUserId).slice(0, 1).toUpperCase()}
+	              </Text>
+	            )}
+	            {pickedProfilePictureFile || pendingProfilePicture ? (
+	              <View style={localStyles.avatarBadge}>
+	                <Text style={localStyles.avatarBadgeText}>
+	                  {profilePictureUploading ? "Uploading" : "Review"}
+	                </Text>
+	              </View>
+	            ) : null}
+	          </View>
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={localStyles.headerName}>{profile?.displayName ?? "IllamHelp member"}</Text>
             <Text style={localStyles.headerHandle}>@{profile?.userId ?? user.publicUserId}</Text>
@@ -462,13 +661,55 @@ export function ProfileScreen({
           You can stop sharing at any time from the Privacy tab.
         </Text>
       </SectionCard>
+      <SectionCard title="Profile picture">
+        <Text style={styles.cardBodyMuted}>
+          Profile pictures use profile media review and appear only where profile media is allowed.
+        </Text>
+        {profilePictureError ? <Banner tone="error" message={profilePictureError} testID="profile-picture-error" /> : null}
+        {profilePictureSuccess ? <Banner tone="success" message={profilePictureSuccess} testID="profile-picture-success" /> : null}
+        {pickedProfilePictureFile ? (
+          <Text style={styles.dataMeta} testID="profile-picture-selected">
+            Selected: {pickedProfilePictureFile.name}
+          </Text>
+        ) : null}
+        <View style={styles.mediaPickerActions}>
+          <AppButton
+            label="Take picture"
+            onPress={() => {
+              void onCaptureProfilePicture();
+            }}
+            variant="secondary"
+            disabled={profilePictureUploading}
+            testID="profile-picture-camera"
+          />
+          <AppButton
+            label="Choose picture"
+            onPress={() => {
+              void onPickProfilePicture();
+            }}
+            variant="secondary"
+            disabled={profilePictureUploading}
+            testID="profile-picture-pick"
+          />
+        </View>
+        <AppButton
+          label={profilePictureUploading ? "Uploading picture..." : "Upload picture"}
+          onPress={() => {
+            void onUploadProfilePicture();
+          }}
+          loading={profilePictureUploading}
+          disabled={profilePictureUploading || !pickedProfilePictureFile}
+          testID="profile-picture-upload"
+        />
+      </SectionCard>
       <SectionCard title="Professional media">
         <MediaUploadPanel
           title="Profile photos and videos"
           description="Show work examples and service proof. Approved media is visible to accepted connections."
           pickLabel="Add profile media"
+          cameraLabel="Take profile media"
           uploadLabel="Upload profile media"
-          pickedFile={pickedProfileMediaFile}
+          pickedFiles={pickedProfileMediaFiles}
           pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
           uploading={mediaUploading}
           error={mediaError}
@@ -477,7 +718,11 @@ export function ProfileScreen({
           onPick={() => {
             void onPickProfileMedia();
           }}
-          onClear={() => setPickedProfileMediaFile(null)}
+          onCameraPick={() => {
+            void onCaptureProfileMedia();
+          }}
+          onClear={() => setPickedProfileMediaFiles([])}
+          onRemove={(index) => setPickedProfileMediaFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index))}
           onUpload={() => {
             void onUploadProfileMedia();
           }}
@@ -518,8 +763,8 @@ export function ProfileScreen({
           disabled={publicGalleryLoading}
           testID="profile-public-load"
         />
-        <MediaPreviewList
-          items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
+	        <MediaPreviewList
+	          items={profileApprovedMedia}
           emptyText="No approved profile media yet."
           testID="profile-public"
         />

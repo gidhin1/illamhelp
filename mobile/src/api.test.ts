@@ -14,6 +14,7 @@ import {
   listJobsPage,
   listNotifications,
   listPublicApprovedMediaPage,
+  register,
   requestConsentAccess,
   searchConnections,
   updateMyProfile
@@ -70,6 +71,37 @@ describe("mobile API client", () => {
     await expect(listJobsPage("expired")).rejects.toThrow("Authentication required");
   });
 
+  it("serializes mobile policy acceptance during registration", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ accessToken: "token" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await register({
+      username: "member",
+      email: "member@example.com",
+      password: "StrongPass#2026",
+      firstName: "Member",
+      acceptedTermsVersion: "2026-06-14",
+      acceptedPrivacyPolicyVersion: "2026-06-14",
+      acceptedLegalAt: "2026-06-14T12:00:00Z",
+      acceptanceSource: "mobile"
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:4000/api/v1/auth/register");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({
+        username: "member",
+        email: "member@example.com",
+        password: "StrongPass#2026",
+        firstName: "Member",
+        acceptedTermsVersion: "2026-06-14",
+        acceptedPrivacyPolicyVersion: "2026-06-14",
+        acceptedLegalAt: "2026-06-14T12:00:00Z",
+        acceptanceSource: "mobile"
+      })
+    });
+  });
+
   it("normalizes connection lists and encodes page cursors", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([{ id: "connection-1" }]))
@@ -111,7 +143,7 @@ describe("mobile API client", () => {
       .mockResolvedValueOnce(jsonResponse({ allowed: true }))
       .mockResolvedValueOnce(jsonResponse({ id: "request-1" }))
       .mockResolvedValueOnce(jsonResponse({ mediaId: "media-1" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "media-1", state: "approved" }));
+      .mockResolvedValueOnce(jsonResponse({ id: "media-1", state: "approved", purpose: "profile", kind: "image" }));
     vi.stubGlobal("fetch", fetchMock);
 
     await canViewConsent({ ownerUserId: "owner", field: "phone" }, "token");

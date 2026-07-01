@@ -9,14 +9,14 @@ import {
   ChevronDown,
   ChevronRight,
   CircleHelp,
-  Home,
-  Lock,
+  House,
+  LockKeyhole,
   Menu,
   Moon,
   Settings,
   ShieldCheck,
-  User,
-  Users
+  UserRound,
+  UsersRound
 } from "lucide-react";
 
 import {
@@ -58,11 +58,11 @@ function NavIcon({ name, className }: { name: AppNavIcon; className?: string }):
   const props = { "aria-hidden": true, className, size: 22, strokeWidth: 1.9 };
   switch (name) {
     case "home":
-      return <Home {...props} />;
+      return <House {...props} />;
     case "people":
-      return <Users {...props} />;
+      return <UsersRound {...props} />;
     case "profile":
-      return <User {...props} />;
+      return <UserRound {...props} />;
     case "verify":
       return <ShieldCheck {...props} />;
     case "jobs":
@@ -70,7 +70,7 @@ function NavIcon({ name, className }: { name: AppNavIcon; className?: string }):
     case "alerts":
       return <Bell {...props} />;
     case "privacy":
-      return <Lock {...props} />;
+      return <LockKeyhole {...props} />;
     case "settings":
       return <Settings {...props} />;
     case "help":

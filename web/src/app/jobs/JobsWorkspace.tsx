@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { CSSProperties } from "react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
 
 import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
 import { PersonSummary } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
-import { DataTable } from "@/components/ui/DataTable";
 import {
   applyToJob,
   createJob,
@@ -72,14 +71,28 @@ function isPendingApplication(status: JobApplicationRecord["status"]): boolean {
   return status === "applied" || status === "shortlisted";
 }
 
+function jobPrivacyLabel(job: JobRecord): string {
+  return job.visibility === "connections_only" ? "Connections only" : "Public";
+}
+
+function jobStatusTone(status: JobRecord["status"]): "info" | "success" | "warning" | "neutral" {
+  if (status === "posted") return "info";
+  if (status === "accepted" || status === "completed") return "success";
+  if (status === "cancelled") return "warning";
+  return "neutral";
+}
+
 function JobsLoadingSkeleton({ label }: { label: string }): JSX.Element {
   return (
-    <Card soft className="stack" aria-busy="true">
-      <div className="pill">{label}</div>
-      <div className="skeleton-line" style={{ width: "62%" }} />
-      <div className="skeleton-line" style={{ width: "88%" }} />
-      <div className="skeleton-line" style={{ width: "48%" }} />
-    </Card>
+    <div className="job-loading-list" aria-busy="true" aria-label={label}>
+      {[0, 1, 2].map((item) => (
+        <Card soft className="job-loading-row" key={item}>
+          <div className="skeleton-line" style={{ width: "42%" }} />
+          <div className="skeleton-line" style={{ width: "82%" }} />
+          <div className="skeleton-line" style={{ width: "58%" }} />
+        </Card>
+      ))}
+    </div>
   );
 }
 
@@ -370,130 +383,62 @@ export function JobsWorkspace({
     }
   };
 
-  // Shared columns
-  const getColumns = (type: "posted" | "external"): ColumnDef<JobRecord>[] => [
-    {
-      accessorKey: "title",
-      header: "Job Title",
-      cell: ({ row }) => <Link href={`/jobs/${row.original.id}`} style={{ fontWeight: 600, color: "var(--ink)" }}>{row.original.title}</Link>,
-    },
-    {
-      accessorKey: "category",
-      header: "Category",
-    },
-    {
-      accessorKey: "locationText",
-      header: "Location",
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>,
-    },
-    {
-      id: "media",
-      header: "Media",
-      cell: ({ row }) => (
-        <span className="muted-text">
-          {(jobMediaByJobId[row.original.id] ?? []).length} approved
-        </span>
-      ),
-    },
-    {
-      id: "person",
-      header: type === "posted" ? "Assigned provider" : "Posted by",
-      cell: ({ row }) => {
-        const userId = type === "posted" ? row.original.assignedProviderUserId : row.original.seekerUserId;
-        return userId ? (
-          <PersonSummary userId={userId} profile={profilesByUserId[userId]} compact />
-        ) : (
-          <span className="muted-text">Not assigned yet</span>
-        );
-      },
-    },
-    {
-      accessorKey: "createdAt",
-      header: "Posted On",
-      cell: ({ row }) => formatDate(row.original.createdAt).split(",")[0],
-    },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }) => {
-        const job = row.original;
-        
-        if (type === "posted") {
-          return (
-            <Button type="button" variant="ghost" onClick={() => router.push(`/jobs/${job.id}`)}>Manage</Button>
-          );
-        }
-        
-        const application = myApplicationsByJob[job.id] ?? null;
-        const canApply =
-          job.status === "posted" &&
-          (!application || application.status === "withdrawn" || application.status === "rejected");
-        const canWithdraw =
-          job.status === "posted" && application ? isPendingApplication(application.status) : false;
-
-        return (
-          <div style={{ display: "flex", gap: "8px" }}>
-            {canApply && (
-              <Button type="button" disabled={jobActionLoadingId === job.id} onClick={() => { setApplyingJob(job); setApplicationMessage(""); }}>
-                Apply
-              </Button>
-            )}
-            {canWithdraw && application && (
-              <Button type="button" variant="secondary" disabled={jobActionLoadingId === job.id} onClick={() => void onWithdraw(application)}>
-                Withdraw
-              </Button>
-            )}
-            <Link className="button ghost" href={`/jobs/${job.id}`}>View</Link>
-          </div>
-        );
-      },
-    },
-  ];
-
-  const renderMobileJobs = (items: JobRecord[], type: "posted" | "external"): JSX.Element => (
-    <div className="mobile-only job-mobile-list">
-      {items.map((job) => {
+  const renderJobs = (items: JobRecord[], type: "posted" | "external"): JSX.Element => (
+    <div className="media-page-grid">
+      {items.map((job, index) => {
         const application = myApplicationsByJob[job.id] ?? null;
         const canApply = type === "external" && job.status === "posted"
           && (!application || application.status === "withdrawn" || application.status === "rejected");
         const canWithdraw = type === "external" && job.status === "posted"
           && application ? isPendingApplication(application.status) : false;
+        const personId = type === "posted" ? job.assignedProviderUserId ?? job.seekerUserId : job.seekerUserId;
+        const mediaItems = jobMediaByJobId[job.id] ?? [];
         return (
-          <Card soft className="job-mobile-card" key={job.id}>
-            <div className="job-mobile-title-row">
-              <Link href={`/jobs/${job.id}`} className="job-mobile-title">{job.title}</Link>
-              <StatusLabel tone="info">{job.status.replaceAll("_", " ")}</StatusLabel>
+          <article
+            className="job-story-card motion-row-change"
+            key={job.id}
+            style={{ "--i": index } as CSSProperties & Record<"--i", number>}
+          >
+            <div className="job-story-topline">
+              <PersonSummary
+                userId={personId}
+                profile={profilesByUserId[personId]}
+                meta={type === "posted" && !job.assignedProviderUserId ? "No provider assigned yet" : undefined}
+                compact
+              />
+              <StatusLabel tone={jobStatusTone(job.status)}>{job.status.replaceAll("_", " ")}</StatusLabel>
             </div>
-            <p className="muted-text">{job.category} - {job.locationText}</p>
-            <PersonSummary
-              userId={type === "posted" ? job.assignedProviderUserId ?? job.seekerUserId : job.seekerUserId}
-              profile={profilesByUserId[type === "posted" ? job.assignedProviderUserId ?? job.seekerUserId : job.seekerUserId]}
-              meta={type === "posted" && !job.assignedProviderUserId ? "No provider assigned yet" : undefined}
-              compact
-            />
-            <p className="muted-text">Posted {formatDate(job.createdAt).split(",")[0]}</p>
+
+            <Link href={`/jobs/${job.id}`} className="job-story-title">{job.title}</Link>
+            <p className="job-story-meta">
+              {job.category} in {job.locationText} · Posted {formatDate(job.createdAt).split(",")[0]}
+            </p>
+
             <MediaPreviewGrid
-              items={jobMediaByJobId[job.id] ?? []}
+              items={mediaItems}
               emptyText="No approved job media yet."
               testId={`job-media-${job.id}`}
             />
-            <div className="job-mobile-actions">
+
+            <div className="job-story-foot">
+              <div className="job-story-privacy">
+                <span>{jobPrivacyLabel(job)}</span>
+                <span>{mediaItems.length} approved media</span>
+              </div>
+              <div className="job-story-actions">
               {type === "posted" ? (
-                <Link className="button ghost" href={`/jobs/${job.id}`}>Manage</Link>
+                <Button type="button" variant="ghost" onClick={() => router.push(`/jobs/${job.id}`)}>Manage job</Button>
               ) : null}
               {canApply ? (
-                <Button type="button" disabled={jobActionLoadingId === job.id} onClick={() => { setApplyingJob(job); setApplicationMessage(""); }}>Apply</Button>
+                <Button type="button" disabled={jobActionLoadingId === job.id} onClick={() => { setApplyingJob(job); setApplicationMessage(""); }}>Apply for job</Button>
               ) : null}
               {canWithdraw && application ? (
-                <Button type="button" variant="secondary" disabled={jobActionLoadingId === job.id} onClick={() => void onWithdraw(application)}>Withdraw</Button>
+                <Button type="button" variant="secondary" disabled={jobActionLoadingId === job.id} onClick={() => void onWithdraw(application)}>Withdraw application</Button>
               ) : null}
-              {type === "external" ? <Link className="button ghost" href={`/jobs/${job.id}`}>View</Link> : null}
+              {type === "external" ? <Link className="button ghost" href={`/jobs/${job.id}`}>View details</Link> : null}
+              </div>
             </div>
-          </Card>
+          </article>
         );
       })}
     </div>
@@ -549,31 +494,41 @@ export function JobsWorkspace({
           </nav>
           <RequireSession>
             <div className="stack">
-              <div className="kpi-grid">
-                <div className="kpi">
-                  <div className="kpi-label">Total platform jobs</div>
-                  <div className="kpi-value">{jobs.length}</div>
+              <div className="media-page-hero">
+                <div>
+                  <p className="surface-label">People and proof</p>
+                  <h2>Jobs from people, with proof up front.</h2>
+                  <p className="muted-text">
+                    Review who posted the work, what privacy state it uses, and the safest next action before opening the details.
+                  </p>
                 </div>
-                <div className="kpi">
-                  <div className="kpi-label">Posted</div>
-                  <div className="kpi-value">{totalByStatus.posted ?? 0}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Assigned</div>
-                  <div className="kpi-value">{totalByStatus.accepted ?? 0}</div>
+                <div className="media-hero-stats" aria-label="Job summary">
+                  <div>
+                    <strong>{jobs.length}</strong>
+                    <span>Total jobs</span>
+                  </div>
+                  <div>
+                    <strong>{totalByStatus.posted ?? 0}</strong>
+                    <span>Open</span>
+                  </div>
+                  <div>
+                    <strong>{totalByStatus.accepted ?? 0}</strong>
+                    <span>Assigned</span>
+                  </div>
                 </div>
               </div>
 
               {section === "posted" ? (
-                <div>
-                  <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Jobs Posted By Me</h3>
+                <section className="media-section-stack" aria-labelledby="posted-jobs-heading">
+                  <div className="media-section-title">
+                    <div>
+                      <p className="surface-label">Your requests</p>
+                      <h3 id="posted-jobs-heading">Jobs posted by me</h3>
+                    </div>
+                    <a className="button ghost" href="#post-new-job">Create job</a>
+                  </div>
                   {jobsPostedByMe.length > 0 ? (
-                    <>
-                      <div className="desktop-only">
-                        <DataTable ariaLabel="Jobs posted by me" columns={getColumns("posted")} data={jobsPostedByMe} />
-                      </div>
-                      {renderMobileJobs(jobsPostedByMe, "posted")}
-                    </>
+                    renderJobs(jobsPostedByMe, "posted")
                   ) : (
                     <ActionEmptyState
                       title="No jobs posted"
@@ -581,12 +536,18 @@ export function JobsWorkspace({
                       action={<a className="button ghost" href="#post-new-job">Create job</a>}
                     />
                   )}
-                </div>
+                </section>
               ) : null}
 
               {section === "posted" ? (
-                <Card className="stack" id="post-new-job">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>Post a New Job</h3>
+                <Card className="media-composer-card stack" id="post-new-job">
+                  <div className="media-section-title">
+                    <div>
+                      <p className="surface-label">Next safe action</p>
+                      <h3>Post a new job</h3>
+                    </div>
+                    <StatusLabel tone="info">{form.visibility === "public" ? "Public" : "Connections only"}</StatusLabel>
+                  </div>
                   {createError ? <Banner tone="error">{createError}</Banner> : null}
                   {createSuccess ? <Banner tone="success">{createSuccess}</Banner> : null}
                   <form className="grid two" onSubmit={onCreate}>
@@ -629,7 +590,7 @@ export function JobsWorkspace({
                     </Field>
                     <div style={{ display: "flex", alignItems: "flex-end" }}>
                       <Button type="submit" disabled={createLoading}>
-                        {createLoading ? "Posting..." : "Post job"}
+                        {createLoading ? "Posting job" : "Post job"}
                       </Button>
                     </div>
                   </form>
@@ -643,15 +604,15 @@ export function JobsWorkspace({
 
               <div className="stack" style={{ gap: "var(--spacing-3xl)" }}>
                 {section === "assigned" ? (
-                  <div>
-                    <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Jobs Assigned To Me</h3>
+                  <section className="media-section-stack" aria-labelledby="assigned-jobs-heading">
+                    <div className="media-section-title">
+                      <div>
+                        <p className="surface-label">Work in hand</p>
+                        <h3 id="assigned-jobs-heading">Jobs assigned to me</h3>
+                      </div>
+                    </div>
                     {jobsAssignedToMe.length > 0 ? (
-                      <>
-                        {renderMobileJobs(jobsAssignedToMe, "external")}
-                        <div className="desktop-only">
-                          <DataTable ariaLabel="Jobs assigned to me" columns={getColumns("external")} data={jobsAssignedToMe} />
-                        </div>
-                      </>
+                      renderJobs(jobsAssignedToMe, "external")
                     ) : (
                       <ActionEmptyState
                         title="No assigned jobs"
@@ -659,20 +620,20 @@ export function JobsWorkspace({
                         action={<Link className="button ghost" href="/jobs/discover">Discover jobs</Link>}
                       />
                     )}
-                  </div>
+                  </section>
                 ) : null}
 
                 {section === "discover" ? (
                   <>
-                    <div>
-                      <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Network Jobs</h3>
+                    <section className="media-section-stack" aria-labelledby="network-jobs-heading">
+                      <div className="media-section-title">
+                        <div>
+                          <p className="surface-label">Trusted network</p>
+                          <h3 id="network-jobs-heading">Network jobs</h3>
+                        </div>
+                      </div>
                       {jobsFromConnectedPeople.length > 0 ? (
-                        <>
-                          {renderMobileJobs(jobsFromConnectedPeople, "external")}
-                          <div className="desktop-only">
-                            <DataTable ariaLabel="Network jobs" columns={getColumns("external")} data={jobsFromConnectedPeople} />
-                          </div>
-                        </>
+                        renderJobs(jobsFromConnectedPeople, "external")
                       ) : (
                         <ActionEmptyState
                           title="No network jobs"
@@ -680,17 +641,17 @@ export function JobsWorkspace({
                           action={<Link className="button ghost" href="/connections">Review people</Link>}
                         />
                       )}
-                    </div>
+                    </section>
 
-                    <div>
-                      <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Public Market</h3>
+                    <section className="media-section-stack" aria-labelledby="public-jobs-heading">
+                      <div className="media-section-title">
+                        <div>
+                          <p className="surface-label">Public jobs</p>
+                          <h3 id="public-jobs-heading">Open market</h3>
+                        </div>
+                      </div>
                       {publicJobs.length > 0 ? (
-                        <>
-                          {renderMobileJobs(publicJobs, "external")}
-                          <div className="desktop-only">
-                            <DataTable ariaLabel="Public market jobs" columns={getColumns("external")} data={publicJobs} />
-                          </div>
-                        </>
+                        renderJobs(publicJobs, "external")
                       ) : (
                         <ActionEmptyState
                           title="No public jobs"
@@ -698,7 +659,7 @@ export function JobsWorkspace({
                           action={<Button type="button" variant="ghost" onClick={() => void loadJobs()}>Refresh jobs</Button>}
                         />
                       )}
-                    </div>
+                    </section>
                   </>
                 ) : null}
               </div>

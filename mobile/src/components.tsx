@@ -61,7 +61,15 @@ export function MotionView({
   variant?: MotionVariant;
   delay?: number;
   disabled?: boolean;
-} & Pick<ViewProps, "accessible" | "accessibilityLabel" | "accessibilityLiveRegion" | "accessibilityRole">): JSX.Element {
+} & Pick<
+  ViewProps,
+  | "accessible"
+  | "accessibilityElementsHidden"
+  | "accessibilityLabel"
+  | "accessibilityLiveRegion"
+  | "accessibilityRole"
+  | "importantForAccessibility"
+>): JSX.Element {
   const reduceMotion = useReduceMotion();
   const theme = useAppTheme();
   const progress = useSharedValue(reduceMotion || disabled || variant === "none" ? 1 : 0);

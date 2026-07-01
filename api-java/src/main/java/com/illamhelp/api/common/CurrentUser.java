@@ -27,7 +27,7 @@ public final class CurrentUser {
         jwt.getClaimAsString("preferred_username"),
         jwt.getClaimAsString("username"),
         "member_" + jwt.getSubject().replace("-", "").substring(0, Math.min(10, jwt.getSubject().length())));
-    return new AuthenticatedUser(jwt.getSubject(), publicUserId, roles, resolveUserType(roles), jwt.getSubject());
+    return new AuthenticatedUser(jwt.getSubject(), publicUserId, null, roles, resolveUserType(roles), jwt.getSubject());
   }
 
   private static String resolveUserType(List<String> roles) {

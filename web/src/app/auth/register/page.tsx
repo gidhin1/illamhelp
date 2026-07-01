@@ -1,8 +1,10 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+
+import { CURRENT_LEGAL_VERSIONS } from "@illamhelp/shared-types";
 
 import { PageShell } from "@/components/PageShell";
 import { useSession } from "@/components/session/SessionProvider";
@@ -15,6 +17,7 @@ import {
   TextInput
 } from "@/components/ui/primitives";
 import { register } from "@/lib/api";
+import { trackEvent, utmParams } from "@/lib/analytics";
 
 export default function RegisterPage(): JSX.Element {
   const router = useRouter();
@@ -26,9 +29,18 @@ export default function RegisterPage(): JSX.Element {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [legalAccepted, setLegalAccepted] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    trackEvent("signup_started", {
+      surface: "web",
+      source: "register_page",
+      ...utmParams()
+    });
+  }, []);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -40,13 +52,20 @@ export default function RegisterPage(): JSX.Element {
       if (normalizedUserId.length < 3) {
         throw new Error("User ID must be at least 3 characters.");
       }
+      if (!legalAccepted) {
+        throw new Error("Accept the current Terms and Privacy Policy to create an account.");
+      }
       const session = await register({
         username: normalizedUserId,
         email,
         password,
         firstName,
         lastName: lastName || undefined,
-        phone: phone || undefined
+        phone: phone || undefined,
+        acceptedTermsVersion: CURRENT_LEGAL_VERSIONS.terms,
+        acceptedPrivacyPolicyVersion: CURRENT_LEGAL_VERSIONS.privacyPolicy,
+        acceptedLegalAt: new Date().toISOString(),
+        acceptanceSource: "web"
       });
       await applyAuthSession(session);
       router.push("/jobs");
@@ -117,13 +136,24 @@ export default function RegisterPage(): JSX.Element {
                 <TextInput
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="StrongPass#2026"
+                  placeholder="Create a password"
                   type="password"
                   required
                   minLength={8}
                   autoComplete="new-password"
                 />
               </Field>
+              <label className="legal-acceptance-field">
+                <input
+                  type="checkbox"
+                  checked={legalAccepted}
+                  onChange={(event) => setLegalAccepted(event.target.checked)}
+                  required
+                />
+                <span>
+                  I agree to the current <Link href="/terms">Terms and Conditions</Link> and <Link href="/privacy-policy">Privacy Policy</Link>.
+                </span>
+              </label>
               <div className="stack" style={{ alignContent: "end" }}>
                 <Button type="submit" disabled={loading}>
                   {loading ? "Creating..." : "Create account"}
@@ -134,6 +164,12 @@ export default function RegisterPage(): JSX.Element {
               </div>
             </form>
           </Card>
+          <div className="legal-link-row auth-legal-row">
+            <Link href="/privacy-policy">Privacy Policy</Link>
+            <Link href="/terms">Terms</Link>
+            <Link href="/faq">FAQ</Link>
+            <Link href="/help">Help</Link>
+          </div>
         </div>
       </section>
     </PageShell>

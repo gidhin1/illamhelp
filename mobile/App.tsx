@@ -4,6 +4,8 @@ import { Keyboard, SafeAreaView, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { CURRENT_LEGAL_VERSIONS } from "@illamhelp/shared-types";
+
 import {
   authMe,
   AuthenticatedUser,
@@ -12,6 +14,8 @@ import {
   login,
   register
 } from "./src/api";
+import { AnalyticsConsentBanner } from "./src/AnalyticsConsentBanner";
+import { identifyAnalyticsUser, trackEvent } from "./src/analytics";
 import { AppThemeProvider, useThemePreference } from "./src/theme-context";
 import { asError } from "./src/utils";
 import { AuthMode } from "./src/components";
@@ -25,13 +29,15 @@ const initialRegisterForm: RegisterFormState = {
   email: "",
   username: "",
   phone: "",
-  password: ""
+  password: "",
+  legalAccepted: false
 };
 
 function mapSessionUser(session: AuthSessionResponse): AuthenticatedUser {
   return {
     userId: session.userId,
     publicUserId: session.publicUserId,
+    analyticsUserId: session.analyticsUserId,
     roles: session.roles,
     userType: session.userType,
     tokenSubject: session.userId
@@ -98,9 +104,11 @@ function AppContent(): JSX.Element {
     async (session: AuthSessionResponse): Promise<void> => {
       setAccessToken(session.accessToken);
       setUser(mapSessionUser(session));
+      identifyAnalyticsUser(session.analyticsUserId);
       try {
         const profile = await authMe(session.accessToken);
         setUser(profile);
+        identifyAnalyticsUser(profile.analyticsUserId);
       } catch (requestError) {
         signOut();
         throw requestError;
@@ -153,8 +161,15 @@ function AppContent(): JSX.Element {
     setAuthError(null);
     try {
       const normalizedUserId = registerForm.username.trim().toLowerCase();
+      trackEvent("signup_started", {
+        surface: "mobile",
+        source: "register_form"
+      });
       if (normalizedUserId.length < 3) {
         throw new Error("User ID must be at least 3 characters.");
+      }
+      if (!registerForm.legalAccepted) {
+        throw new Error("Accept the current Terms and Privacy Policy to create an account.");
       }
       const session = await register({
         username: normalizedUserId,
@@ -162,7 +177,11 @@ function AppContent(): JSX.Element {
         password: registerForm.password,
         firstName: registerForm.firstName.trim(),
         lastName: registerForm.lastName.trim() || undefined,
-        phone: registerForm.phone.trim() || undefined
+        phone: registerForm.phone.trim() || undefined,
+        acceptedTermsVersion: CURRENT_LEGAL_VERSIONS.terms,
+        acceptedPrivacyPolicyVersion: CURRENT_LEGAL_VERSIONS.privacyPolicy,
+        acceptedLegalAt: new Date().toISOString(),
+        acceptanceSource: "mobile"
       });
       await applySession(session);
       setRegisterForm(initialRegisterForm);
@@ -209,7 +228,10 @@ export default function App(): JSX.Element {
       <RootErrorBoundary>
         <SafeAreaProvider>
           <AppThemeProvider>
+          <View style={{ flex: 1 }}>
             <AppContent />
+            <AnalyticsConsentBanner />
+          </View>
           </AppThemeProvider>
         </SafeAreaProvider>
       </RootErrorBoundary>

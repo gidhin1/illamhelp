@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home,
-  ShieldAlert,
   BadgeCheck,
   FileSearch,
+  LayoutDashboard,
   LogOut,
+  ShieldAlert,
   User
 } from "lucide-react";
 
@@ -15,11 +15,13 @@ import { useSession } from "@/components/session/SessionProvider";
 import { Button } from "@/components/ui/primitives";
 
 const navLinks = [
-  { href: "/", label: "Dashboard", Icon: Home },
+  { href: "/", label: "Dashboard", Icon: LayoutDashboard },
   { href: "/moderation", label: "Moderation", Icon: ShieldAlert },
   { href: "/verifications", label: "Verifications", Icon: BadgeCheck },
   { href: "/audit", label: "Consent + Audit", Icon: FileSearch }
 ];
+
+const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
 export function NavBar(): React.JSX.Element {
   const pathname = usePathname();
@@ -47,7 +49,7 @@ export function NavBar(): React.JSX.Element {
               minWidth: "64px"
             }}
           >
-            <Icon size={24} {...(active ? { fill: "currentColor" } : {})} />
+            <Icon size={24} strokeWidth={active ? 2.3 : 2} />
             <span style={{ fontSize: "10px", fontWeight: active ? 600 : 500 }}>
               {link.label}
             </span>
@@ -144,7 +146,7 @@ export function NavBar(): React.JSX.Element {
               }}
               className="nav-item-hover"
             >
-              <Icon size={26} {...(active ? { fill: "currentColor", strokeWidth: 1.5 } : { strokeWidth: 2 })} />
+              <Icon size={26} strokeWidth={active ? 2.3 : 2} />
               <span className="sidebar-label">{link.label}</span>
             </Link>
           );
@@ -172,6 +174,12 @@ export function NavBar(): React.JSX.Element {
           >
              <LogOut size={18} /> <span className="sidebar-label">Sign Out</span>
           </Button>
+          <div className="sidebar-label" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14, fontSize: "0.78rem" }}>
+            <a href={`${webAppUrl}/privacy-policy`} target="_blank" rel="noreferrer">Privacy</a>
+            <a href={`${webAppUrl}/terms`} target="_blank" rel="noreferrer">Terms</a>
+            <a href={`${webAppUrl}/faq`} target="_blank" rel="noreferrer">FAQ</a>
+            <a href={`${webAppUrl}/help`} target="_blank" rel="noreferrer">Help</a>
+          </div>
         </div>
       ) : (
         <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>

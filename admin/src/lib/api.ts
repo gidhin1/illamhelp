@@ -71,6 +71,18 @@ export interface MediaAssetRecord {
   updatedAt: string;
 }
 
+export interface ProfileRecord {
+  userId: string;
+  firstName: string;
+  lastName: string | null;
+  displayName: string;
+  city: string | null;
+  area: string | null;
+  serviceCategories: string[];
+  ratingAverage: number | null;
+  ratingCount: number;
+}
+
 export interface ModerationQueueItem {
   moderationJobId: string;
   mediaId: string;
@@ -255,6 +267,17 @@ export function login(payload: {
 
 export function authMe(accessToken: string): Promise<AuthenticatedUser> {
   return apiRequest<AuthenticatedUser>("/auth/me", {}, accessToken);
+}
+
+export function getProfileByUserId(
+  targetUserId: string,
+  accessToken: string
+): Promise<ProfileRecord> {
+  return apiRequest<ProfileRecord>(
+    `/profiles/${encodeURIComponent(targetUserId)}`,
+    {},
+    accessToken
+  );
 }
 
 export function listModerationQueue(

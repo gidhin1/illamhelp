@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardResponse, formatDate, getMyDashboard } from "../api";
-import { Banner, MotionView, SectionCard } from "../components";
+import { AppButton, Banner, MotionView, SectionCard } from "../components";
 import { asError, shouldForceSignOut } from "../utils";
 import { useAppStyles, useAppTheme } from "../theme-context";
 
@@ -108,11 +108,10 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     statsRow: {
       flexDirection: "row",
       gap: 10,
-      flexWrap: "wrap"
+      paddingRight: 10
     },
     statCard: {
-      flex: 1,
-      minWidth: 104,
+      width: 146,
       borderRadius: 12,
       padding: 16,
       backgroundColor: colors.surface,
@@ -151,6 +150,7 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       lineHeight: 25
     },
     jobCard: {
+      width: 292,
       borderRadius: 12,
       padding: 18,
       gap: 12,
@@ -221,10 +221,12 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
 
 export function HomeScreen({
   accessToken,
-  onSessionInvalid
+  onSessionInvalid,
+  onOpenJobs
 }: {
   accessToken: string;
   onSessionInvalid: () => void;
+  onOpenJobs?: () => void;
 }): JSX.Element {
   const styles = useAppStyles();
   const theme = useAppTheme();
@@ -301,7 +303,7 @@ export function HomeScreen({
 
       {error ? <Banner tone="error" message={error} /> : null}
 
-      <View style={localStyles.statsRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
         <View style={localStyles.statCard}>
           <Text style={localStyles.statLabel}>Jobs</Text>
           <Text style={localStyles.statValue}>{dashboard?.metrics.totalJobs ?? 0}</Text>
@@ -314,7 +316,7 @@ export function HomeScreen({
           <Text style={localStyles.statLabel}>Pending</Text>
           <Text style={localStyles.statValue}>{dashboard?.metrics.pendingConnections ?? 0}</Text>
         </View>
-      </View>
+      </ScrollView>
 
       <View style={localStyles.filterRow}>
         {([
@@ -358,8 +360,9 @@ export function HomeScreen({
           </SectionCard>
         ) : null}
 
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
         {filteredJobs.map((job) => (
-          <MotionView
+          <View
             key={job.id}
             style={[
               localStyles.jobCard,
@@ -376,8 +379,17 @@ export function HomeScreen({
               <Text style={localStyles.jobFooterText}>Posted {formatDate(job.createdAt)}</Text>
               <Text style={localStyles.privacyNote}>Check profile before sharing contact details</Text>
             </View>
-          </MotionView>
+            {onOpenJobs ? (
+              <AppButton
+                label="Open jobs"
+                onPress={onOpenJobs}
+                variant="secondary"
+                testID={`home-open-job-${job.id}`}
+              />
+            ) : null}
+          </View>
         ))}
+        </ScrollView>
       </View>
     </ScrollView>
   );

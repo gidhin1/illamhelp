@@ -20,6 +20,8 @@ import {
   ModerationDetails,
   ModerationProcessResult,
   ModerationQueueItem,
+  ProfileRecord,
+  getProfileByUserId,
   getModerationDetails,
   listModerationQueue,
   processModerationQueue,
@@ -58,10 +60,23 @@ function nextModerationAction(item: ModerationQueueItem): string {
   return "Review decision history";
 }
 
+function profileName(profile: ProfileRecord | undefined, userId: string): string {
+  return profile?.displayName || `Member ${shortId(userId)}`;
+}
+
+function profileContext(profile: ProfileRecord | undefined, userId: string): string {
+  if (!profile) return `Owner ID: ${shortId(userId)}`;
+  return [
+    [profile.city, profile.area].filter(Boolean).join(", "),
+    profile.serviceCategories.slice(0, 2).join(", ")
+  ].filter(Boolean).join(" · ") || `Owner ID: ${shortId(userId)}`;
+}
+
 function ModerationContent(): React.JSX.Element {
   const { accessToken } = useSession();
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
   const [queueSearch, setQueueSearch] = useState("");
   const [queueSortOrder, setQueueSortOrder] = useState<QueueSortOrder>("oldest");
   const [details, setDetails] = useState<ModerationDetails | null>(null);
@@ -89,6 +104,8 @@ function ModerationContent(): React.JSX.Element {
         if (!query) return true;
         return [
           item.ownerUserId,
+          profileName(profilesByUserId[item.ownerUserId], item.ownerUserId),
+          profileContext(profilesByUserId[item.ownerUserId], item.ownerUserId),
           item.mediaId,
           item.purpose,
           item.kind,
@@ -102,7 +119,7 @@ function ModerationContent(): React.JSX.Element {
         const right = new Date(b.moderationCreatedAt).getTime();
         return queueSortOrder === "oldest" ? left - right : right - left;
       });
-  }, [queue, queueSearch, queueSortOrder]);
+  }, [profilesByUserId, queue, queueSearch, queueSortOrder]);
 
   const queueGroups = useMemo(() => {
     const labels: Array<ModerationQueueItem["purpose"]> = ["verification_document", "profile", "job"];
@@ -172,6 +189,38 @@ function ModerationContent(): React.JSX.Element {
     })();
     return () => { cancelled = true; };
   }, [accessToken, selectedMediaId]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+    const userIds = Array.from(
+      new Set([
+        ...queue.map((item) => item.ownerUserId),
+        ...(details ? [details.media.ownerUserId] : [])
+      ])
+    ).filter((userId) => !profilesByUserId[userId]);
+    if (userIds.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        userIds.map(async (userId) => {
+          try {
+            return [userId, await getProfileByUserId(userId, accessToken)] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfilesByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+        }));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [accessToken, details, profilesByUserId, queue]);
 
   async function refreshQueueAndDetails(activeMediaId: string | null): Promise<void> {
     if (!accessToken) return;
@@ -312,6 +361,7 @@ function ModerationContent(): React.JSX.Element {
                         <div className="admin-review-group-label">{purposeLabel(group.purpose)} · {group.items.length}</div>
                         {group.items.map((item) => {
                           const selected = selectedMediaId === item.mediaId;
+                          const ownerProfile = profilesByUserId[item.ownerUserId];
                           return (
                             <button
                               key={item.mediaId}
@@ -321,9 +371,10 @@ function ModerationContent(): React.JSX.Element {
                               onClick={() => setSelectedMediaId(item.mediaId)}
                             >
                               <span className="admin-review-list-row">
-                                <strong>Member {shortId(item.ownerUserId)}</strong>
+                                <strong>{profileName(ownerProfile, item.ownerUserId)}</strong>
                                 <span className="pill">{item.mediaState.replaceAll("_", " ")}</span>
                               </span>
+                              <span className="muted-text">{profileContext(ownerProfile, item.ownerUserId)}</span>
                               <span className="admin-review-id">Media ID: {shortId(item.mediaId)}</span>
                               <span className="muted-text" style={{ textTransform: "capitalize" }}>{privacyState(item)} · {item.kind}</span>
                               <span className="muted-text">{nextModerationAction(item)} · queued {formatDate(item.moderationCreatedAt)}</span>
@@ -343,7 +394,7 @@ function ModerationContent(): React.JSX.Element {
                 <span className="pill">Manual review</span>
                 <h3>Review details</h3>
               </div>
-              {details ? <span className="admin-review-id">Member {shortId(details.media.ownerUserId)} · Media {shortId(details.media.id)}</span> : null}
+              {details ? <span className="admin-review-id">{profileName(profilesByUserId[details.media.ownerUserId], details.media.ownerUserId)} · Media {shortId(details.media.id)}</span> : null}
             </div>
             
             {loadingDetails && <p className="muted-text">Loading Details...</p>}
@@ -355,7 +406,8 @@ function ModerationContent(): React.JSX.Element {
                 <div className="admin-review-facts" data-testid="moderation-media-summary" aria-label="Media review details">
                   <div>
                     <span className="muted-text">Human identity</span>
-                    <strong>Member {shortId(details.media.ownerUserId)}</strong>
+                    <strong>{profileName(profilesByUserId[details.media.ownerUserId], details.media.ownerUserId)}</strong>
+                    <span>{profileContext(profilesByUserId[details.media.ownerUserId], details.media.ownerUserId)}</span>
                     <span>Owner ID: {details.media.ownerUserId}</span>
                   </div>
                   <div>
@@ -381,6 +433,7 @@ function ModerationContent(): React.JSX.Element {
                       width={1200}
                       height={800}
                       unoptimized
+                      priority
                       style={{ maxWidth: "100%", maxHeight: "320px", height: "auto", width: "auto", borderRadius: "var(--radius-sm)" }}
                     />
                   ) : (

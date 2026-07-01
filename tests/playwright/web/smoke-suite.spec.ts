@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { expect, Page, test } from "@playwright/test";
 
 import {
@@ -10,6 +12,20 @@ import {
 } from "../utils/flow-helpers";
 
 let sharedUser: E2eUser | null = null;
+const commonsValveImage = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "commons-plumbing-valve.jpg"
+);
+const sampleVideo = path.join(
+  process.cwd(),
+  "tests",
+  "playwright",
+  "fixtures",
+  "sample-video-640x360.mp4"
+);
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -59,7 +75,7 @@ async function openJobsSection(
   } as const;
 
   const expectedHeadings = {
-    discover: /Discover jobs/i,
+    discover: /Discover jobs|Jobs from people/i,
     posted: /Jobs posted by me/i,
     assigned: /Jobs assigned to me/i
   } as const;
@@ -74,6 +90,10 @@ async function openJobsSection(
   }
 
   await expect(page.getByRole("heading", { name: expectedHeadings[section] }).first()).toBeVisible();
+}
+
+function jobCard(page: Page, title: string) {
+  return page.locator("article").filter({ hasText: title }).first();
 }
 
 async function waitForAuthResponse(
@@ -141,6 +161,10 @@ async function resetBrowserSession(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+    window.localStorage.setItem(
+      "illamhelp.analyticsConsent.v1",
+      JSON.stringify({ analytics: "granted", ads: "denied", updatedAt: new Date().toISOString() })
+    );
     document.cookie = "illamhelp_access_token=; Path=/; Max-Age=0; SameSite=Lax";
   });
 
@@ -170,6 +194,7 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthUiSession> {
     await page.getByLabel("User ID").fill(user.username);
     await page.getByLabel("Phone (optional)").fill("+919876543210");
     await page.getByLabel("Password").fill(user.password);
+    await page.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
 
     const responsePromise = waitForAuthResponse(page, "/auth/register", "POST");
     await page.locator("form button[type='submit']").first().click();
@@ -239,17 +264,14 @@ async function readCurrentUserId(page: Page): Promise<string> {
 async function sendConnectionRequestByUi(page: Page, targetUserId: string): Promise<void> {
   await clickMainNav(page, "People");
   await page.getByLabel("Find a person").fill(targetUserId);
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: /Search people|Search/i }).click();
 
-  const matchCard = page
-    .locator(".card")
-    .filter({ hasText: `Member ID: ${targetUserId}` })
-    .first();
+  const matchCard = page.getByRole("article").filter({ hasText: `Member ID: ${targetUserId}` }).first();
 
   if (await matchCard.isVisible().catch(() => false)) {
-    await matchCard.getByRole("button", { name: "Connect" }).click();
+    await matchCard.getByRole("button", { name: /^(Send request|Connect)$/i }).click();
   } else {
-    await page.getByRole("button", { name: "Send request" }).click();
+    await page.getByRole("button", { name: "Send request" }).last().click();
   }
   await waitForSuccessMessage(page, "Connection request sent.");
 }
@@ -270,9 +292,7 @@ test("web mobile navigation is labeled and dismissible as a dialog", async ({ pa
   await resetBrowserSession(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(
-    page.getByRole("main").getByRole("heading", { name: /Find trusted help before the work reaches your doorstep/i })
-  ).toBeVisible();
+  await expect(page.getByRole("main").getByRole("heading", { level: 1 }).first()).toBeVisible();
 
   await expect(page.getByTestId("tab-home").getByText("Home")).toBeVisible();
   await page.getByTestId("mobile-drawer-toggle").click();
@@ -363,7 +383,10 @@ test("web jobs page posts a valid job", async ({ page }) => {
   await page.getByRole("button", { name: "Post job" }).click();
 
   await waitForSuccessMessage(page, "Job posted successfully.");
-  await expect(page.getByText(jobTitle).first()).toBeVisible();
+  const card = jobCard(page, jobTitle);
+  await expect(card).toBeVisible();
+  await expect(card.getByText("Public").first()).toBeVisible();
+  await expect(card.getByText("0 approved media").first()).toBeVisible();
 });
 
 test("web jobs page posts connections-only job and shows visibility in posted section", async ({
@@ -405,9 +428,10 @@ test("web jobs page shows posted job under 'Jobs posted by me' with applicant-ma
   await page.getByRole("button", { name: "Post job" }).click();
   await waitForSuccessMessage(page, "Job posted successfully.");
 
-  const targetJobRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
-  await expect(targetJobRow).toBeVisible();
-  await expect(targetJobRow.getByRole("button", { name: "Manage" })).toBeVisible();
+  const targetJobCard = jobCard(page, jobTitle);
+  await expect(targetJobCard).toBeVisible();
+  await expect(targetJobCard.getByRole("button", { name: "Manage job" })).toBeVisible();
+  await expect(targetJobCard.getByText("0 approved media").first()).toBeVisible();
 });
 
 test("web jobs posted by me opens applicant manager with empty applicants state", async ({ page }) => {
@@ -425,9 +449,9 @@ test("web jobs posted by me opens applicant manager with empty applicants state"
   await page.getByRole("button", { name: "Post job" }).click();
   await waitForSuccessMessage(page, "Job posted successfully.");
 
-  const targetJobRow = page.getByRole("row", { name: new RegExp(escapeRegex(jobTitle), "i") }).first();
-  await expect(targetJobRow).toBeVisible();
-  await targetJobRow.getByRole("button", { name: "Manage" }).click();
+  const targetJobCard = jobCard(page, jobTitle);
+  await expect(targetJobCard).toBeVisible();
+  await targetJobCard.getByRole("button", { name: "Manage job" }).click();
 
   await expect(page).toHaveURL(/\/jobs\/.+$/);
   await expect(page.getByRole("heading", { name: "Applicants", exact: true })).toBeVisible();
@@ -436,6 +460,49 @@ test("web jobs posted by me opens applicant manager with empty applicants state"
   await page.getByRole("button", { name: "Back to jobs" }).click();
   await expect(page).toHaveURL(/\/jobs\/posted$/);
   await expect(page.getByRole("heading", { name: "Jobs posted by me", exact: true }).first()).toBeVisible();
+});
+
+test("web job detail uploads multiple job media images and videos", async ({ page }) => {
+  const shortId = Date.now().toString(36).slice(-5);
+  const jobTitle = `Job media ${shortId}`;
+  await loginAsShared(page);
+  await openJobsSection(page, "posted");
+
+  await page.getByLabel("Category").fill("plumber");
+  await page.getByLabel("Location").fill("Kakkanad, Kochi");
+  await page.getByLabel("Title").fill(jobTitle);
+  await page
+    .getByLabel("Description")
+    .fill("Need job media upload validation with images and videos.");
+  await page.getByRole("button", { name: "Post job" }).click();
+  await waitForSuccessMessage(page, "Job posted successfully.");
+
+  const targetJobCard = jobCard(page, jobTitle);
+  await expect(targetJobCard).toBeVisible();
+  await targetJobCard.getByRole("button", { name: "Manage job" }).click();
+  await expect(page).toHaveURL(/\/jobs\/.+$/);
+  await expect(page.getByRole("heading", { name: "Job photos and videos" })).toBeVisible();
+
+  await page.getByLabel("Add job media").setInputFiles([commonsValveImage, sampleVideo]);
+  await expect(page.getByTestId("job-media-upload-selected")).toContainText("2 selected files");
+  await expect(page.getByTestId("job-media-upload-selected")).toContainText("1 photos");
+  await expect(page.getByTestId("job-media-upload-selected")).toContainText("1 videos");
+  await expect(page.getByText("commons-plumbing-valve.jpg").first()).toBeVisible();
+  await expect(page.getByText("sample-video-640x360.mp4").first()).toBeVisible();
+  await page.getByRole("button", { name: "Upload 2 files" }).click();
+  await waitForSuccessMessage(page, "2 job files uploaded for review.");
+  await expect(page.getByTestId("job-media-upload-selected")).toHaveCount(0);
+  await expect(page.getByText("Take media now or choose several photos and videos from your gallery.").first()).toBeVisible();
+});
+
+test("web jobs page uses media-first cards with privacy and action states", async ({ page }) => {
+  await loginAsShared(page);
+  await openJobsSection(page, "posted");
+
+  await expect(page.getByRole("heading", { name: "Jobs from people, with proof up front." })).toBeVisible();
+  await expect(page.getByText("People and proof").first()).toBeVisible();
+  await expect(page.getByText("Privacy state").first()).toBeVisible();
+  await expect(page.getByText("Next safe action").first()).toBeVisible();
 });
 
 test("web connections page validates empty query", async ({ page }) => {
@@ -498,15 +565,26 @@ test("web connections search finds a member by service/location query", async ({
   await loginAsShared(page);
   await clickMainNav(page, "People");
   await page.getByLabel("Find a person").fill("plumber kakkanad");
-  await page.getByRole("button", { name: "Search" }).click();
-  const anyMatch = page.locator(".card").filter({ hasText: /ID:/i }).first();
+  await page.getByRole("button", { name: /Search people|Search/i }).click();
+  const anyMatch = page.locator("article, .card").filter({ hasText: /Member ID:|ID:/i }).first();
   await expect(anyMatch).toBeVisible();
+});
+
+test("web people page explains profile media privacy gate", async ({ page }) => {
+  await loginAsShared(page);
+  await clickMainNav(page, "People");
+
+  await expect(page.getByRole("heading", { name: "People you can recognize before you share." })).toBeVisible();
+  await expect(page.getByText("Request required").first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Current people" })).toBeVisible();
 });
 
 test("web consent page shows empty state when no consent activity exists", async ({ page }) => {
   await loginAsShared(page);
   await clickMainNav(page, "Privacy");
 
+  await expect(page.getByRole("button", { name: /Seeing my details/i })).toBeVisible();
+  await page.getByRole("button", { name: /History/i }).click();
   await expect(page.getByText("No detail requests").first()).toBeVisible();
   await expect(page.getByText("No sharing history").first()).toBeVisible();
 });
@@ -515,6 +593,9 @@ test("web profile page updates details", async ({ page }) => {
   await loginAsShared(page);
   await clickMainNav(page, "Profile");
 
+  await expect(page.getByRole("heading", { name: "Your public trust page" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Approved profile gallery/i })).toBeVisible();
+  await expect(page.getByText(/Verification documents never appear here/i)).toBeVisible();
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
   await page.getByLabel("Services offered").fill("plumber, electrician");

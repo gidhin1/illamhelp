@@ -22,11 +22,16 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
   private final KeycloakAuthService authService;
   private final ProfilesService profilesService;
+  private final PolicyAcceptanceService policyAcceptanceService;
+  private final AuthUserService authUserService;
   private final AppProperties properties;
 
-  public AuthController(KeycloakAuthService authService, ProfilesService profilesService, AppProperties properties) {
+  public AuthController(KeycloakAuthService authService, ProfilesService profilesService,
+      PolicyAcceptanceService policyAcceptanceService, AuthUserService authUserService, AppProperties properties) {
     this.authService = authService;
     this.profilesService = profilesService;
+    this.policyAcceptanceService = policyAcceptanceService;
+    this.authUserService = authUserService;
     this.properties = properties;
   }
 
@@ -39,6 +44,7 @@ public class AuthController {
   @PostMapping("/auth/register")
   @ResponseStatus(HttpStatus.CREATED)
   public KeycloakAuthService.AuthSession register(@Valid @RequestBody RegisterRequest request) {
+    policyAcceptanceService.validateRegistrationAcceptance(request);
     KeycloakAuthService.AuthSession session = authService.register(request);
     profilesService.upsertFromRegistration(
         session.userId(),
@@ -46,6 +52,7 @@ public class AuthController {
         request.lastName(),
         request.email(),
         request.phone());
+    policyAcceptanceService.recordRegistrationAcceptance(session.userId(), request);
     return session;
   }
 
@@ -64,7 +71,10 @@ public class AuthController {
 
   @GetMapping("/auth/me")
   public AuthenticatedUser me(@AuthenticationPrincipal Jwt jwt) {
-    return CurrentUser.fromJwt(jwt, properties.keycloakClientId());
+    AuthenticatedUser user = CurrentUser.fromJwt(jwt, properties.keycloakClientId());
+    String analyticsUserId = authUserService.getAnalyticsUserIdByUserId(user.userId()).orElse(null);
+    return new AuthenticatedUser(user.userId(), user.publicUserId(), analyticsUserId, user.roles(), user.userType(),
+        user.tokenSubject());
   }
 
   public record LoginRequest(
@@ -87,7 +97,11 @@ public class AuthController {
       @Size(max = 80) String lastName,
       @NotBlank @Email @Size(max = 120) String email,
       @Size(min = 8, max = 20) @Pattern(regexp = "^[+0-9][0-9\\s-]{7,19}$") String phone,
-      String userType
+      String userType,
+      @NotBlank String acceptedTermsVersion,
+      @NotBlank String acceptedPrivacyPolicyVersion,
+      @NotBlank String acceptedLegalAt,
+      @NotBlank String acceptanceSource
   ) {
   }
 }

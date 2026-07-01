@@ -1,14 +1,14 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { ColumnDef } from "@tanstack/react-table";
+import { useRouter } from "next/navigation";
 
 import { MediaPreviewGrid } from "@/components/media/MediaPreviewGrid";
 import { PageShell } from "@/components/PageShell";
 import { PersonSummary, personLabel } from "@/components/PersonSummary";
 import { RequireSession } from "@/components/session/RequireSession";
 import { useSession } from "@/components/session/SessionProvider";
-import { DataTable } from "@/components/ui/DataTable";
 import {
   Banner,
   Button,
@@ -37,6 +37,7 @@ import {
 } from "@/lib/api";
 
 export default function ConnectionsPage(): JSX.Element {
+  const router = useRouter();
   const { accessToken, user } = useSession();
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -225,6 +226,34 @@ export default function ConnectionsPage(): JSX.Element {
     }
   };
 
+  useEffect(() => {
+    if (!accessToken || searchResults.length === 0) return;
+
+    let cancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        searchResults.map(async (candidate) => {
+          try {
+            const page = await listPublicApprovedMediaPage(candidate.userId, accessToken);
+            return [candidate.userId, page.items.filter((asset) => asset.purpose === "profile")] as const;
+          } catch {
+            return [candidate.userId, []] as const;
+          }
+        })
+      );
+      if (!cancelled) {
+        setProfileMediaByUserId((previous) => ({
+          ...previous,
+          ...Object.fromEntries(entries)
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, searchResults]);
+
   const onAccept = async (connectionId: string): Promise<void> => {
     if (!accessToken) return;
     setActionError(null);
@@ -279,84 +308,58 @@ export default function ConnectionsPage(): JSX.Element {
     }
   };
 
-  const columns: ColumnDef<ConnectionRecord>[] = [
-    {
-      id: "otherUser",
-      header: "Person",
-      cell: ({ row }) => {
-        const connection = row.original;
-        const otherUserId = connection.userAId === user?.publicUserId ? connection.userBId : connection.userAId;
-        return (
-          <PersonSummary
-            userId={otherUserId}
-            profile={profilesByUserId[otherUserId]}
-            compact
-          />
-        );
-      }
-    },
-    {
-      id: "profileMedia",
-      header: "Profile media",
-      cell: ({ row }) => {
-        const connection = row.original;
-        const otherUserId = connection.userAId === user?.publicUserId ? connection.userBId : connection.userAId;
-        const mediaCount = profileMediaByUserId[otherUserId]?.length ?? 0;
-        return connection.status === "accepted" ? (
-          <span className="muted-text">{mediaCount} approved</span>
-        ) : (
-          <span className="muted-text">Only after acceptance</span>
-        );
-      }
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => <StatusLabel tone="info">{row.original.status.replaceAll("_", " ")}</StatusLabel>
-    },
-    {
-      accessorKey: "requestedByUserId",
-      header: "Request started by",
-      cell: ({ row }) => (
-        <PersonSummary
-          userId={row.original.requestedByUserId}
-          profile={profilesByUserId[row.original.requestedByUserId]}
-          compact
-        />
-      )
-    },
-    {
-      accessorKey: "requestedAt",
-      header: "Requested On",
-      cell: ({ row }) => formatDate(row.original.requestedAt).split(",")[0]
-    },
-    {
-      id: "actions",
-      header: "Actions",
-      cell: ({ row }) => {
-        const connection = row.original;
-        const currentUserId = user?.publicUserId;
-        const canAccept = connection.status === "pending" && connection.requestedByUserId !== currentUserId;
-        const canDecline = connection.status === "pending";
-        const canBlock = connection.status !== "blocked";
+  const renderConnectionCard = (connection: ConnectionRecord, index = 0): JSX.Element => {
+    const otherUserId = connection.userAId === currentUserId ? connection.userBId : connection.userAId;
+    const canAccept = connection.status === "pending" && connection.requestedByUserId !== currentUserId;
+    const canDecline = connection.status === "pending";
+    const canBlock = connection.status !== "blocked";
+    const profileMedia = profileMediaByUserId[otherUserId] ?? [];
+    const accepted = connection.status === "accepted";
 
-        return (
-          <div style={{ display: "flex", gap: "8px" }}>
-            {canAccept && <Button type="button" onClick={() => void onAccept(connection.id)}>Accept</Button>}
-            {canDecline && (
-              <Button type="button" variant="secondary" onClick={() => void onDecline(connection.id)}>
-                {connection.requestedByUserId === currentUserId ? "Withdraw" : "Decline"}
-              </Button>
-            )}
-            {canBlock && (
-              <Button type="button" variant="ghost" onClick={() => void onBlock(connection.id)}>Block</Button>
-            )}
-            {!canAccept && !canDecline && !canBlock && <span className="muted-text">-</span>}
+    return (
+      <article
+        key={connection.id}
+        className="people-card motion-row-change"
+        style={{ "--i": index } as CSSProperties & Record<"--i", number>}
+      >
+        <div className="people-card-header">
+          <PersonSummary userId={otherUserId} profile={profilesByUserId[otherUserId]} compact />
+          <StatusLabel tone={accepted ? "success" : connection.status === "pending" ? "warning" : "neutral"}>
+            {connection.status.replaceAll("_", " ")}
+          </StatusLabel>
+        </div>
+        <div className="people-privacy-row">
+          <span>{accepted ? `${profileMedia.length} approved profile media` : "Profile media after acceptance"}</span>
+          <span>Requested {formatDate(connection.requestedAt).split(",")[0]}</span>
+        </div>
+        {accepted ? (
+          <MediaPreviewGrid
+            items={profileMedia}
+            emptyText="No approved profile media yet."
+            testId={`connection-profile-media-${otherUserId}`}
+          />
+        ) : (
+          <div className="media-empty">
+            <strong>Privacy gate active</strong>
+            <p className="muted-text">Approved profile media appears only after both people accept the connection.</p>
           </div>
-        );
-      }
-    }
-  ];
+        )}
+        <div className="people-card-actions">
+          {canAccept ? <Button type="button" onClick={() => void onAccept(connection.id)}>Accept request</Button> : null}
+          {canDecline ? (
+            <Button type="button" variant="secondary" onClick={() => void onDecline(connection.id)}>
+              {connection.requestedByUserId === currentUserId ? "Withdraw request" : "Decline request"}
+            </Button>
+          ) : null}
+          {canBlock ? (
+            <Button type="button" variant="ghost" onClick={() => void onBlock(connection.id)}>
+              Block {personLabel(profilesByUserId[otherUserId])}
+            </Button>
+          ) : null}
+        </div>
+      </article>
+    );
+  };
 
   return (
     <PageShell>
@@ -374,23 +377,38 @@ export default function ConnectionsPage(): JSX.Element {
           />
           <RequireSession>
             <div className="stack">
-              <div className="kpi-grid">
-                <div className="kpi">
-                  <div className="kpi-label">Total</div>
-                  <div className="kpi-value">{connections.length}</div>
+              <div className="media-page-hero">
+                <div>
+                  <p className="surface-label">Human identity</p>
+                  <h2>People you can recognize before you share.</h2>
+                  <p className="muted-text">
+                    Search by name, service, location, or member ID. Accepted people show approved profile media here.
+                  </p>
                 </div>
-                <div className="kpi">
-                  <div className="kpi-label">Pending</div>
-                  <div className="kpi-value">{statusSummary.pending ?? 0}</div>
-                </div>
-                <div className="kpi">
-                  <div className="kpi-label">Accepted</div>
-                  <div className="kpi-value">{statusSummary.accepted ?? 0}</div>
+                <div className="media-hero-stats" aria-label="People summary">
+                  <div>
+                    <strong>{connections.length}</strong>
+                    <span>Total</span>
+                  </div>
+                  <div>
+                    <strong>{statusSummary.pending ?? 0}</strong>
+                    <span>Pending</span>
+                  </div>
+                  <div>
+                    <strong>{statusSummary.accepted ?? 0}</strong>
+                    <span>Accepted</span>
+                  </div>
                 </div>
               </div>
 
-              <Card className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Send a connection request</h3>
+              <Card className="media-composer-card stack">
+                <div className="media-section-title">
+                  <div>
+                    <p className="surface-label">Next safe action</p>
+                    <h3>Find a person</h3>
+                  </div>
+                  <StatusLabel tone="info">Request required</StatusLabel>
+                </div>
                 {requestError ? <Banner tone="error">{requestError}</Banner> : null}
                 {requestSuccess ? <Banner tone="success">{requestSuccess}</Banner> : null}
                 {searchError ? <Banner tone="error">{searchError}</Banner> : null}
@@ -413,19 +431,28 @@ export default function ConnectionsPage(): JSX.Element {
                       disabled={searchLoading || requestLoading}
                       onClick={() => void onSearchConnections()}
                     >
-                      {searchLoading ? "Searching..." : "Search"}
+                      {searchLoading ? "Searching" : "Search people"}
                     </Button>
                     <Button type="submit" disabled={requestLoading}>
-                      {requestLoading ? "Sending..." : "Send request"}
+                      {requestLoading ? "Sending request" : "Send request"}
                     </Button>
                   </div>
                 </form>
                 {searchResults.length > 0 ? (
                   <div className="stack" style={{ marginTop: "var(--spacing-lg)" }}>
-                    <h4 style={{ fontFamily: "var(--font-display)" }}>Matches</h4>
-                    <div className="grid two">
-                      {searchResults.map((candidate) => (
-                        <Card key={candidate.userId} className="stack">
+                    <div className="media-section-title">
+                      <div>
+                        <p className="surface-label">Search matches</p>
+                        <h4>Choose who to invite</h4>
+                      </div>
+                    </div>
+                    <div className="people-grid">
+                      {searchResults.map((candidate, index) => (
+                        <article
+                          key={candidate.userId}
+                          className="people-card"
+                          style={{ "--i": index } as CSSProperties & Record<"--i", number>}
+                        >
                           <PersonSummary
                             userId={candidate.userId}
                             label={candidate.displayName}
@@ -438,126 +465,70 @@ export default function ConnectionsPage(): JSX.Element {
                           {candidate.serviceCategories.length > 0 ? (
                             <div className="muted-text">Services: {candidate.serviceCategories.join(", ")}</div>
                           ) : null}
-                          <div style={{ marginTop: "10px" }}>
+                          <div className="people-privacy-row">
+                            <span>{profileMediaByUserId[candidate.userId]?.length ?? 0} visible profile media</span>
+                            <span>Privacy-filtered profile</span>
+                          </div>
+                          <MediaPreviewGrid
+                            items={profileMediaByUserId[candidate.userId] ?? []}
+                            emptyText="No approved profile media is visible to you yet."
+                            testId={`people-search-profile-media-${candidate.userId}`}
+                          />
+                          <div className="people-card-actions">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              onClick={() => router.push(`/profile/${encodeURIComponent(candidate.userId)}`)}
+                            >
+                              Discover
+                            </Button>
                             <Button type="button" disabled={requestLoading} onClick={() => void submitConnectionRequest({ targetUserId: candidate.userId })}>
-                              Connect
+                              Send request
                             </Button>
                           </div>
-                        </Card>
+                        </article>
                       ))}
                     </div>
                   </div>
                 ) : null}
               </Card>
 
-              <div className="stack">
-                <h3 style={{ fontFamily: "var(--font-display)", marginBottom: "var(--spacing-md)" }}>Current connections</h3>
+              <section className="media-section-stack" aria-labelledby="current-people-heading">
+                <div className="media-section-title">
+                  <div>
+                    <p className="surface-label">Privacy state</p>
+                    <h3 id="current-people-heading">Current people</h3>
+                  </div>
+                  <StatusLabel tone="success">{acceptedConnections.length} accepted</StatusLabel>
+                </div>
                 {listError ? <Banner tone="error">{listError}</Banner> : null}
                 {actionError ? <Banner tone="error">{actionError}</Banner> : null}
 
-                <div className="mobile-only stack">
-                  {listLoading ? (
-                    <Skeleton lines={3} />
-                  ) : null}
-
-                  {!listLoading && connections.length === 0 ? (
-                    <EmptyState
-                      title="No connections yet"
-                      body="Send a request first, then wait for the other person to accept."
-                    />
-                  ) : null}
-
-                  {!listLoading && pendingConnections.length > 0 ? (
-                    <Card className="stack">
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
-                        <h4 style={{ fontFamily: "var(--font-display)" }}>Pending</h4>
-                        <StatusLabel tone="warning">{pendingConnections.length} pending</StatusLabel>
-                      </div>
-                      <div className="stack" style={{ gap: "var(--spacing-md)" }}>
-                        {pendingConnections.map((connection) => {
-                          const otherUserId =
-                            connection.userAId === currentUserId ? connection.userBId : connection.userAId;
-                          const canAccept =
-                            connection.requestedByUserId !== currentUserId;
-                          return (
-                            <div key={connection.id} className="card soft stack" style={{ gap: "var(--spacing-sm)" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
-                                <PersonSummary
-                                  userId={otherUserId}
-                                  profile={profilesByUserId[otherUserId]}
-                                  compact
-                                />
-                                <StatusLabel tone="warning">pending</StatusLabel>
-                              </div>
-                              <div className="muted-text">Requested {formatDate(connection.requestedAt)}</div>
-                              <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                                {canAccept ? (
-                                  <Button type="button" onClick={() => void onAccept(connection.id)}>
-                                    Accept
-                                  </Button>
-                                ) : null}
-                                <Button type="button" variant="secondary" onClick={() => void onDecline(connection.id)}>
-                                  {canAccept ? "Decline" : "Withdraw"}
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </Card>
-                  ) : null}
-
-                  {!listLoading && acceptedConnections.length > 0 ? (
-                    <Card className="stack">
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
-                        <h4 style={{ fontFamily: "var(--font-display)" }}>Connected people</h4>
-                        <StatusLabel tone="success">{acceptedConnections.length} connected</StatusLabel>
-                      </div>
-                      <div className="stack" style={{ gap: "var(--spacing-md)" }}>
-                        {acceptedConnections.map((connection) => {
-                          const otherUserId =
-                            connection.userAId === currentUserId ? connection.userBId : connection.userAId;
-                          return (
-                            <div key={connection.id} className="card soft stack" style={{ gap: "var(--spacing-sm)" }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--spacing-sm)" }}>
-                                <PersonSummary
-                                  userId={otherUserId}
-                                  profile={profilesByUserId[otherUserId]}
-                                  compact
-                                />
-                                <StatusLabel tone="success">accepted</StatusLabel>
-                              </div>
-                              <div className="muted-text">Connected {formatDate(connection.requestedAt)}</div>
-                              <MediaPreviewGrid
-                                items={profileMediaByUserId[otherUserId] ?? []}
-                                emptyText="No approved profile media yet."
-                                testId={`connection-profile-media-${otherUserId}`}
-                              />
-                              <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                                <Button type="button" variant="ghost" onClick={() => void onBlock(connection.id)}>
-                                  Block {personLabel(profilesByUserId[otherUserId])}
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </Card>
-                  ) : null}
-                </div>
-
-                <div className="desktop-only">
-                  {listLoading ? (
-                    <Skeleton lines={3} />
-                  ) : connections.length > 0 ? (
-                    <DataTable ariaLabel="Current connections" columns={columns} data={connections} />
-                  ) : (
-                    <EmptyState
-                      title="No connections yet"
-                      body="Send a request first, then wait for the other person to accept."
-                    />
-                  )}
-                </div>
+                {listLoading ? <Skeleton lines={3} /> : null}
+                {!listLoading && connections.length === 0 ? (
+                  <EmptyState
+                    title="No connections yet"
+                    body="Send a request first, then wait for the other person to accept."
+                  />
+                ) : null}
+                {!listLoading && pendingConnections.length > 0 ? (
+                  <div className="people-group">
+                    <div className="people-group-title">
+                      <h4>Pending requests</h4>
+                      <StatusLabel tone="warning">{pendingConnections.length} pending</StatusLabel>
+                    </div>
+                    <div className="people-grid">{pendingConnections.map(renderConnectionCard)}</div>
+                  </div>
+                ) : null}
+                {!listLoading && acceptedConnections.length > 0 ? (
+                  <div className="people-group">
+                    <div className="people-group-title">
+                      <h4>Connected people</h4>
+                      <StatusLabel tone="success">{acceptedConnections.length} connected</StatusLabel>
+                    </div>
+                    <div className="people-grid">{acceptedConnections.map(renderConnectionCard)}</div>
+                  </div>
+                ) : null}
                 {nextCursor ? (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: "var(--spacing-md)" }}>
                     <Button type="button" variant="secondary" disabled={listLoading} onClick={() => void loadMoreConnections()}>
@@ -565,7 +536,7 @@ export default function ConnectionsPage(): JSX.Element {
                     </Button>
                   </div>
                 ) : null}
-              </div>
+              </section>
             </div>
           </RequireSession>
         </div>

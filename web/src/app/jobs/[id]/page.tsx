@@ -91,11 +91,12 @@ export default function JobDetailPage(): JSX.Element {
   const [decisionReason, setDecisionReason] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [mediaMessage, setMediaMessage] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const loadJobContext = useCallback(async (): Promise<void> => {
     if (!accessToken || !jobId) {
@@ -301,27 +302,34 @@ export default function JobDetailPage(): JSX.Element {
   };
 
   const onFileChange = (event: ChangeEvent<HTMLInputElement>): void => {
-    setUploadFile(event.target.files?.[0] ?? null);
+    const selected = Array.from(event.target.files ?? []);
+    setUploadFiles((previous) => [...previous, ...selected]);
     setMediaMessage(null);
     setMediaError(null);
   };
 
   const clearUploadFile = (): void => {
-    setUploadFile(null);
+    setUploadFiles([]);
     setMediaMessage(null);
     setMediaError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+  };
+
+  const removeUploadFile = (index: number): void => {
+    setUploadFiles((previous) => previous.filter((_, itemIndex) => itemIndex !== index));
+    setMediaMessage(null);
+    setMediaError(null);
   };
 
   const onUploadJobMedia = async (): Promise<void> => {
-    if (!accessToken || !job || !uploadFile) {
-      setMediaError("Choose a job photo or video first.");
+    if (!accessToken || !job || uploadFiles.length === 0) {
+      setMediaError("Choose one or more job photos or videos first.");
       return;
     }
-    const contentType = uploadFile.type.trim().toLowerCase();
-    const kind = inferMediaKind(contentType);
-    if (!kind) {
-      setMediaError("Only job photos and videos are supported.");
+    const invalidFile = uploadFiles.find((file) => !inferMediaKind(file.type.trim().toLowerCase()));
+    if (invalidFile) {
+      setMediaError(`Only job photos and videos are supported. Remove ${invalidFile.name}.`);
       return;
     }
 
@@ -329,32 +337,39 @@ export default function JobDetailPage(): JSX.Element {
     setMediaError(null);
     setMediaMessage(null);
     try {
-      const checksumSha256 = await sha256Hex(uploadFile);
-      const ticket = await createMediaUploadTicket(
-        {
-          kind,
-          purpose: "job",
-          jobId: job.id,
-          contentType,
-          fileSizeBytes: uploadFile.size,
-          checksumSha256,
-          originalFileName: uploadFile.name
-        },
-        accessToken
-      );
-      const uploadResponse = await fetch(ticket.uploadUrl, {
-        method: "PUT",
-        headers: ticket.requiredHeaders,
-        body: uploadFile
-      });
-      if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
-      const etag = uploadResponse.headers.get("etag")?.replaceAll('"', "");
-      await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
+      for (const file of uploadFiles) {
+        const contentType = file.type.trim().toLowerCase();
+        const kind = inferMediaKind(contentType);
+        if (!kind) continue;
+        const checksumSha256 = await sha256Hex(file);
+        const ticket = await createMediaUploadTicket(
+          {
+            kind,
+            purpose: "job",
+            jobId: job.id,
+            contentType,
+            fileSizeBytes: file.size,
+            checksumSha256,
+            originalFileName: file.name
+          },
+          accessToken
+        );
+        const uploadResponse = await fetch(ticket.uploadUrl, {
+          method: "PUT",
+          headers: ticket.requiredHeaders,
+          body: file
+        });
+        if (!uploadResponse.ok) throw new Error(`Upload failed with status ${uploadResponse.status}`);
+        const etag = uploadResponse.headers.get("etag")?.replaceAll('"', "");
+        await completeMediaUpload(ticket.mediaId, { etag: etag || undefined }, accessToken);
+      }
       const mediaPage = await listJobMediaPage(job.id, accessToken);
       setJobMedia(mediaPage.items.filter((asset) => asset.purpose === "job"));
-      setUploadFile(null);
+      const uploadedCount = uploadFiles.length;
+      setUploadFiles([]);
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setMediaMessage("Job media uploaded. It will appear after review.");
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      setMediaMessage(`${uploadedCount} job ${uploadedCount === 1 ? "file" : "files"} uploaded for review.`);
     } catch (requestError) {
       setMediaError(requestError instanceof Error ? requestError.message : "Unable to upload job media");
     } finally {
@@ -619,16 +634,20 @@ export default function JobDetailPage(): JSX.Element {
                           title="Job photos and videos"
                           description="Add context for the work. Approved media follows this job's visibility rules."
                           pickerLabel="Add job media"
+                          cameraLabel="Take job media"
                           uploadLabel="Upload job media"
-                          selectedFile={uploadFile}
+                          selectedFiles={uploadFiles}
                           inputRef={fileInputRef}
+                          cameraInputRef={cameraInputRef}
                           pendingItems={pendingReviewMedia(jobMedia)}
                           error={mediaError}
                           success={mediaMessage}
                           uploading={uploadingMedia}
                           testId="job-media-upload"
                           onFileChange={onFileChange}
+                          onCameraFileChange={onFileChange}
                           onClearFile={clearUploadFile}
+                          onRemoveFile={removeUploadFile}
                           onUpload={() => void onUploadJobMedia()}
                         />
                       </Card>

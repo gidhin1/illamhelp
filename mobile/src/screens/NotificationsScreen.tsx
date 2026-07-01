@@ -205,6 +205,7 @@ export function NotificationsScreen({
         ) : null}
         {!loading && notifications.length > 0 ? (
           <View style={styles.stackSmall}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
             {notifications.map((item) => {
               const context = renderNotificationContext(item);
               return (
@@ -212,6 +213,7 @@ export function NotificationsScreen({
                   key={item.id}
                   style={[
                     styles.dataRow,
+                    styles.carouselCard,
                     !item.read ? styles.notificationRowUnread : null
                   ]}
                   testID={`notifications-item-${item.id}`}
@@ -243,6 +245,7 @@ export function NotificationsScreen({
                 </View>
               );
             })}
+            </ScrollView>
             {nextCursor ? (
               <AppButton
                 label={loading ? "Loading alerts" : "Load more alerts"}

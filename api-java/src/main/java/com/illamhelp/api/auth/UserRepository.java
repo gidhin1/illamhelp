@@ -20,4 +20,7 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
         updated_at = now()
       """, nativeQuery = true)
   void upsertFromToken(@Param("userId") String userId, @Param("role") String role, @Param("username") String username);
+
+  @Query(value = "SELECT analytics_user_id::text FROM users WHERE id = cast(:userId as uuid)", nativeQuery = true)
+  Optional<String> findAnalyticsUserIdByUserId(@Param("userId") String userId);
 }

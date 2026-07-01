@@ -15,6 +15,7 @@ import {
   listNotifications,
   login,
   markAllNotificationsRead,
+  register,
   requestConsentAccess,
   searchConnections,
   updateMyProfile
@@ -86,6 +87,37 @@ describe("web API client", () => {
     } satisfies Partial<ApiRequestError>);
   });
 
+  it("serializes policy acceptance during registration", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ accessToken: "token" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await register({
+      username: "member",
+      email: "member@example.com",
+      password: "StrongPass#2026",
+      firstName: "Member",
+      acceptedTermsVersion: "2026-06-14",
+      acceptedPrivacyPolicyVersion: "2026-06-14",
+      acceptedLegalAt: "2026-06-14T12:00:00Z",
+      acceptanceSource: "web"
+    });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("http://localhost:4000/api/v1/auth/register");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({
+        username: "member",
+        email: "member@example.com",
+        password: "StrongPass#2026",
+        firstName: "Member",
+        acceptedTermsVersion: "2026-06-14",
+        acceptedPrivacyPolicyVersion: "2026-06-14",
+        acceptedLegalAt: "2026-06-14T12:00:00Z",
+        acceptanceSource: "web"
+      })
+    });
+  });
+
   it("dispatches auth-expired events for unauthorized browser responses", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -151,7 +183,7 @@ describe("web API client", () => {
       .mockResolvedValueOnce(jsonResponse({ allowed: true }))
       .mockResolvedValueOnce(jsonResponse({ id: "request-1" }))
       .mockResolvedValueOnce(jsonResponse({ mediaId: "media-1" }))
-      .mockResolvedValueOnce(jsonResponse({ id: "media-1", state: "approved" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "media-1", state: "approved", purpose: "profile", kind: "image" }))
       .mockResolvedValueOnce(jsonResponse({ updated: 3 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -181,6 +213,27 @@ describe("web API client", () => {
     expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST" });
     expect(fetchMock.mock.calls[3][0]).toBe("http://localhost:9091/media.v1.MediaService/CompleteUpload");
     expect(fetchMock.mock.calls[4][1]).toMatchObject({ method: "PATCH" });
+  });
+
+  it("does not push analytics events without web analytics configuration", async () => {
+    const dataLayer: unknown[] = [];
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => JSON.stringify({ analytics: "granted", ads: "denied", updatedAt: "2026-07-01T00:00:00Z" }),
+        setItem: vi.fn()
+      },
+      dataLayer
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      id: "media-1",
+      state: "approved",
+      purpose: "job",
+      kind: "video"
+    })));
+
+    await completeMediaUpload("media-1", { etag: "etag" }, "token");
+
+    expect(dataLayer).toEqual([]);
   });
 
   it("formats missing and invalid dates defensively", () => {

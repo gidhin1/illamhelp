@@ -19,6 +19,9 @@ public class UserEntity {
   @Column(name = "username", nullable = false)
   private String username;
 
+  @Column(name = "analytics_user_id", nullable = false)
+  private UUID analyticsUserId;
+
   @Column(name = "email_masked")
   private String emailMasked;
 
@@ -41,5 +44,9 @@ public class UserEntity {
 
   public String getUsername() {
     return username;
+  }
+
+  public UUID getAnalyticsUserId() {
+    return analyticsUserId;
   }
 }

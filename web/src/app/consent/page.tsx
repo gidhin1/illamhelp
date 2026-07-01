@@ -38,6 +38,8 @@ import {
   revokeConsent
 } from "@/lib/api";
 
+type PrivacyView = "sharing" | "requests" | "ask" | "history";
+
 function toggleFieldSelection(fields: ConsentField[], field: ConsentField): ConsentField[] {
   return fields.includes(field) ? fields.filter((item) => item !== field) : [...fields, field];
 }
@@ -85,6 +87,7 @@ export default function ConsentPage(): JSX.Element {
   const [checkConnectionId, setCheckConnectionId] = useState("");
   const [checkField, setCheckField] = useState<ConsentField>("phone");
   const [checkResult, setCheckResult] = useState<boolean | null>(null);
+  const [activeView, setActiveView] = useState<PrivacyView>("sharing");
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -202,6 +205,31 @@ export default function ConsentPage(): JSX.Element {
   const activeSharedWithMe = useMemo(
     () => grants.filter((grant) => grant.status === "active" && grant.granteeUserId === currentUserId),
     [grants, currentUserId]
+  );
+  const privacyViews = useMemo(
+    () => [
+      {
+        key: "sharing" as const,
+        label: "Seeing my details",
+        count: activeOwnedGrants.length
+      },
+      {
+        key: "requests" as const,
+        label: "Requests for me",
+        count: pendingIncomingRequests.length
+      },
+      {
+        key: "ask" as const,
+        label: "Ask for details",
+        count: activeSharedWithMe.length
+      },
+      {
+        key: "history" as const,
+        label: "History",
+        count: requests.length + grants.length
+      }
+    ],
+    [activeOwnedGrants.length, activeSharedWithMe.length, grants.length, pendingIncomingRequests.length, requests.length]
   );
   const selectedRevokeGrant = useMemo(
     () => activeOwnedGrants.find((grant) => grant.id === revokeGrantId) ?? null,
@@ -398,10 +426,10 @@ export default function ConsentPage(): JSX.Element {
 
               <div className="privacy-wallet-summary" aria-label="Contact sharing summary">
                 <div>
-                  <span className="pill">Privacy state</span>
+                  <span className="pill">Private by default</span>
                   <h2>Start with who can see your details.</h2>
                   <p className="muted-text">
-                    Active sharing is listed first so you can stop access before making new requests.
+                    Choose one privacy task at a time. Active sharing comes first so you can stop access quickly.
                   </p>
                 </div>
                 <div className="privacy-wallet-counts">
@@ -420,7 +448,26 @@ export default function ConsentPage(): JSX.Element {
                 </div>
               </div>
 
-              <div className="privacy-wallet-layout">
+              <nav className="privacy-view-tabs" aria-label="Contact sharing tasks">
+                {privacyViews.map((view) => {
+                  const active = activeView === view.key;
+                  return (
+                    <button
+                      key={view.key}
+                      type="button"
+                      className={active ? "active" : ""}
+                      aria-pressed={active}
+                      onClick={() => setActiveView(view.key)}
+                    >
+                      <span>{view.label}</span>
+                      <strong>{view.count}</strong>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              {activeView === "sharing" ? (
+              <div className="privacy-wallet-layout single">
                 <Card className="stack privacy-wallet-panel">
                   <div className="privacy-panel-header">
                     <div>
@@ -452,6 +499,7 @@ export default function ConsentPage(): JSX.Element {
                     </div>
                   )}
 
+                  {activeOwnedGrants.length > 0 ? (
                   <form className="stack privacy-action-form" onSubmit={onRevoke}>
                     <Field label="Stop sharing with" hint={selectedRevokeGrant ? `Selected: ${personLabel(profilesByUserId[selectedRevokeGrant.granteeUserId])}` : "Choose an active share above or from this list."}>
                       <SelectInput value={revokeGrantId} onChange={(e) => setRevokeGrantId(e.target.value)} required>
@@ -468,8 +516,13 @@ export default function ConsentPage(): JSX.Element {
                       {submitting ? "Stopping sharing..." : "Stop sharing details"}
                     </Button>
                   </form>
+                  ) : null}
                 </Card>
+              </div>
+              ) : null}
 
+              {activeView === "requests" ? (
+              <div className="privacy-wallet-layout single">
                 <Card className="stack privacy-wallet-panel">
                   <div className="privacy-panel-header">
                     <div>
@@ -505,6 +558,7 @@ export default function ConsentPage(): JSX.Element {
                     </div>
                   )}
 
+                  {pendingIncomingRequests.length > 0 ? (
                   <form className="stack privacy-action-form" onSubmit={onGrant}>
                     <Field label="Approve request from" hint={selectedGrantRequest ? `Selected: ${personLabel(profilesByUserId[selectedGrantRequest.requesterUserId])}` : "Choose a pending request above or from this list."}>
                       <SelectInput value={grantRequestId} onChange={(e) => setGrantRequestId(e.target.value)} required>
@@ -536,12 +590,14 @@ export default function ConsentPage(): JSX.Element {
                       {submitting ? "Sharing details..." : "Share selected details"}
                     </Button>
                   </form>
+                  ) : null}
                 </Card>
               </div>
+              ) : null}
 
+              {activeView === "ask" ? (
               <Card className="stack privacy-next-action">
                 <div>
-                  <span className="pill">Next safe action</span>
                   <h3>Need someone else’s details?</h3>
                   <p className="muted-text">Ask a connected person for only the contact details needed for the job or visit.</p>
                 </div>
@@ -579,8 +635,22 @@ export default function ConsentPage(): JSX.Element {
                     <span>Choose the smallest set of details needed. The other person can approve, ignore, or stop sharing later.</span>
                   </div>
                 </div>
+                {activeSharedWithMe.length > 0 ? (
+                  <div className="privacy-person-list">
+                    <h4>People who shared with you</h4>
+                    {activeSharedWithMe.map((grant) => (
+                      <div key={grant.id} className="privacy-person-card readonly">
+                        <PersonSummary userId={grant.ownerUserId} profile={profilesByUserId[grant.ownerUserId]} compact />
+                        <span className="privacy-card-detail">Shared with you: {fieldList(grant.grantedFields)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </Card>
+              ) : null}
 
+              {activeView === "history" ? (
+              <>
               <div className="grid two privacy-secondary-grid" style={{ alignItems: "start" }}>
                 <Card className="stack">
                   <h3 style={{ fontFamily: "var(--font-display)" }}>Check sharing status</h3>
@@ -608,22 +678,6 @@ export default function ConsentPage(): JSX.Element {
                       </Banner>
                     )}
                   </form>
-                </Card>
-
-                <Card className="stack">
-                  <h3 style={{ fontFamily: "var(--font-display)" }}>People who shared with you</h3>
-                  {activeSharedWithMe.length === 0 ? (
-                    <EmptyState title="No details shared with you" body="When someone approves your request, their shared details appear in your job or contact flow." />
-                  ) : (
-                    <div className="privacy-person-list">
-                      {activeSharedWithMe.map((grant) => (
-                        <div key={grant.id} className="privacy-person-card readonly">
-                          <PersonSummary userId={grant.ownerUserId} profile={profilesByUserId[grant.ownerUserId]} compact />
-                          <span className="privacy-card-detail">Shared with you: {fieldList(grant.grantedFields)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </Card>
               </div>
 
@@ -666,6 +720,8 @@ export default function ConsentPage(): JSX.Element {
                   )}
                 </div>
               </div>
+              </>
+              ) : null}
 
             </div>
           </RequireSession>

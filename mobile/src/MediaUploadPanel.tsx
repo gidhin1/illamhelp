@@ -1,4 +1,4 @@
-import { Text, View } from "react-native";
+import { Image, ScrollView, Text, View } from "react-native";
 
 import type { MediaAssetRecord, PublicMediaAssetRecord } from "./api";
 import { AppButton, Banner } from "./components";
@@ -45,32 +45,41 @@ export function MediaUploadPanel({
   title,
   description,
   pickLabel,
+  cameraLabel = "Take photo or video",
   uploadLabel,
-  pickedFile,
+  pickedFiles,
   pendingItems,
   uploading,
   error,
   success,
   testID,
   onPick,
+  onCameraPick,
   onClear,
+  onRemove,
   onUpload
 }: {
   title: string;
   description: string;
   pickLabel: string;
+  cameraLabel?: string;
   uploadLabel: string;
-  pickedFile: PickedMediaFile | null;
+  pickedFiles: PickedMediaFile[];
   pendingItems: OwnerMedia[];
   uploading: boolean;
   error: string | null;
   success: string | null;
   testID: string;
   onPick: () => void;
+  onCameraPick?: () => void;
   onClear: () => void;
+  onRemove?: (index: number) => void;
   onUpload: () => void;
 }): JSX.Element {
   const styles = useAppStyles();
+  const pickedCount = pickedFiles.length;
+  const photoCount = pickedFiles.filter((file) => file.mimeType.startsWith("image/")).length;
+  const videoCount = pickedFiles.filter((file) => file.mimeType.startsWith("video/")).length;
 
   return (
     <View style={styles.mediaUploadPanel} testID={testID}>
@@ -80,34 +89,71 @@ export function MediaUploadPanel({
       </View>
       {error ? <Banner tone="error" message={error} testID={`${testID}-error`} /> : null}
       {success ? <Banner tone="success" message={success} testID={`${testID}-success`} /> : null}
-      <AppButton
-        label={pickLabel}
-        onPress={onPick}
-        variant="secondary"
-        disabled={uploading}
-        testID={`${testID}-pick`}
-      />
-      {pickedFile ? (
+      <View style={styles.mediaPickerActions}>
+        {onCameraPick ? (
+          <AppButton
+            label={cameraLabel}
+            onPress={onCameraPick}
+            variant="secondary"
+            disabled={uploading}
+            testID={`${testID}-camera`}
+          />
+        ) : null}
+        <AppButton
+          label={pickLabel}
+          onPress={onPick}
+          variant="secondary"
+          disabled={uploading}
+          testID={`${testID}-pick`}
+        />
+      </View>
+      {pickedCount > 0 ? (
         <View style={styles.mediaSelectedRow} testID={`${testID}-selected`}>
-          <View style={styles.mediaFileIcon}>
-            <Text style={styles.mediaFileIconText}>{pickedKindLabel(pickedFile).slice(0, 1)}</Text>
-          </View>
-          <View style={styles.mediaPreviewMeta}>
-            <Text style={styles.dataTitle}>{pickedFile.name}</Text>
-            <Text style={styles.dataMeta}>
-              {pickedKindLabel(pickedFile)} · {formatBytes(pickedFile.size)}
+          <View style={styles.mediaSelectedSummary}>
+            <Text style={styles.dataTitle}>
+              {pickedCount} selected {pickedCount === 1 ? "file" : "files"}
             </Text>
+            <Text style={styles.dataMeta}>{photoCount} photos · {videoCount} videos · automatic ordering</Text>
           </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaSelectionRail}>
+            {pickedFiles.map((file, index) => (
+              <View key={`${file.uri}-${index}`} style={styles.mediaSelectionCard}>
+                <View style={styles.mediaSelectionFrame}>
+                {file.mimeType.startsWith("image/") ? (
+                  <Image source={{ uri: file.uri }} style={styles.mediaSelectionImage} resizeMode="cover" />
+                ) : (
+                  <View style={styles.mediaSelectionVideo}>
+                    <Text style={styles.mediaPreviewVideoLabel}>Video</Text>
+                  </View>
+                )}
+                  <View style={styles.mediaKindPill}>
+                    <Text style={styles.mediaKindPillText}>{pickedKindLabel(file)}</Text>
+                  </View>
+                </View>
+                <Text style={styles.dataTitle} numberOfLines={1}>{file.name}</Text>
+                <Text style={styles.dataMeta}>{pickedKindLabel(file)} · {formatBytes(file.size)}</Text>
+                {onRemove ? (
+                  <AppButton
+                    label="Remove"
+                    onPress={() => onRemove(index)}
+                    variant="ghost"
+                    disabled={uploading}
+                    testID={`${testID}-remove-${index}`}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </ScrollView>
           <View style={styles.mediaUploadActions}>
             <AppButton
-              label="Remove file"
+              label="Clear selection"
               onPress={onClear}
               variant="ghost"
               disabled={uploading}
               testID={`${testID}-clear`}
             />
             <AppButton
-              label={uploading ? "Uploading..." : uploadLabel}
+              label={uploading ? "Uploading..." : pickedCount > 1 ? `Upload ${pickedCount} files` : uploadLabel}
               onPress={onUpload}
               loading={uploading}
               disabled={uploading}
@@ -116,7 +162,7 @@ export function MediaUploadPanel({
           </View>
         </View>
       ) : (
-        <Text style={styles.cardBodyMuted}>Choose an image or video, then upload it for review.</Text>
+        <Text style={styles.cardBodyMuted}>Take media now or choose several photos and videos from this device.</Text>
       )}
       {pendingItems.length > 0 ? (
         <View style={styles.stackSmall} testID={`${testID}-pending`}>

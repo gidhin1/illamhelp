@@ -1,5 +1,7 @@
 package com.illamhelp.api.profiles;
 
+import com.illamhelp.api.analytics.AnalyticsEventPublisher;
+import com.illamhelp.api.auth.AuthUserService;
 import com.illamhelp.api.common.ApiException;
 import com.illamhelp.api.common.CursorPages;
 import com.illamhelp.api.audit.AuditService;
@@ -20,16 +22,22 @@ public class VerificationService {
   private final AuditService auditService;
   private final ProfilesService profilesService;
   private final NotificationService notificationService;
+  private final AuthUserService authUserService;
+  private final AnalyticsEventPublisher analyticsEventPublisher;
 
   public VerificationService(
       VerificationRequestRepository verificationRequestRepository,
       AuditService auditService,
       ProfilesService profilesService,
-      NotificationService notificationService) {
+      NotificationService notificationService,
+      AuthUserService authUserService,
+      AnalyticsEventPublisher analyticsEventPublisher) {
     this.verificationRequestRepository = verificationRequestRepository;
     this.auditService = auditService;
     this.profilesService = profilesService;
     this.notificationService = notificationService;
+    this.authUserService = authUserService;
+    this.analyticsEventPublisher = analyticsEventPublisher;
   }
 
   @Transactional
@@ -95,6 +103,8 @@ public class VerificationService {
     String targetUserId = existing.getUserId();
     if ("approved".equals(status)) {
       profilesService.setVerified(targetUserId, true);
+      authUserService.getAnalyticsUserIdByUserId(targetUserId)
+          .ifPresent(analyticsUserId -> analyticsEventPublisher.publishProviderVerified(analyticsUserId, requestId));
     }
     Map<String, Object> auditMetadata = new HashMap<>();
     auditMetadata.put("verificationRequestId", requestId);
