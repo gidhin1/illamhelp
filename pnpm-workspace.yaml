@@ -3,3 +3,12 @@ packages:
   - "admin"
   - "web"
   - "packages/*"
+
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+trustPolicyExclude:
+  - "eslint-import-resolver-typescript"
+  - "semver"
+  - "ua-parser-js"
+  - "undici-types"
+blockExoticSubdeps: true

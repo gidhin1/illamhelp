@@ -14,17 +14,17 @@ jobs:
     name: Lint, Typecheck, Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
         with:
-          version: 10.7.0
-      - uses: actions/setup-node@v4
+          version: 10.26.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
@@ -41,11 +41,11 @@ jobs:
     name: Secret Scan (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           fetch-depth: 0
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -53,9 +53,9 @@ jobs:
     name: Vulnerability Scan (Trivy FS)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -63,7 +63,7 @@ jobs:
       - name: Warm Maven dependency cache
         run: mvn -B -f api-java/pom.xml -DskipTests dependency:go-offline
       - name: Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
         with:
           scan-type: fs
           scan-ref: .
@@ -88,9 +88,9 @@ jobs:
           - openpolicyagent/opa@sha256:bf5d926c9c5163cd43e56de43f47165d12c1e6a91911d0a20648f8e3ab085a61
           - clamav/clamav@sha256:f7954ca7ca13f0ebc301bb8a8b492a88db793192c48763a0b9a2ffb64dcf4bee
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Scan pinned image
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
         with:
           image-ref: ${{ matrix.image }}
           scan-type: image
@@ -107,7 +107,7 @@ jobs:
     container:
       image: returntocorp/semgrep:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Run Semgrep
         run: semgrep scan --config auto --error --exclude node_modules
 
@@ -115,9 +115,9 @@ jobs:
     name: Build (Maven)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9
         with:
           java-version: '21'
           distribution: 'temurin'
