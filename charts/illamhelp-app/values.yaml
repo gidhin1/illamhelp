@@ -112,4 +112,4 @@ networkPolicy:
 
 # Helm test image, pinned for repeatable in-cluster smoke checks.
 test:
-  image: curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40
+  image: curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13

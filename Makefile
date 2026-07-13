@@ -332,7 +332,7 @@ k8s-port-forward:
 	@K8S_NAMESPACE="$(K8S_NAMESPACE)" K8S_APP_RELEASE="$(K8S_APP_RELEASE)" bash scripts/k8s-port-forward.sh
 
 k8s-smoke:
-	kubectl run illamhelp-smoke --namespace "$(K8S_NAMESPACE)" --image=curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40 --restart=Never --rm -i -- \
+	kubectl run illamhelp-smoke --namespace "$(K8S_NAMESPACE)" --image=curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13 --restart=Never --rm -i -- \
 		sh -ec 'curl -fsS http://$(K8S_APP_RELEASE)-api:4000/api/v1/health; curl -fsS -o /dev/null http://$(K8S_APP_RELEASE)-web:3000/; curl -fsS -o /dev/null http://$(K8S_APP_RELEASE)-admin:3003/'
 
 k8s-down:
