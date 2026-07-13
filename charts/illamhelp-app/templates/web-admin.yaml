@@ -1,0 +1,88 @@
+{{- range $component, $cfg := dict "web" .Values.web "admin" .Values.admin }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "illamhelp-app.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "illamhelp-app.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  replicas: {{ $cfg.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: {{ $component }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: {{ $component }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "illamhelp-app.podSecurityContext" $ | nindent 8 }}
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      {{- with $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $component }}
+          securityContext:
+            {{- include "illamhelp-app.containerSecurityContext" $ | nindent 12 }}
+            runAsUser: 10001
+            runAsGroup: 10001
+          image: "{{ (index $.Values.images $component).repository }}:{{ (index $.Values.images $component).tag }}"
+          imagePullPolicy: {{ $.Values.global.imagePullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $cfg.port }}
+          env:
+            - name: PORT
+              value: {{ $cfg.port | quote }}
+            - name: HOSTNAME
+              value: "0.0.0.0"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml $cfg.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: next-cache
+              mountPath: /app/{{ $component }}/.next/cache
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "illamhelp-app.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "illamhelp-app.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/component: {{ $component }}
+  ports:
+    - name: http
+      port: {{ $cfg.port }}
+      targetPort: http
+---
+{{- end }}

@@ -11,6 +11,17 @@ EXPO_HOST_MODE ?= localhost
 COMPOSE := docker compose --project-name $(COMPOSE_PROJECT) --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 MAVEN := mvn -f api-java/pom.xml
 PNPM := COREPACK_HOME=$(CURDIR)/.tools/corepack corepack pnpm
+KIND_CLUSTER ?= illamhelp
+K8S_NAMESPACE ?= illamhelp
+K8S_APP_RELEASE ?= illamhelp-app
+K8S_INFRA_RELEASE ?= illamhelp
+K8S_IMAGE_TAG ?= local
+K8S_API_IMAGE ?= illamhelp/api:$(K8S_IMAGE_TAG)
+K8S_WEB_IMAGE ?= illamhelp/web:$(K8S_IMAGE_TAG)
+K8S_ADMIN_IMAGE ?= illamhelp/admin:$(K8S_IMAGE_TAG)
+K8S_PUBLIC_API_URL ?= http://localhost:4000/api/v1
+K8S_PUBLIC_GRPC_WEB_URL ?= http://localhost:9091
+K8S_PUBLIC_WEB_URL ?= http://localhost:3000
 
 VOLUME_BASENAMES := postgres_data redis_data minio_data nats_data opensearch_data clamav_data
 KNOWN_VOLUME_PREFIXES := $(COMPOSE_PROJECT) infra illamhelp claude_proj
@@ -33,6 +44,7 @@ KNOWN_CONTAINERS := \
 .PHONY: ci-local
 .PHONY: e2e-admin-setup e2e-admin-cleanup
 .PHONY: clean clean-build
+.PHONY: k8s-create k8s-build-load k8s-up k8s-down k8s-logs k8s-status k8s-template k8s-port-forward k8s-smoke
 
 init-env:
 	@if [[ -f "$(ENV_FILE)" ]]; then \
@@ -251,6 +263,82 @@ ci-local:
 	fi; \
 	act push -W .github/workflows/ci.yml --artifact-server-path "$(ACT_ARTIFACTS_DIR)" -e "$(ACT_EVENT_FILE)" -s GITHUB_TOKEN="$$TOKEN" "$${ARCH_ARGS[@]}" --rm
 	@echo "Local CI artifacts saved in: $(ACT_ARTIFACTS_DIR)"
+
+k8s-create:
+	@command -v kind >/dev/null 2>&1 || { echo "'kind' is required for k8s-create."; exit 1; }
+	@if kind get clusters | grep -qx "$(KIND_CLUSTER)"; then \
+		echo "kind cluster '$(KIND_CLUSTER)' already exists."; \
+	else \
+		kind create cluster --name "$(KIND_CLUSTER)"; \
+	fi
+
+k8s-build-load:
+	@command -v docker >/dev/null 2>&1 || { echo "'docker' is required for k8s-build-load."; exit 1; }
+	@command -v kind >/dev/null 2>&1 || { echo "'kind' is required for k8s-build-load."; exit 1; }
+	docker build -f infra/docker/api.Dockerfile -t "$(K8S_API_IMAGE)" .
+	docker build -f infra/docker/web.Dockerfile \
+		--build-arg NEXT_PUBLIC_API_BASE_URL="$(K8S_PUBLIC_API_URL)" \
+		--build-arg NEXT_PUBLIC_MEDIA_GRPC_WEB_URL="$(K8S_PUBLIC_GRPC_WEB_URL)" \
+		-t "$(K8S_WEB_IMAGE)" .
+	docker build -f infra/docker/admin.Dockerfile \
+		--build-arg NEXT_PUBLIC_API_BASE_URL="$(K8S_PUBLIC_API_URL)" \
+		--build-arg NEXT_PUBLIC_MEDIA_GRPC_WEB_URL="$(K8S_PUBLIC_GRPC_WEB_URL)" \
+		--build-arg NEXT_PUBLIC_WEB_APP_URL="$(K8S_PUBLIC_WEB_URL)" \
+		-t "$(K8S_ADMIN_IMAGE)" .
+	kind load docker-image --name "$(KIND_CLUSTER)" "$(K8S_API_IMAGE)" "$(K8S_WEB_IMAGE)" "$(K8S_ADMIN_IMAGE)"
+
+k8s-template:
+	@command -v helm >/dev/null 2>&1 || { echo "'helm' is required for k8s-template."; exit 1; }
+	helm lint charts/illamhelp-local-infra charts/illamhelp-app
+	helm template "$(K8S_INFRA_RELEASE)" charts/illamhelp-local-infra --namespace "$(K8S_NAMESPACE)" >/tmp/illamhelp-local-infra.yaml
+	helm template "$(K8S_APP_RELEASE)" charts/illamhelp-app --namespace "$(K8S_NAMESPACE)" >/tmp/illamhelp-app.yaml
+	@echo "Rendered manifests: /tmp/illamhelp-local-infra.yaml and /tmp/illamhelp-app.yaml"
+
+k8s-up:
+	@command -v kubectl >/dev/null 2>&1 || { echo "'kubectl' is required for k8s-up."; exit 1; }
+	@command -v helm >/dev/null 2>&1 || { echo "'helm' is required for k8s-up."; exit 1; }
+	@command -v kind >/dev/null 2>&1 || { echo "'kind' is required for k8s-up."; exit 1; }
+	@kind get clusters | grep -qx "$(KIND_CLUSTER)" || { echo "kind cluster '$(KIND_CLUSTER)' does not exist. Run: make k8s-create"; exit 1; }
+	kind export kubeconfig --name "$(KIND_CLUSTER)"
+	kubectl create namespace "$(K8S_NAMESPACE)" --dry-run=client -o yaml | kubectl apply -f -
+	K8S_NAMESPACE="$(K8S_NAMESPACE)" K8S_INFRA_RELEASE="$(K8S_INFRA_RELEASE)" bash scripts/k8s-local-secret.sh
+	helm upgrade --install "$(K8S_INFRA_RELEASE)" charts/illamhelp-local-infra --namespace "$(K8S_NAMESPACE)" --wait --timeout=12m
+	helm upgrade --install "$(K8S_APP_RELEASE)" charts/illamhelp-app --namespace "$(K8S_NAMESPACE)" \
+		--set images.api.repository=illamhelp/api \
+		--set images.api.tag="$(K8S_IMAGE_TAG)" \
+		--set images.web.repository=illamhelp/web \
+		--set images.web.tag="$(K8S_IMAGE_TAG)" \
+		--set images.admin.repository=illamhelp/admin \
+		--set images.admin.tag="$(K8S_IMAGE_TAG)" \
+		--set global.imagePullPolicy=IfNotPresent \
+		--wait --timeout=8m
+	kubectl rollout status deployment/"$(K8S_APP_RELEASE)"-api --namespace "$(K8S_NAMESPACE)" --timeout=180s
+	kubectl rollout status deployment/"$(K8S_APP_RELEASE)"-web --namespace "$(K8S_NAMESPACE)" --timeout=180s
+	kubectl rollout status deployment/"$(K8S_APP_RELEASE)"-admin --namespace "$(K8S_NAMESPACE)" --timeout=180s
+	kubectl rollout status deployment/"$(K8S_APP_RELEASE)"-envoy --namespace "$(K8S_NAMESPACE)" --timeout=180s
+
+k8s-status:
+	kubectl get pods,svc,ingress --namespace "$(K8S_NAMESPACE)"
+
+k8s-logs:
+	kubectl logs --namespace "$(K8S_NAMESPACE)" --selector app.kubernetes.io/instance="$(K8S_APP_RELEASE)" --all-containers=true --max-log-requests=20 --tail=200 -f
+
+k8s-port-forward:
+	@echo "Web:   http://localhost:3000"
+	@echo "Admin: http://localhost:3003"
+	@echo "API:   http://localhost:4000/api/v1/health"
+	@echo "gRPC:  http://localhost:9091"
+	@echo "Press Ctrl-C to stop all port-forwards."
+	@K8S_NAMESPACE="$(K8S_NAMESPACE)" K8S_APP_RELEASE="$(K8S_APP_RELEASE)" bash scripts/k8s-port-forward.sh
+
+k8s-smoke:
+	kubectl run illamhelp-smoke --namespace "$(K8S_NAMESPACE)" --image=curlimages/curl:8.17.0@sha256:935d9100e9ba842cdb060de42472c7ca90cfe9a7c96e4dacb55e79e560b3ff40 --restart=Never --rm -i -- \
+		sh -ec 'curl -fsS http://$(K8S_APP_RELEASE)-api:4000/api/v1/health; curl -fsS -o /dev/null http://$(K8S_APP_RELEASE)-web:3000/; curl -fsS -o /dev/null http://$(K8S_APP_RELEASE)-admin:3003/'
+
+k8s-down:
+	-helm uninstall "$(K8S_APP_RELEASE)" --namespace "$(K8S_NAMESPACE)"
+	-helm uninstall "$(K8S_INFRA_RELEASE)" --namespace "$(K8S_NAMESPACE)"
+	-kind delete cluster --name "$(KIND_CLUSTER)"
 
 clean: clean-build
 

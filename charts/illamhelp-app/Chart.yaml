@@ -1,0 +1,6 @@
+apiVersion: v2
+name: illamhelp-app
+description: IllamHelp API, web, admin, and gRPC-Web gateway
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -136,9 +136,8 @@ services:
       - "127.0.0.1:8181:8181"
 
   clamav:
-    image: clamav/clamav@sha256:f7954ca7ca13f0ebc301bb8a8b492a88db793192c48763a0b9a2ffb64dcf4bee
+    image: clamav/clamav-debian:stable@sha256:a73435b0fa51886e9e6dd1881656023ba9dce756e055f23981270badbb8ca3d7
     container_name: illamhelp-clamav
-    platform: ${CLAMAV_PLATFORM:-linux/amd64}
     restart: unless-stopped
     ports:
       - "127.0.0.1:3310:3310"

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 
 import { useSession } from "@/components/session/SessionProvider";
 import {
@@ -13,6 +13,17 @@ import {
 } from "@/lib/analytics";
 
 export function AnalyticsProvider({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <>
+      {children}
+      <Suspense fallback={null}>
+        <AnalyticsEffects />
+      </Suspense>
+    </>
+  );
+}
+
+function AnalyticsEffects(): null {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useSession();
@@ -34,5 +45,5 @@ export function AnalyticsProvider({ children }: { children: ReactNode }): JSX.El
     trackPageView(query ? `${pathname}?${query}` : pathname);
   }, [pathname, searchParams]);
 
-  return <>{children}</>;
+  return null;
 }

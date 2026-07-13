@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-clamav
+  labels:
+    {{- include "illamhelp-local-infra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clamav
+spec:
+  serviceName: {{ include "illamhelp-local-infra.fullname" . }}-clamav
+  replicas: {{ .Values.clamav.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: clamav
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: clamav
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "illamhelp-local-infra.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: clamav
+          securityContext:
+            allowPrivilegeEscalation: false
+          image: {{ .Values.images.clamav | quote }}
+          ports:
+            - name: clamd
+              containerPort: 3310
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clamav
+          readinessProbe:
+            tcpSocket:
+              port: clamd
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.clamav.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.clamav.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-clamav
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: clamav
+  ports:
+    - name: clamd
+      port: 3310

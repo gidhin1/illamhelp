@@ -1,0 +1,70 @@
+# Pinned local dependency images.
+images:
+  postgres: postgres@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+  redis: redis@sha256:d146f83b1e0f02fc27c26a50cee39338c736674c5959db84363e6ae3cd9e02d2
+  minio: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+  minioClient: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+  nats: nats@sha256:e4bf19f15fd3218814a4e3c9e0064e1334bd8aa20d5984b9f1a0afd084f8cc00
+  keycloak: quay.io/keycloak/keycloak:26.6.2@sha256:f9ba7b2af90db8dc749a57ca9aedca51e840cb9224441ab546a968da941da900
+  opa: openpolicyagent/opa@sha256:bf5d926c9c5163cd43e56de43f47165d12c1e6a91911d0a20648f8e3ab085a61
+  clamav: clamav/clamav-debian:stable@sha256:a73435b0fa51886e9e6dd1881656023ba9dce756e055f23981270badbb8ca3d7
+  opensearch: opensearchproject/opensearch@sha256:00565f63fa1aa1643d5a2cf61cb5f09b4aeddee2f12703f01c534f051bff1a99
+
+# kind's default dynamic storage class.
+storageClassName: standard
+
+# Use the Secret generated from .env by make k8s-up.
+secrets:
+  create: false
+  name: illamhelp-secrets
+  values: {}
+
+# Stateful dependency sizing and local resource budgets.
+postgres:
+  replicas: 1
+  size: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+redis:
+  replicas: 1
+  size: 512Mi
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+minio:
+  replicas: 1
+  size: 2Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+nats:
+  replicas: 1
+  size: 512Mi
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+keycloak:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 768Mi }
+opa:
+  replicas: 1
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+clamav:
+  replicas: 1
+  size: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 768Mi }
+    limits: { cpu: "1", memory: 2Gi }
+opensearch:
+  enabled: false
+  replicas: 1
+  size: 2Gi
+  javaOpts: "-Xms384m -Xmx384m"
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1536Mi }
