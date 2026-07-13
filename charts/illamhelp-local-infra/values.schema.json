@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["images", "storageClassName", "secrets", "postgres", "redis", "minio", "nats", "keycloak", "opa", "clamav", "opensearch"],
+  "properties": {
+    "images": { "type": "object" },
+    "storageClassName": { "type": "string" },
+    "secrets": {
+      "type": "object",
+      "required": ["create", "name", "values"],
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string", "minLength": 1 },
+        "values": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "postgres": { "$ref": "#/$defs/statefulWorkload" },
+    "redis": { "$ref": "#/$defs/statefulWorkload" },
+    "minio": { "$ref": "#/$defs/statefulWorkload" },
+    "nats": { "$ref": "#/$defs/statefulWorkload" },
+    "keycloak": { "$ref": "#/$defs/workload" },
+    "opa": { "$ref": "#/$defs/workload" },
+    "clamav": { "$ref": "#/$defs/statefulWorkload" },
+    "opensearch": { "$ref": "#/$defs/statefulWorkload" }
+  },
+  "$defs": {
+    "workload": {
+      "type": "object",
+      "required": ["replicas", "resources"],
+      "properties": {
+        "replicas": { "type": "integer", "minimum": 1 },
+        "resources": { "type": "object" }
+      }
+    },
+    "statefulWorkload": {
+      "allOf": [
+        { "$ref": "#/$defs/workload" },
+        { "type": "object", "required": ["size"], "properties": { "size": { "type": "string", "minLength": 1 } } }
+      ]
+    }
+  }
+}

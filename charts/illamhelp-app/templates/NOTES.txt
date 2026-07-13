@@ -1,0 +1,10 @@
+IllamHelp application workloads were installed in namespace {{ .Release.Namespace }}.
+
+Check rollout status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+
+For local kind access without an ingress controller:
+  make k8s-port-forward
+
+Run the in-cluster smoke test:
+  make k8s-smoke

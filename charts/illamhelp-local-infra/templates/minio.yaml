@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-minio
+  labels:
+    {{- include "illamhelp-local-infra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ include "illamhelp-local-infra.fullname" . }}-minio
+  replicas: {{ .Values.minio.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: minio
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: minio
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "illamhelp-local-infra.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: minio
+          securityContext:
+            allowPrivilegeEscalation: false
+          image: {{ .Values.images.minio | quote }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          envFrom:
+            - secretRef:
+                name: {{ include "illamhelp-local-infra.secretName" . }}
+          ports:
+            - name: api
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-minio
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: minio
+  ports:
+    - name: api
+      port: 9000
+    - name: console
+      port: 9001
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-minio-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  labels:
+    {{- include "illamhelp-local-infra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio-init
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: minio-init
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "illamhelp-local-infra.podSecurityContext" . | nindent 8 }}
+      restartPolicy: OnFailure
+      containers:
+        - name: minio-init
+          securityContext:
+            allowPrivilegeEscalation: false
+          image: {{ .Values.images.minioClient | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "illamhelp-local-infra.secretName" . }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              until mc alias set local http://{{ include "illamhelp-local-infra.fullname" . }}-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done
+              mc mb -p local/illamhelp-quarantine || true
+              mc mb -p local/illamhelp-approved || true
+              mc mb -p local/illamhelp-private || true

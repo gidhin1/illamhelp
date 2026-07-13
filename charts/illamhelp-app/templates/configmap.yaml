@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "illamhelp-app.fullname" . }}-config
+  labels:
+    {{- include "illamhelp-app.labels" . | nindent 4 }}
+data:
+  NODE_ENV: {{ .Values.config.nodeEnv | quote }}
+  CORS_ORIGINS: {{ .Values.config.corsOrigins | quote }}
+  STRICT_ORIGIN_CHECK: {{ .Values.config.strictOriginCheck | quote }}
+  TRUSTED_PROXY_CIDRS: {{ .Values.config.trustedProxyCidrs | quote }}
+  KEYCLOAK_URL: {{ .Values.config.keycloakUrl | quote }}
+  KEYCLOAK_REALM: {{ .Values.config.keycloakRealm | quote }}
+  KEYCLOAK_CLIENT_ID: {{ .Values.config.keycloakClientId | quote }}
+  MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}
+  MINIO_REGION: {{ .Values.config.minioRegion | quote }}
+  MINIO_BUCKET_QUARANTINE: {{ .Values.config.minioBucketQuarantine | quote }}
+  MINIO_BUCKET_APPROVED: {{ .Values.config.minioBucketApproved | quote }}
+  MINIO_BUCKET_PRIVATE: {{ .Values.config.minioBucketPrivate | quote }}
+  OPA_URL: {{ .Values.config.opaUrl | quote }}
+  OPENSEARCH_ENABLED: {{ .Values.config.openSearchEnabled | quote }}
+  OPENSEARCH_URL: {{ .Values.config.openSearchUrl | quote }}

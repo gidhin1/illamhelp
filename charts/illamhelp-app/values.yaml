@@ -1,0 +1,115 @@
+# Shared image settings for all application workloads.
+global:
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+# Container images are overridden by CI or make k8s-up for each deployment.
+images:
+  api:
+    repository: illamhelp/api
+    tag: local
+  web:
+    repository: illamhelp/web
+    tag: local
+  admin:
+    repository: illamhelp/admin
+    tag: local
+  envoy:
+    repository: envoyproxy/envoy
+    tag: v1.35-latest
+
+# Public hostnames used by ingress and browser-facing runtime configuration.
+hosts:
+  web: web.illamhelp.local
+  admin: admin.illamhelp.local
+  api: api.illamhelp.local
+  grpc: grpc.illamhelp.local
+
+# Non-sensitive API configuration. Credentials and credential-bearing URLs belong in the Secret.
+config:
+  nodeEnv: production
+  corsOrigins: "http://web.illamhelp.local,http://admin.illamhelp.local,http://localhost:3000,http://localhost:3003"
+  strictOriginCheck: "true"
+  trustedProxyCidrs: ""
+  keycloakUrl: "http://illamhelp-keycloak:8080"
+  keycloakRealm: illamhelp
+  keycloakClientId: illamhelp-api
+  minioEndpoint: "http://illamhelp-minio:9000"
+  minioRegion: ap-south-1
+  minioBucketQuarantine: illamhelp-quarantine
+  minioBucketApproved: illamhelp-approved
+  minioBucketPrivate: illamhelp-private
+  opaUrl: "http://illamhelp-opa:8181"
+  openSearchEnabled: "false"
+  openSearchUrl: "http://illamhelp-opensearch:9200"
+
+# Use an existing Secret by default. make k8s-up creates it from the ignored .env file.
+secrets:
+  create: false
+  name: illamhelp-secrets
+  values: {}
+
+# Spring Boot HTTP/gRPC deployment settings.
+api:
+  replicas: 1
+  httpPort: 4000
+  grpcPort: 9090
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+# Customer web deployment settings.
+web:
+  replicas: 1
+  port: 3000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Operations admin deployment settings.
+admin:
+  replicas: 1
+  port: 3003
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Browser gRPC-Web gateway settings.
+envoy:
+  replicas: 1
+  port: 9091
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+
+# Optional public ingress. Port forwarding remains available for clusters without an ingress controller.
+ingress:
+  enabled: true
+  className: ""
+  annotations: {}
+
+# NetworkPolicy is opt-in because local kind installations may use different ingress controllers.
+networkPolicy:
+  enabled: false
+  ingressNamespaceLabels:
+    kubernetes.io/metadata.name: ingress-nginx
+
+# Helm test image, pinned for repeatable in-cluster smoke checks.
+test:
+  image: curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13

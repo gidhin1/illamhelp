@@ -1,0 +1,79 @@
+{{- if .Values.opensearch.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-opensearch
+  labels:
+    {{- include "illamhelp-local-infra.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opensearch
+spec:
+  serviceName: {{ include "illamhelp-local-infra.fullname" . }}-opensearch
+  replicas: {{ .Values.opensearch.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: opensearch
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: opensearch
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "illamhelp-local-infra.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: opensearch
+          securityContext:
+            allowPrivilegeEscalation: false
+          image: {{ .Values.images.opensearch | quote }}
+          env:
+            - name: discovery.type
+              value: single-node
+            - name: plugins.security.ssl.http.enabled
+              value: "false"
+            - name: OPENSEARCH_JAVA_OPTS
+              value: {{ .Values.opensearch.javaOpts | quote }}
+          envFrom:
+            - secretRef:
+                name: {{ include "illamhelp-local-infra.secretName" . }}
+          ports:
+            - name: http
+              containerPort: 9200
+            - name: perf
+              containerPort: 9600
+          volumeMounts:
+            - name: data
+              mountPath: /usr/share/opensearch/data
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.opensearch.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storageClassName | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.opensearch.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-opensearch
+spec:
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: opensearch
+  ports:
+    - name: http
+      port: 9200
+    - name: perf
+      port: 9600
+{{- end }}
