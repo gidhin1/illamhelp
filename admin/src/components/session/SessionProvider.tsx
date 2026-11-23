@@ -99,7 +99,7 @@ export function SessionProvider({ children }: { children: ReactNode }): React.JS
       clearAccessToken();
       setAccessToken(null);
       setUser(null);
-      setError("Session expired. Please sign in again.");
+      setError("Your session expired. Sign in again.");
       setLoading(false);
     };
 

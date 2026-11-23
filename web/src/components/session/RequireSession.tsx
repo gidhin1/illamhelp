@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import { LinkButton } from "@/components/ui/LinkButton";
 
-import { Button, Card } from "@/components/ui/primitives";
+import { Card } from "@/components/ui/primitives";
 
 import { useSession } from "./SessionProvider";
 
@@ -16,7 +16,7 @@ export function RequireSession({
   if (loading) {
     return (
       <Card className="stack">
-        <h3>Loading session...</h3>
+        <h2>Checking sign-in…</h2>
       </Card>
     );
   }
@@ -24,18 +24,14 @@ export function RequireSession({
   if (!user) {
     return (
       <Card className="stack">
-        <h3>Please sign in</h3>
+        <h2>Sign in to continue</h2>
         <p className="muted-text">
           Sign in or create an account to continue.
         </p>
         {error ? <p className="field-error">{error}</p> : null}
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <Link href="/auth/login">
-            <Button>Sign In</Button>
-          </Link>
-          <Link href="/auth/register">
-            <Button variant="ghost">Register</Button>
-          </Link>
+          <LinkButton href="/auth/login">Sign in</LinkButton>
+          <LinkButton href="/auth/register" variant="ghost">Create account</LinkButton>
         </div>
       </Card>
     );

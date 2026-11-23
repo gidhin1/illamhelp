@@ -1,7 +1,8 @@
+import type { JSX } from "react";
 
 import {
   AuthenticatedUser, completeMediaUpload, createMediaUploadTicket,
-  getMyProfile, listMyMediaPage, listPublicApprovedMediaPage, MediaAssetRecord, MediaKind, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
+  getMyProfile, getMyVerification, listMyMediaPage, listPublicApprovedMediaPage, MediaAssetRecord, MediaKind, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
 } from "../api";
 
 import {
@@ -9,14 +10,11 @@ import {
   parseServiceCategories, shouldForceSignOut, asError, ProfileFormState
 } from "../utils";
 
-import {} from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import {} from "../theme";
-import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { AppButton, Banner, CardSurface, InputField, SectionCard, StatusLabel } from "../components";
 import { MediaPreviewList } from "../MediaPreviewList";
 import {
   approvedMedia,
@@ -24,18 +22,10 @@ import {
   pendingReviewMedia,
   PickedMediaFile
 } from "../MediaUploadPanel";
-import { useAppTheme } from "../theme-context";
+import { useAppStyles, useAppTheme } from "../theme-context";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    header: {
-      borderRadius: 12,
-      padding: 20,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.line,
-      gap: 14
-    },
     headerRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -136,17 +126,27 @@ export function ProfileScreen({
   accessToken,
   user,
   onSessionInvalid,
-  onSignOut
+  onSignOut,
+  onManageSharing,
+  onOpenVerification
 }: {
   accessToken: string;
   user: AuthenticatedUser;
   onSessionInvalid: () => void;
   onSignOut: () => void;
+  onManageSharing: () => void;
+  onOpenVerification: () => void;
 }): JSX.Element {
+  const styles = useAppStyles();
   const theme = useAppTheme();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
   const [profile, setProfile] = useState<ProfileRecord | null>(null);
   const [form, setForm] = useState<ProfileFormState | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [ownApprovedMedia, setOwnApprovedMedia] = useState<PublicMediaAssetRecord[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -168,8 +168,8 @@ export function ProfileScreen({
   const [publicGalleryLoading, setPublicGalleryLoading] = useState(false);
   const [publicGalleryError, setPublicGalleryError] = useState<string | null>(null);
   const profileApprovedMedia = useMemo(
-    () => approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile")),
-    [publicMediaAssets]
+    () => approvedMedia(ownApprovedMedia.filter((asset) => asset.purpose === "profile")),
+    [ownApprovedMedia]
   );
   const currentProfilePicture = useMemo(
     () => profileApprovedMedia.find((asset) => asset.kind === "image") ?? null,
@@ -191,7 +191,7 @@ export function ProfileScreen({
       setPublicMediaAssets(page.items);
       setPublicMediaCursor(page.nextCursor);
     } catch (requestError) {
-      setPublicGalleryError(asError(requestError, "Unable to load public media"));
+      setPublicGalleryError(asError(requestError, "Couldn’t load these photos or videos. Check the member ID and your connection."));
       setPublicMediaAssets([]);
       setPublicMediaCursor(null);
     } finally {
@@ -207,16 +207,19 @@ export function ProfileScreen({
       setProfile(record);
       setForm(buildProfileForm(record));
       setPublicGalleryOwner(record.userId);
-      const [mediaPage, publicMediaPage] = await Promise.all([
+      const [mediaPage, publicMediaPage, verification] = await Promise.all([
         listMyMediaPage(accessToken).catch(() => ({ items: [], nextCursor: null })),
-        listPublicApprovedMediaPage(record.userId, accessToken).catch(() => ({ items: [], nextCursor: null }))
+        listPublicApprovedMediaPage(record.userId, accessToken).catch(() => ({ items: [], nextCursor: null })),
+        getMyVerification(accessToken).catch(() => null)
       ]);
       setMediaAssets(mediaPage.items);
       setMediaCursor(mediaPage.nextCursor);
+      setOwnApprovedMedia(publicMediaPage.items);
+      setVerified(verification?.status === "approved");
       setPublicMediaAssets(publicMediaPage.items);
       setPublicMediaCursor(publicMediaPage.nextCursor);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load profile");
+      const message = asError(requestError, "Couldn’t load your profile. Refresh and try again.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -270,7 +273,7 @@ export function ProfileScreen({
       setForm(buildProfileForm(updated));
       setSuccess("Profile updated.");
     } catch (requestError) {
-      const message = asError(requestError, "Unable to update profile");
+      const message = asError(requestError, "Couldn’t save your changes. Check the details and try again.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -498,7 +501,7 @@ export function ProfileScreen({
       setPickedProfilePictureFile(null);
       setProfilePictureSuccess("Profile picture uploaded for review.");
     } catch (requestError) {
-      const message = asError(requestError, "Unable to upload profile picture");
+      const message = asError(requestError, "Couldn’t upload your profile picture. Choose an image and try again.");
       setProfilePictureError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -517,12 +520,12 @@ export function ProfileScreen({
     >
       <View style={styles.screenHeader}>
         <Text style={styles.pill}>Profile</Text>
-        <Text style={styles.screenTitle}>Your account</Text>
-        <Text style={styles.screenSubtitle}>Manage your details and sharing preferences.</Text>
+        <Text style={styles.screenTitle}>Your profile</Text>
+        <Text style={styles.screenSubtitle}>Edit your details and manage what you share.</Text>
       </View>
       {error ? <Banner tone="error" message={error} /> : null}
       {success ? <Banner tone="success" message={success} /> : null}
-      <View style={localStyles.header}>
+      <CardSurface variant="record">
 	        <View style={localStyles.headerRow}>
 	          <View style={localStyles.avatar}>
 	            {pickedProfilePictureFile ? (
@@ -563,19 +566,27 @@ export function ProfileScreen({
               <Text style={localStyles.metaChipLabel}>{service}</Text>
             </View>
           ))}
-          <View style={localStyles.metaChip}>
-            <Text style={localStyles.metaChipLabel}>{mediaAssets.length} media item(s)</Text>
-          </View>
         </View>
-      </View>
-      <SectionCard title="Identity">
-        <Text style={styles.dataMeta} testID="profile-user-id">
-          Member ID: {profile?.userId ?? user.publicUserId}
+        <Text style={styles.dataMeta} testID="profile-user-id">Member ID: {profile?.userId ?? user.publicUserId}</Text>
+        {verified ? <StatusLabel label="Verified profile" tone="success" /> : null}
+        <AppButton label="View verification" variant="ghost" onPress={onOpenVerification} />
+        {form ? (
+          <AppButton
+            label={editing ? "Hide profile editor" : "Edit profile"}
+            variant="secondary"
+            expanded={editing}
+            onPress={() => setEditing((open) => !open)}
+            testID="profile-edit-toggle"
+          />
+        ) : null}
+      </CardSurface>
+      <SectionCard title="Contact sharing">
+        <Text style={styles.cardBodyMuted}>
+          See who can view your contact details, review requests, or stop sharing.
         </Text>
-        <Text style={styles.dataMeta}>Name: {profile?.displayName ?? "-"}</Text>
-        <Text style={styles.dataMeta}>Account: Member</Text>
+        <AppButton label="Manage contact sharing" variant="secondary" onPress={onManageSharing} testID="profile-contact-sharing" />
       </SectionCard>
-      {form ? (
+      {form && editing ? (
         <SectionCard title="Edit profile">
           <InputField
             label="First name"
@@ -602,7 +613,7 @@ export function ProfileScreen({
             testID="profile-area"
           />
           <InputField
-            label="Services offered (comma separated)"
+            label="Services you offer (separated by commas)"
             value={form.serviceCategories}
             onChangeText={(value) => setForm((previous) => (previous ? { ...previous, serviceCategories: value } : previous))}
             placeholder="maid, plumber, electrician"
@@ -653,17 +664,9 @@ export function ProfileScreen({
           />
         </SectionCard>
       ) : null}
-      <SectionCard title="Privacy and media safety">
-        <Text style={styles.cardBody}>
-          Your contact details stay private until you approve sharing.
-        </Text>
-        <Text style={styles.cardBodyMuted}>
-          You can stop sharing at any time from the Privacy tab.
-        </Text>
-      </SectionCard>
       <SectionCard title="Profile picture">
         <Text style={styles.cardBodyMuted}>
-          Profile pictures use profile media review and appear only where profile media is allowed.
+          After approval, your profile picture is visible to people who can see your profile media.
         </Text>
         {profilePictureError ? <Banner tone="error" message={profilePictureError} testID="profile-picture-error" /> : null}
         {profilePictureSuccess ? <Banner tone="success" message={profilePictureSuccess} testID="profile-picture-success" /> : null}
@@ -674,7 +677,7 @@ export function ProfileScreen({
         ) : null}
         <View style={styles.mediaPickerActions}>
           <AppButton
-            label="Take picture"
+            label="Take a photo"
             onPress={() => {
               void onCaptureProfilePicture();
             }}
@@ -683,7 +686,7 @@ export function ProfileScreen({
             testID="profile-picture-camera"
           />
           <AppButton
-            label="Choose picture"
+            label="Choose a photo"
             onPress={() => {
               void onPickProfilePicture();
             }}
@@ -693,7 +696,7 @@ export function ProfileScreen({
           />
         </View>
         <AppButton
-          label={profilePictureUploading ? "Uploading picture..." : "Upload picture"}
+          label={profilePictureUploading ? "Uploading photo…" : "Submit photo for review"}
           onPress={() => {
             void onUploadProfilePicture();
           }}
@@ -702,13 +705,13 @@ export function ProfileScreen({
           testID="profile-picture-upload"
         />
       </SectionCard>
-      <SectionCard title="Professional media">
+      <SectionCard title="Work samples">
         <MediaUploadPanel
           title="Profile photos and videos"
-          description="Show work examples and service proof. Approved media is visible to accepted connections."
-          pickLabel="Add profile media"
-          cameraLabel="Take profile media"
-          uploadLabel="Upload profile media"
+          description="Show examples of your work. Accepted connections can see them after approval."
+          pickLabel="Choose photos or videos"
+          cameraLabel="Take a photo or video"
+          uploadLabel="Upload for review"
           pickedFiles={pickedProfileMediaFiles}
           pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
           uploading={mediaUploading}
@@ -740,10 +743,23 @@ export function ProfileScreen({
             testID="profile-media-load-more"
           />
         ) : null}
+        <Text style={styles.fieldLabel}>Approved photos and videos</Text>
+        <MediaPreviewList
+          items={profileApprovedMedia}
+          emptyText="No approved profile media yet."
+          testID="profile-own-approved-media"
+        />
       </SectionCard>
-      <SectionCard title="Public gallery preview">
+      <AppButton
+        label={galleryOpen ? "Hide member media preview" : "Preview a member’s approved media"}
+        expanded={galleryOpen}
+        variant="secondary"
+        onPress={() => setGalleryOpen((open) => !open)}
+        testID="profile-gallery-toggle"
+      />
+      {galleryOpen ? <SectionCard title="Member media preview">
         <Text style={styles.cardBody}>
-          This view matches what other members can open publicly after moderation approval.
+          View approved photos and videos you have permission to see.
         </Text>
         {publicGalleryError ? (
           <Banner tone="error" message={publicGalleryError} testID="profile-public-media-error" />
@@ -756,7 +772,7 @@ export function ProfileScreen({
           testID="profile-public-owner-input"
         />
         <AppButton
-          label={publicGalleryLoading ? "Loading media" : "Load approved media"}
+          label={publicGalleryLoading ? "Loading media" : "View approved media"}
           onPress={() => {
             void loadPublicGallery(publicGalleryOwner);
           }}
@@ -764,13 +780,13 @@ export function ProfileScreen({
           testID="profile-public-load"
         />
 	        <MediaPreviewList
-	          items={profileApprovedMedia}
+	          items={approvedMedia(publicMediaAssets.filter((asset) => asset.purpose === "profile"))}
           emptyText="No approved profile media yet."
           testID="profile-public"
         />
         {publicMediaCursor ? (
           <AppButton
-            label="Load more approved media"
+            label="Show more approved photos and videos"
             onPress={() => {
               void loadMorePublicMedia();
             }}
@@ -778,7 +794,7 @@ export function ProfileScreen({
             testID="profile-public-load-more"
           />
         ) : null}
-      </SectionCard>
+      </SectionCard> : null}
       {loading ? <Text style={styles.cardBodyMuted}>Loading profile...</Text> : null}
       <AppButton label="Sign out" onPress={onSignOut} variant="ghost" testID="profile-signout" />
     </ScrollView>

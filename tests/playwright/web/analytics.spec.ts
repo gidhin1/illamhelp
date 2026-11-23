@@ -33,7 +33,7 @@ test("rejecting analytics consent keeps customer content-view events out of GA4"
 
   await page.goto("/?utm_source=qa&utm_medium=e2e&utm_campaign=analytics_reject");
   await expect(page.getByLabel("Analytics privacy choice")).toBeVisible();
-  await page.getByRole("button", { name: "Reject" }).click();
+  await page.getByRole("button", { name: "Decline analytics" }).click();
   await expect(page.getByLabel("Analytics privacy choice")).not.toBeVisible();
 
   await page.getByRole("link", { name: "FAQ" }).click();
@@ -58,7 +58,7 @@ test("accepting analytics consent sends page and content-view events to GA4 with
 
   await page.goto("/?utm_source=qa&utm_medium=e2e&utm_campaign=analytics_accept");
   await expect(page.getByLabel("Analytics privacy choice")).toBeVisible();
-  await page.getByRole("button", { name: "Accept analytics" }).click();
+  await page.getByRole("button", { name: "Allow analytics" }).click();
   await expect(page.getByLabel("Analytics privacy choice")).not.toBeVisible();
   await waitForGa4Event(ga4CollectUrls, "legal_consent_updated");
 
@@ -72,4 +72,28 @@ test("accepting analytics consent sends page and content-view events to GA4 with
   expect(joinedUrls).toContain("utm_medium=e2e");
   expect(joinedUrls).toContain("utm_campaign=analytics_accept");
   expect(joinedUrls).not.toMatch(/email|phone|address|documentMediaIds|mediaUrl|downloadUrl/i);
+});
+
+test("the first-visit consent prompt leaves the landing actions usable on a narrow screen", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.goto("/");
+
+  const choice = page.getByRole("complementary", { name: "Analytics privacy choice" });
+  const main = page.getByRole("main");
+  await expect(choice).toBeInViewport();
+  await main.getByRole("link", { name: "Create account" }).click({ trial: true });
+  await main.getByRole("link", { name: "Sign in" }).click({ trial: true });
+
+  await choice.getByRole("button", { name: "View analytics settings" }).click();
+  await expect(choice.getByText("Ad storage stays off.", { exact: false })).toBeVisible();
+  await choice.getByRole("button", { name: "Decline analytics" }).click();
+  await expect(choice).toBeHidden();
+
+  const privacy = main.getByText("How profile privacy works", { exact: true });
+  await privacy.click();
+  await expect(main.getByText("Verification documents stay out of profiles and jobs.", { exact: false })).toBeVisible();
+
+  await main.getByRole("link", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/auth\/login$/);
+  await expect(choice).toBeHidden();
 });

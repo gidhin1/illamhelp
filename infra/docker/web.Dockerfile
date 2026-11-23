@@ -15,6 +15,7 @@ ENV NEXT_PUBLIC_GA4_DEBUG_MODE=$NEXT_PUBLIC_GA4_DEBUG_MODE
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages packages
+COPY patches patches
 COPY web/package.json web/package.json
 RUN pnpm install --frozen-lockfile
 

@@ -121,13 +121,28 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
       SELECT mj.id AS "moderationJobId", ma.id AS "mediaId", mj.stage::text, mj.status::text, mj.reason_code AS "reasonCode",
              mj.created_at AS "moderationCreatedAt", ma.state::text AS "mediaState", ma.owner_user_id AS "ownerUserId",
              ma.kind::text, ma.purpose::text, ma.content_type AS "contentType", ma.file_size_bytes AS "fileSizeBytes"
-      FROM moderation_jobs mj JOIN media_assets ma ON ma.id = mj.media_asset_id
+      FROM moderation_jobs mj
+      JOIN media_assets ma ON mj.media_asset_id = ma.id
+      JOIN users u ON u.id = ma.owner_user_id
+      LEFT JOIN profiles p ON p.user_id = u.id
       WHERE mj.stage = 'human_review'::moderation_stage
         AND (cast(:stage as text) IS NULL OR mj.stage::text = cast(:stage as text))
         AND (cast(:status as text) IS NULL OR mj.status::text = cast(:status as text))
-      ORDER BY mj.created_at ASC LIMIT :limit
+        AND (:query = '' OR position(cast(:query as text) IN lower(concat_ws(' ',
+          ma.id, u.id, u.username, p.first_name, p.last_name, p.city, p.area,
+          array_to_string(p.service_categories, ' '), ma.kind,
+          CASE WHEN ma.kind::text = 'image' THEN 'photo' ELSE 'video' END,
+          replace(ma.purpose::text, '_', ' '), replace(ma.state::text, '_', ' '),
+          ma.purpose, ma.state, mj.status, mj.reason_code
+        ))) > 0)
+      ORDER BY
+        CASE WHEN :newestFirst THEN mj.created_at END DESC,
+        CASE WHEN NOT :newestFirst THEN mj.created_at END ASC,
+        mj.id ASC
+      LIMIT :limit
       """, nativeQuery = true)
-  List<Map<String, Object>> listModerationQueue(@Param("stage") String stage, @Param("status") String status, @Param("limit") int limit);
+  List<Map<String, Object>> listModerationQueue(@Param("stage") String stage, @Param("status") String status,
+      @Param("limit") int limit, @Param("query") String query, @Param("newestFirst") boolean newestFirst);
 
   @Query(value = """
       SELECT id, owner_user_id AS "ownerUserId", profile_user_id AS "profileUserId", job_id AS "jobId",

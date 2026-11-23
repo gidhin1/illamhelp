@@ -114,10 +114,10 @@ public class VerificationService {
     notificationService.create(
         targetUserId,
         approved ? "verification_approved" : "verification_rejected",
-        approved ? "Verification approved!" : "Verification not approved",
+        approved ? "Your profile is verified" : "Verification not approved",
         approved
-            ? "Your identity has been verified. You now have a verified badge."
-            : "Your verification request was not approved. You can resubmit.",
+            ? "Your profile now shows a verified badge."
+            : "Open Verify to read the reviewer’s notes and submit a new request.",
         Map.of("verificationRequestId", requestId, "decision", status));
     return toRecord(record);
   }

@@ -1,275 +1,157 @@
-
-import {
-  formatDate, listNotifications, markAllNotificationsRead, markNotificationRead, NotificationRecord
-} from "../api";
-
-import {
-  shouldForceSignOut, asError
-} from "../utils";
-
-import {
-  NOTIFICATION_TYPE_LABELS
-} from "../constants";
+import type { JSX } from "react";
+import { alertCategory, alertDestination, type AlertDestination } from "@illamhelp/shared-types";
 import { useCallback, useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
-import {} from "../theme";
-import { styles } from "../styles";
-import { AppButton, Banner, SectionCard } from "../components";
+
+import { formatDate, listNotifications, markAllNotificationsRead, markNotificationRead, type NotificationRecord } from "../api";
+import { AppButton, Banner, StatusLabel } from "../components";
+import { useAppStyles } from "../theme-context";
+import { asError, shouldForceSignOut } from "../utils";
 
 export function NotificationsScreen({
   accessToken,
   onSessionInvalid,
-  onUnreadCountChange
+  onUnreadCountChange,
+  onOpen
 }: {
   accessToken: string;
   onSessionInvalid: () => void;
   onUnreadCountChange: (count: number) => void;
+  onOpen: (route: AlertDestination["route"]) => void;
 }): JSX.Element {
+  const styles = useAppStyles();
   const [notifications, setNotifications] = useState<NotificationRecord[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadCount, setUnreadCount] = useState<number>();
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const busy = loading || !!updating;
 
-  const updateUnreadCount = useCallback(
-    (count: number): void => {
-      setUnreadCount(count);
-      onUnreadCountChange(count);
-    },
-    [onUnreadCountChange]
-  );
+  const reportError = useCallback((requestError: unknown, fallback: string): void => {
+    const message = asError(requestError, fallback);
+    setError(message);
+    if (shouldForceSignOut(message)) onSessionInvalid();
+  }, [onSessionInvalid]);
 
-  const load = useCallback(async (): Promise<void> => {
+  const updateCount = useCallback((count: number): void => {
+    setUnreadCount(count);
+    onUnreadCountChange(count);
+  }, [onUnreadCountChange]);
+
+  const load = useCallback(async (cursor?: string): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const response = await listNotifications(
-        { unreadOnly: showUnreadOnly, limit: 50 },
-        accessToken
-      );
-      setNotifications(response.items);
+      const response = await listNotifications({ unreadOnly: showUnreadOnly, limit: 50, cursor }, accessToken);
+      setNotifications((previous) => cursor ? [...previous, ...response.items] : response.items);
       setNextCursor(response.nextCursor);
-      updateUnreadCount(response.unreadCount);
+      updateCount(response.unreadCount);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load alerts");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
+      reportError(requestError, "Couldn’t load alerts. Refresh to try again.");
     } finally {
       setLoading(false);
     }
-  }, [accessToken, onSessionInvalid, showUnreadOnly, updateUnreadCount]);
+  }, [accessToken, reportError, showUnreadOnly, updateCount]);
 
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (!nextCursor) return;
+  useEffect(() => { void load(); }, [load]);
+
+  const chooseFilter = (unread: boolean): void => {
+    if (busy || unread === showUnreadOnly) return;
     setLoading(true);
+    setShowUnreadOnly(unread);
+    setNotifications([]);
+    setNextCursor(null);
+  };
+
+  const markRead = async (notification: NotificationRecord): Promise<void> => {
+    if (busy || notification.read) return;
+    setUpdating(notification.id);
     setError(null);
     try {
-      const response = await listNotifications(
-        { unreadOnly: showUnreadOnly, limit: 50, cursor: nextCursor },
-        accessToken
-      );
-      setNotifications((previous) => [...previous, ...response.items]);
-      setNextCursor(response.nextCursor);
-      updateUnreadCount(response.unreadCount);
+      const updated = await markNotificationRead(notification.id, accessToken);
+      setNotifications((previous) => showUnreadOnly
+        ? previous.filter((item) => item.id !== updated.id)
+        : previous.map((item) => item.id === updated.id ? updated : item));
+      updateCount(Math.max(0, (unreadCount ?? 0) - 1));
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load more alerts");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
+      reportError(requestError, "Couldn’t mark this alert as read. Try again.");
     } finally {
-      setLoading(false);
-    }
-  }, [accessToken, nextCursor, onSessionInvalid, showUnreadOnly, updateUnreadCount]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const onMarkRead = async (notificationId: string): Promise<void> => {
-    setActionLoadingId(`read-${notificationId}`);
-    setError(null);
-    try {
-      const updated = await markNotificationRead(notificationId, accessToken);
-      setNotifications((previous) =>
-        previous.map((item) => (item.id === updated.id ? updated : item))
-      );
-      const nextUnread = Math.max(0, unreadCount - 1);
-      updateUnreadCount(nextUnread);
-    } catch (requestError) {
-      const message = asError(requestError, "Unable to mark alert as read");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
-    } finally {
-      setActionLoadingId(null);
+      setUpdating(null);
     }
   };
 
-  const onMarkAllRead = async (): Promise<void> => {
-    setActionLoadingId("read-all");
+  const markAllRead = async (): Promise<void> => {
+    if (busy || !unreadCount) return;
+    setUpdating("all");
     setError(null);
     try {
-      await markAllNotificationsRead(accessToken);
-      setNotifications((previous) =>
-        previous.map((item) => ({
-          ...item,
-          read: true,
-          readAt: item.readAt ?? new Date().toISOString()
-        }))
-      );
-      updateUnreadCount(0);
+      const { updated } = await markAllNotificationsRead(accessToken);
+      setNotifications((previous) => showUnreadOnly ? [] : previous.map((item) => ({ ...item, read: true })));
+      updateCount(Math.max(0, unreadCount - updated));
+      await load();
     } catch (requestError) {
-      const message = asError(requestError, "Unable to mark all alerts as read");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
+      reportError(requestError, "Couldn’t mark all alerts as read. Try again.");
     } finally {
-      setActionLoadingId(null);
+      setUpdating(null);
     }
-  };
-
-  const renderNotificationContext = (item: NotificationRecord): string | null => {
-    const pairs: { key: string; label: string }[] = [
-      { key: "jobId", label: "Job" },
-      { key: "connectionId", label: "Connection" },
-      { key: "applicationId", label: "Application" },
-      { key: "grantId", label: "Sharing record" },
-      { key: "requestId", label: "Request" },
-      { key: "mediaId", label: "Media" }
-    ];
-    const values = pairs
-      .map((pair) => {
-        const rawValue = item.data[pair.key];
-        if (typeof rawValue !== "string" || rawValue.trim().length === 0) {
-          return null;
-        }
-        return `${pair.label}: ${rawValue}`;
-      })
-      .filter((value): value is string => Boolean(value));
-    return values.length > 0 ? values.join(" · ") : null;
   };
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.screenScroll}
-      testID="notifications-scroll"
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-    >
+    <ScrollView contentContainerStyle={styles.screenScroll} testID="notifications-scroll">
       <View style={styles.screenHeader}>
-        <Text style={styles.pill}>Alerts</Text>
-        <Text style={styles.screenTitle}>Stay updated</Text>
-        <Text style={styles.screenSubtitle}>
-          Job updates, people requests, privacy changes, and verification updates.
-        </Text>
+        <Text style={styles.screenTitle} accessibilityRole="header">Your alerts</Text>
+        <Text style={styles.screenSubtitle}>Updates about jobs, connections, contact sharing, and verification.</Text>
       </View>
-
-      {error ? <Banner tone="error" message={error} testID="notifications-error-banner" /> : null}
-
-      <SectionCard title="Inbox">
+      <View style={styles.stackSmall}>
         <View style={styles.roleRow}>
-          <View style={styles.roleChip} testID="notifications-unread-count">
-            <Text style={styles.roleChipLabel}>{unreadCount} unread</Text>
-          </View>
-          <AppButton
-            label={showUnreadOnly ? "Show all" : "Show unread only"}
-            onPress={() => setShowUnreadOnly((previous) => !previous)}
-            variant="ghost"
-            testID="notifications-filter-toggle"
-          />
-          {unreadCount > 0 ? (
-            <AppButton
-              label={actionLoadingId === "read-all" ? "Updating..." : "Mark all read"}
-              onPress={() => {
-                void onMarkAllRead();
-              }}
-              variant="secondary"
-              disabled={actionLoadingId === "read-all"}
-              testID="notifications-mark-all"
-            />
-          ) : null}
+          <AppButton label="All alerts" selected={!showUnreadOnly} variant={showUnreadOnly ? "secondary" : "primary"}
+            disabled={busy} onPress={() => chooseFilter(false)} testID="notifications-filter-all" />
+          <AppButton label="Unread only" selected={showUnreadOnly} variant={showUnreadOnly ? "primary" : "secondary"}
+            disabled={busy} onPress={() => chooseFilter(true)} testID="notifications-filter-toggle" />
         </View>
-
-        {loading ? <Text style={styles.cardBodyMuted}>Loading alerts...</Text> : null}
-        {!loading && notifications.length === 0 ? (
-          <Text style={styles.cardBodyMuted} testID="notifications-empty">
-            No alerts yet.
-          </Text>
-        ) : null}
-        {!loading && notifications.length > 0 ? (
-          <View style={styles.stackSmall}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
-            {notifications.map((item) => {
-              const context = renderNotificationContext(item);
-              return (
-                <View
-                  key={item.id}
-                  style={[
-                    styles.dataRow,
-                    styles.carouselCard,
-                    !item.read ? styles.notificationRowUnread : null
-                  ]}
-                  testID={`notifications-item-${item.id}`}
-                >
-                  <View style={styles.notificationMetaRow}>
-                    <Text style={styles.dataTitle}>
-                      {NOTIFICATION_TYPE_LABELS[item.type] ?? item.type}
-                    </Text>
-                    <Text style={styles.dataMeta}>{formatDate(item.createdAt)}</Text>
-                  </View>
-                  <Text style={styles.dataTitle}>{item.title}</Text>
-                  <Text style={styles.dataMeta}>{item.body}</Text>
-                  {context ? <Text style={styles.dataMeta}>{context}</Text> : null}
-                  {!item.read ? (
-                    <AppButton
-                      label={
-                        actionLoadingId === `read-${item.id}` ? "Updating..." : "Mark read"
-                      }
-                      onPress={() => {
-                        void onMarkRead(item.id);
-                      }}
-                      variant="ghost"
-                      disabled={actionLoadingId === `read-${item.id}`}
-                      testID={`notifications-mark-read-${item.id}`}
-                    />
-                  ) : (
-                    <Text style={styles.cardBodyMuted}>Read {formatDate(item.readAt)}</Text>
-                  )}
-                </View>
-              );
-            })}
-            </ScrollView>
-            {nextCursor ? (
-              <AppButton
-                label={loading ? "Loading alerts" : "Load more alerts"}
-                onPress={() => {
-                  void loadMore();
-                }}
-                variant="secondary"
-                disabled={loading}
-                testID="notifications-load-more"
-              />
-            ) : null}
-          </View>
-        ) : null}
-      </SectionCard>
-
-      <AppButton
-        label={loading ? "Refreshing..." : "Refresh alerts"}
-        onPress={() => {
-          void load();
-        }}
-        variant="ghost"
-        disabled={loading}
-        testID="notifications-refresh"
-      />
+        {unreadCount !== undefined ? <Text style={styles.dataMeta} accessibilityLiveRegion="polite" testID="notifications-unread-count">{unreadCount} unread</Text> : null}
+        <View style={styles.roleRow}>
+          {unreadCount ? (
+            <AppButton label={updating === "all" ? "Marking alerts…" : "Mark all as read"} variant="ghost"
+              disabled={busy} onPress={() => void markAllRead()} testID="notifications-mark-all" />
+          ) : null}
+          <AppButton label="Refresh alerts" onPress={() => void load()} variant="ghost" disabled={busy} testID="notifications-refresh" />
+        </View>
+      </View>
+      {error ? <Banner tone="error" message={error} testID="notifications-error-banner" /> : null}
+      {loading && !notifications.length ? <Text style={styles.cardBodyMuted}>Loading alerts…</Text> : null}
+      {!loading && !error && !notifications.length ? (
+        <View style={styles.alertRow} testID="notifications-empty">
+          <Text style={styles.dataTitle}>{showUnreadOnly ? "No unread alerts" : "No alerts yet"}</Text>
+          <Text style={styles.cardBodyMuted}>{showUnreadOnly ? "Choose All alerts to see earlier updates." : "New activity will appear here."}</Text>
+        </View>
+      ) : null}
+      <View style={styles.stackSmall}>
+        {notifications.map((item) => {
+          const action = alertDestination(item.type, item.data);
+          return (
+            <View key={item.id} style={styles.alertRow} testID={`notifications-item-${item.id}`}>
+              <View style={styles.roleRow}>
+                <Text style={styles.dataMeta}>{alertCategory(item.type)} · {formatDate(item.createdAt)}</Text>
+                {!item.read ? <StatusLabel label="Unread" /> : null}
+              </View>
+              <Text style={styles.dataTitle}>{item.title}</Text>
+              <Text style={styles.cardBodyMuted}>{item.body}</Text>
+              {action ? <AppButton label={action.label} variant="secondary" onPress={() => onOpen(action.route)} testID={`notifications-open-${item.id}`} /> : null}
+              {!item.read ? (
+                <AppButton label={updating === item.id ? "Marking alert…" : "Mark as read"} variant="ghost"
+                  disabled={busy} onPress={() => void markRead(item)} testID={`notifications-mark-read-${item.id}`} />
+              ) : null}
+            </View>
+          );
+        })}
+      </View>
+      {nextCursor ? (
+        <AppButton label={loading ? "Loading alerts…" : "Load more alerts"} onPress={() => void load(nextCursor)}
+          variant="secondary" disabled={busy} testID="notifications-load-more" />
+      ) : null}
     </ScrollView>
   );
 }

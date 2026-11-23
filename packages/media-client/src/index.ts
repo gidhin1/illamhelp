@@ -135,6 +135,13 @@ export function createMediaClient(options: MediaClientOptions = {}) {
     return grpcWebFetch(fetchImpl ?? fetch, `${baseUrl}/${path}`, payload, accessToken);
   }
 
+  async function listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {
+    return decodeMediaPage(await call(`${MEDIA_SERVICE}/ListMyMedia`, encodeMessage([
+      intField(1, 50),
+      stringField(2, cursor ?? "")
+    ]), accessToken));
+  }
+
   return {
     async createUploadTicket(payload: {
       kind: MediaKind;
@@ -163,11 +170,17 @@ export function createMediaClient(options: MediaClientOptions = {}) {
       ]), accessToken));
     },
 
-    async listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {
-      return decodeMediaPage(await call(`${MEDIA_SERVICE}/ListMyMedia`, encodeMessage([
-        intField(1, 50),
-        stringField(2, cursor ?? "")
-      ]), accessToken));
+    listMyMediaPage,
+
+    async listOwnJobMedia(jobId: string, accessToken: string): Promise<MediaAssetRecord[]> {
+      const items: MediaAssetRecord[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await listMyMediaPage(accessToken, cursor);
+        items.push(...page.items.filter((asset) => asset.purpose === "job" && asset.jobId === jobId));
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+      return items;
     },
 
     async listProfileMediaPage(profileUserId: string, accessToken: string, cursor?: string): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
@@ -193,11 +206,13 @@ export function createMediaClient(options: MediaClientOptions = {}) {
       ]), accessToken));
     },
 
-    async listModerationQueue(accessToken: string, options?: { status?: string; stage?: string; limit?: number }): Promise<ModerationQueueItem[]> {
+    async listModerationQueue(accessToken: string, options?: { status?: string; stage?: string; limit?: number; query?: string; newestFirst?: boolean }): Promise<ModerationQueueItem[]> {
       const page = decodeModerationQueuePage(await call(`${ADMIN_SERVICE}/ListModerationQueue`, encodeMessage([
         stringField(1, options?.stage ?? ""),
         stringField(2, options?.status ?? ""),
-        intField(3, options?.limit ?? 50)
+        intField(3, options?.limit ?? 50),
+        stringField(4, options?.query ?? ""),
+        intField(5, options?.newestFirst ? 1 : 0)
       ]), accessToken));
       return page;
     },

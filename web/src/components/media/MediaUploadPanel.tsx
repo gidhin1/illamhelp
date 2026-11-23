@@ -1,5 +1,8 @@
 "use client";
 
+import { ActionControl } from "@illamhelp/ui-web";
+import { FilePicker } from "./FilePicker";
+
 import type { CSSProperties } from "react";
 import { ChangeEvent, RefObject, useMemo } from "react";
 
@@ -49,18 +52,16 @@ export function MediaUploadPanel({
   title,
   description,
   pickerLabel,
-  cameraLabel = "Take photo or video",
   uploadLabel,
   selectedFiles,
   inputRef,
-  cameraInputRef,
   pendingItems,
+  rejectedItems = [],
   error,
   success,
   uploading,
   testId,
   onFileChange,
-  onCameraFileChange,
   onClearFile,
   onRemoveFile,
   onUpload
@@ -68,18 +69,16 @@ export function MediaUploadPanel({
   title: string;
   description: string;
   pickerLabel: string;
-  cameraLabel?: string;
   uploadLabel: string;
   selectedFiles: File[];
   inputRef: RefObject<HTMLInputElement | null>;
-  cameraInputRef?: RefObject<HTMLInputElement | null>;
   pendingItems: OwnerMedia[];
+  rejectedItems?: OwnerMedia[];
   error: string | null;
   success: string | null;
   uploading: boolean;
   testId: string;
   onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
-  onCameraFileChange?: (event: ChangeEvent<HTMLInputElement>) => void;
   onClearFile: () => void;
   onRemoveFile?: (index: number) => void;
   onUpload: () => void;
@@ -90,37 +89,28 @@ export function MediaUploadPanel({
     if (selectedFiles.length <= 1) return uploadLabel;
     return `Upload ${selectedFiles.length} files`;
   }, [selectedFiles.length, uploadLabel, uploading]);
+  function onCapture(event: ChangeEvent<HTMLInputElement>): void {
+    onFileChange(event);
+    event.currentTarget.value = "";
+  }
+
   return (
     <div className="media-upload-panel" data-testid={testId}>
-      <div className="media-upload-header">
-        <div>
-          <h3>{title}</h3>
-          <p className="muted-text">{description}</p>
-        </div>
-        <div className="media-picker-actions">
-          <label className="button secondary media-picker-button">
-            <span>{cameraLabel}</span>
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*,video/*"
-              capture="environment"
-              aria-label={cameraLabel}
-              onChange={onCameraFileChange ?? onFileChange}
-            />
-          </label>
-          <label className="button media-picker-button">
-            <span>{pickerLabel}</span>
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-              aria-label={pickerLabel}
-              multiple
-              onChange={onFileChange}
-            />
-          </label>
-        </div>
+      <div>
+        <h3>{title}</h3>
+        <p className="muted-text">{description}</p>
+      </div>
+      <div className="media-picker-actions">
+        <FilePicker
+          label={pickerLabel}
+          inputRef={inputRef}
+          accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+          multiple
+          disabled={uploading}
+          onChange={onFileChange}
+        />
+        <FilePicker label="Take a photo" accept="image/*" capture="environment" secondary camera disabled={uploading} onChange={onCapture} />
+        <FilePicker label="Record a video" accept="video/*" capture="environment" secondary camera disabled={uploading} onChange={onCapture} />
       </div>
 
       {error ? <Banner tone="error">{error}</Banner> : null}
@@ -135,7 +125,7 @@ export function MediaUploadPanel({
               </strong>
               <span className="muted-text">
                 {selectedFiles.filter((file) => file.type.startsWith("image/")).length} photos ·{" "}
-                {selectedFiles.filter((file) => file.type.startsWith("video/")).length} videos · automatic ordering
+                {selectedFiles.filter((file) => file.type.startsWith("video/")).length} videos
               </span>
             </div>
             <div className="media-selected-actions">
@@ -165,7 +155,7 @@ export function MediaUploadPanel({
                   <span className="muted-text">{formatBytes(file.size)}</span>
                 </div>
                 {onRemoveFile ? (
-                  <button
+                  <ActionControl
                     type="button"
                     className="media-remove-button"
                     disabled={uploading}
@@ -173,17 +163,13 @@ export function MediaUploadPanel({
                     aria-label={`Remove ${file.name}`}
                   >
                     Remove
-                  </button>
+                  </ActionControl>
                 ) : null}
               </article>
             ))}
           </div>
         </div>
-      ) : (
-        <div className="media-upload-empty">
-          <p className="muted-text">Take media now or choose several photos and videos from your gallery.</p>
-        </div>
-      )}
+      ) : null}
 
       {pendingItems.length > 0 ? (
         <div className="media-review-list" data-testid={`${testId}-pending`}>
@@ -200,6 +186,20 @@ export function MediaUploadPanel({
               </div>
             </div>
           ))}
+        </div>
+      ) : null}
+      {rejectedItems.length > 0 ? (
+        <div className="media-review-list" data-testid={`${testId}-rejected`}>
+          <div className="media-review-title">Needs a replacement</div>
+          {rejectedItems.map((asset) => (
+            <div className="media-review-row" key={asset.id}>
+              <div>
+                <strong>{mediaKindLabel(asset)} was not approved</strong>
+                <span className="muted-text">Added {formatDate(asset.createdAt)}</span>
+              </div>
+            </div>
+          ))}
+          <p className="muted-text">Choose a different photo or video to send for review.</p>
         </div>
       ) : null}
     </div>

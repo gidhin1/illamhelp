@@ -1,6 +1,5 @@
 import { StyleSheet } from "react-native";
 import type { AppTheme } from "./theme";
-import { theme as defaultTheme } from "./theme";
 
 export function createAppStyles(theme: AppTheme) {
   return StyleSheet.create({
@@ -10,34 +9,12 @@ export function createAppStyles(theme: AppTheme) {
   },
   authContainer: {
     paddingHorizontal: 20,
-    paddingBottom: 80,
-    paddingTop: 22,
+    paddingBottom: 32,
+    paddingTop: 18,
+    alignSelf: "center",
+    width: "100%",
+    maxWidth: 520,
     gap: 14
-  },
-  authHero: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 12,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.line
-  },
-  authTitle: {
-    fontSize: 30,
-    fontWeight: "700",
-    color: theme.colors.ink,
-    lineHeight: 36,
-    marginTop: 8
-  },
-  authSubtitle: {
-    color: theme.colors.muted,
-    marginTop: 8,
-    lineHeight: 22
-  },
-  apiHint: {
-    color: theme.colors.muted,
-    marginTop: 10,
-    fontSize: 12,
-    lineHeight: 16
   },
   modeSwitch: {
     flexDirection: "row",
@@ -50,8 +27,11 @@ export function createAppStyles(theme: AppTheme) {
   modeButton: {
     flex: 1,
     borderRadius: 10,
+    minHeight: 44,
     paddingVertical: 10,
-    alignItems: "center"
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center"
   },
   modeButtonSelected: {
     backgroundColor: theme.colors.surface
@@ -59,7 +39,8 @@ export function createAppStyles(theme: AppTheme) {
   modeButtonLabel: {
     color: theme.colors.muted,
     fontWeight: "600",
-    lineHeight: 18
+    lineHeight: 18,
+    textAlign: "center"
   },
   modeButtonLabelSelected: {
     color: theme.colors.brandText
@@ -129,6 +110,23 @@ export function createAppStyles(theme: AppTheme) {
     borderColor: theme.colors.line,
     padding: 16,
     gap: 10
+  },
+  summaryCard: {
+    backgroundColor: theme.colors.surfaceAlt
+  },
+  summaryRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 12
+  },
+  reviewCardSelected: {
+    borderColor: theme.colors.brand
+  },
+  reviewChoice: {
+    minHeight: 44,
+    justifyContent: "center",
+    gap: 4
   },
   cardTitle: {
     fontWeight: "700",
@@ -375,7 +373,7 @@ export function createAppStyles(theme: AppTheme) {
     justifyContent: "center"
   },
   mediaPreviewVideoLabel: {
-    color: theme.colors.onStrong,
+    color: theme.colors.ink,
     fontSize: 12,
     fontWeight: "700",
     lineHeight: 16
@@ -474,7 +472,7 @@ export function createAppStyles(theme: AppTheme) {
   mediaViewerVideo: {
     minHeight: 320,
     borderRadius: 12,
-    backgroundColor: theme.colors.ink,
+    backgroundColor: "rgb(26, 22, 37)",
     alignItems: "center",
     justifyContent: "center",
     gap: 12
@@ -525,7 +523,7 @@ export function createAppStyles(theme: AppTheme) {
   mediaSelectionVideo: {
     width: "100%",
     height: "100%",
-    backgroundColor: theme.colors.ink,
+    backgroundColor: theme.colors.surfaceHover,
     alignItems: "center",
     justifyContent: "center"
   },
@@ -557,13 +555,16 @@ export function createAppStyles(theme: AppTheme) {
   },
   notificationMetaRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     justifyContent: "space-between",
     alignItems: "center",
     gap: 10
   },
-  notificationRowUnread: {
-    borderColor: theme.colors.brand,
-    backgroundColor: theme.colors.surface
+  alertRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.line,
+    paddingVertical: 12,
+    gap: 6
   },
   roleRow: {
     flexDirection: "row",
@@ -605,8 +606,11 @@ export function createAppStyles(theme: AppTheme) {
   },
   privacyTaskTab: {
     minHeight: 44,
+    flexBasis: "45%",
+    flexGrow: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -625,6 +629,7 @@ export function createAppStyles(theme: AppTheme) {
     elevation: 1
   },
   privacyTaskTabLabel: {
+    flexShrink: 1,
     color: theme.colors.ink,
     fontSize: 12,
     fontWeight: "700",
@@ -758,5 +763,3 @@ export function createAppStyles(theme: AppTheme) {
   }
   });
 }
-
-export const styles = createAppStyles(defaultTheme);

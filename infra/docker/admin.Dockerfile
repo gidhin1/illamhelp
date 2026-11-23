@@ -11,6 +11,7 @@ ENV NEXT_PUBLIC_WEB_APP_URL=$NEXT_PUBLIC_WEB_APP_URL
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages packages
+COPY patches patches
 COPY admin/package.json admin/package.json
 RUN pnpm install --frozen-lockfile
 

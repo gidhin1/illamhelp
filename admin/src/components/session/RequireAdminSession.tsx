@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { LinkButton } from "@/components/ui/LinkButton";
 
 import { Button, Card } from "@/components/ui/primitives";
 
@@ -11,37 +11,33 @@ export function RequireAdminSession({ children }: { children: React.JSX.Element 
 
   if (loading) {
     return (
-      <Card className="stack">
-        <h3>Loading admin session...</h3>
+      <Card className="stack" style={{ margin: "var(--spacing-xl)" }}>
+        <h1>Checking staff access…</h1>
       </Card>
     );
   }
 
   if (!user) {
     return (
-      <Card className="stack">
-        <h3>Sign in required</h3>
-        <p className="muted-text">Please sign in with an admin or support account.</p>
+      <Card className="stack" style={{ margin: "var(--spacing-xl)" }}>
+        <h1>Sign in required</h1>
+        <p className="muted-text">Sign in with an admin or support account to continue.</p>
         {error ? <p className="field-error">{error}</p> : null}
-        <Link href="/auth/login">
-          <Button>Sign in</Button>
-        </Link>
+        <LinkButton href="/auth/login">Sign in</LinkButton>
       </Card>
     );
   }
 
   if (!hasAdminAccess) {
     return (
-      <Card className="stack">
-        <h3>Admin access required</h3>
+      <Card className="stack" style={{ margin: "var(--spacing-xl)" }}>
+        <h1>Admin access required</h1>
         <p className="muted-text">
-          This account does not have admin or support access. Sign in with a permitted account.
+          Use an admin or support account to open this page.
         </p>
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <Button onClick={signOut}>Sign out</Button>
-          <Link href="/auth/login">
-            <Button variant="ghost">Sign in with another account</Button>
-          </Link>
+          <LinkButton href="/auth/login" variant="ghost">Sign in with another account</LinkButton>
         </div>
       </Card>
     );

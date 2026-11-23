@@ -1,3 +1,5 @@
+import { BrandProvider, ThemeInit } from "@illamhelp/ui-web/theme";
+import { AppRouterCacheProvider } from "@mui/material-nextjs/v16-appRouter";
 import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import type { ReactNode } from "react";
@@ -23,9 +25,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }): React.JSX.Element {
   return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
+    <html suppressHydrationWarning lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <body>
-        <SessionProvider>{children}</SessionProvider>
+        <ThemeInit persistent={false} />
+        <AppRouterCacheProvider><BrandProvider><SessionProvider>{children}</SessionProvider></BrandProvider></AppRouterCacheProvider>
       </body>
     </html>
   );

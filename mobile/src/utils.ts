@@ -1,3 +1,4 @@
+import { formatUiError } from "@illamhelp/shared-types";
 
 import {
   ProfileRecord
@@ -86,7 +87,7 @@ export function shouldForceSignOut(errorMessage: string): boolean {
 }
 
 export function asError(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
+  return formatUiError(error, fallback);
 }
 
 export interface CreateJobPayload {

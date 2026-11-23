@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 
 import {
   acceptConnection, AuthenticatedUser, blockConnection,
@@ -12,107 +13,25 @@ import {
 } from "../utils";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import {} from "../theme";
-import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard } from "../components";
+import { ScrollView, Text, View } from "react-native";
+import { AppButton, Banner, CardSurface, InputField, SectionCard, StatusLabel } from "../components";
 import { MediaPreviewList } from "../MediaPreviewList";
-import { useAppTheme } from "../theme-context";
-
-function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
-  return StyleSheet.create({
-    header: {
-      gap: 12,
-      marginBottom: 6
-    },
-    headerTitle: {
-      color: colors.ink,
-      fontSize: 30,
-      lineHeight: 36,
-      fontWeight: "700"
-    },
-    headerBody: {
-      color: colors.muted,
-      fontSize: 15,
-      lineHeight: 23
-    },
-    statRow: {
-      flexDirection: "row",
-      gap: 10
-    },
-    statCard: {
-      flex: 1,
-      borderRadius: 12,
-      padding: 16,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.line,
-      gap: 6
-    },
-    statLabel: {
-      color: colors.muted,
-      fontSize: 12,
-      fontWeight: "600",
-      lineHeight: 16
-    },
-    statValue: {
-      color: colors.ink,
-      fontSize: 26,
-      fontWeight: "700",
-      lineHeight: 31
-    },
-    personCard: {
-      borderRadius: 12,
-      padding: 14,
-      backgroundColor: colors.surfaceAlt,
-      borderWidth: 1,
-      borderColor: colors.line,
-      gap: 8
-    },
-    personTitleRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 10
-    },
-    personName: {
-      color: colors.ink,
-      fontSize: 17,
-      fontWeight: "700",
-      lineHeight: 22
-    },
-    personId: {
-      color: colors.muted,
-      fontSize: 12,
-      lineHeight: 18
-    },
-    personMeta: {
-      color: colors.muted,
-      fontSize: 13,
-      lineHeight: 19
-    },
-    sectionLabel: {
-      color: colors.ink,
-      fontSize: 19,
-      fontWeight: "700",
-      lineHeight: 24
-    }
-  });
-}
+import { useAppStyles } from "../theme-context";
 
 export function ConnectionsScreen({
   accessToken,
   user,
+  active,
   onSessionInvalid,
   onDiscoverProfile
 }: {
   accessToken: string;
   user: AuthenticatedUser;
+  active: boolean;
   onSessionInvalid: () => void;
   onDiscoverProfile: (userId: string) => void;
 }): JSX.Element {
-  const theme = useAppTheme();
-  const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
+  const styles = useAppStyles();
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -122,10 +41,15 @@ export function ConnectionsScreen({
   const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
   const [profileMediaByUserId, setProfileMediaByUserId] = useState<Record<string, PublicMediaAssetRecord[]>>({});
   const [searching, setSearching] = useState(false);
+  const [lastSearch, setLastSearch] = useState<string | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [requestMessage, setRequestMessage] = useState<string | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [blockReview, setBlockReview] = useState<string | null>(null);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const visibleConnections = connections;
-  const visibleMatches = useMemo(() => matches.slice(0, 8), [matches]);
+  const visibleMatches = lastSearch === targetQuery.trim() ? matches : [];
   const pendingConnections = useMemo(
     () => visibleConnections.filter((connection) => connection.status === "pending"),
     [visibleConnections]
@@ -181,33 +105,6 @@ export function ConnectionsScreen({
   }, [acceptedConnections, accessToken, user.publicUserId]);
 
   useEffect(() => {
-    if (visibleMatches.length === 0) return;
-
-    let cancelled = false;
-    void (async () => {
-      const entries = await Promise.all(
-        visibleMatches.map(async (candidate) => {
-          try {
-            const page = await listPublicApprovedMediaPage(candidate.userId, accessToken);
-            return [candidate.userId, page.items.filter((asset) => asset.purpose === "profile")] as const;
-          } catch {
-            return [candidate.userId, []] as const;
-          }
-        })
-      );
-      if (!cancelled) {
-        setProfileMediaByUserId((previous) => ({
-          ...previous,
-          ...Object.fromEntries(entries)
-        }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [accessToken, visibleMatches]);
-
-  useEffect(() => {
     const ids = Array.from(
       new Set(
         visibleConnections.map((connection) =>
@@ -248,7 +145,7 @@ export function ConnectionsScreen({
       setConnections(page.items);
       setNextCursor(page.nextCursor);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load connections");
+      const message = asError(requestError, "Couldn’t load connections. Refresh the list to try again.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -267,7 +164,7 @@ export function ConnectionsScreen({
       setConnections((previous) => [...previous, ...page.items]);
       setNextCursor(page.nextCursor);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load more connections");
+      const message = asError(requestError, "Couldn’t load more connections. Try again.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -278,111 +175,114 @@ export function ConnectionsScreen({
   }, [accessToken, nextCursor, onSessionInvalid]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (active) void load();
+  }, [active, load]);
 
-  const submitRequest = async (payload: {
-    targetUserId?: string;
-    targetQuery?: string;
-  }): Promise<void> => {
+  const submitRequest = async (targetUserId: string): Promise<void> => {
+    if (submitting) return;
     setSubmitting(true);
-    setSubmitMessage(null);
-    setError(null);
+    setRequestMessage(null);
+    setSearchError(null);
     try {
-      const connection = await requestConnection(payload, accessToken);
-      setConnections((previous) => [connection, ...previous]);
-      setTargetQuery("");
-      setMatches([]);
-      setSubmitMessage("Connection request sent.");
+      const connection = await requestConnection({ targetUserId }, accessToken);
+      setConnections((previous) => [connection, ...previous.filter((item) => item.id !== connection.id)]);
+      setRequestMessage("Connection request sent.");
     } catch (requestError) {
-      const message = asError(requestError, "Unable to request connection");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
+      const message = asError(requestError, "Couldn’t send the request. Refresh connections and try again.");
+      setSearchError(message);
+      if (shouldForceSignOut(message)) onSessionInvalid();
     } finally {
       setSubmitting(false);
     }
   };
 
-  const onRequest = async (): Promise<void> => {
-    const normalizedQuery = targetQuery.trim();
-    if (!normalizedQuery) {
-      setError("Enter a name, member ID, service, or location.");
+  const onSearch = async (): Promise<void> => {
+    if (searching || submitting) return;
+    const query = targetQuery.trim();
+    setLastSearch(null);
+    setMatches([]);
+    setRequestMessage(null);
+    setSearchError(null);
+    if (!query) {
+      setSearchError("Enter a name, member ID, service, or location.");
       return;
     }
-    await submitRequest({ targetQuery: normalizedQuery });
-  };
-
-  const onSearch = async (): Promise<void> => {
     setSearching(true);
-    setError(null);
     try {
-      const rows = await searchConnections({ q: targetQuery.trim(), limit: 8 }, accessToken);
-      setMatches(rows);
+      setMatches(await searchConnections({ q: query, limit: 8 }, accessToken));
+      setLastSearch(query);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to search people");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
+      const message = asError(requestError, "Couldn’t search for people. Try another search.");
+      setSearchError(message);
+      if (shouldForceSignOut(message)) onSessionInvalid();
     } finally {
       setSearching(false);
     }
   };
 
-  const onAccept = async (connectionId: string): Promise<void> => {
+  const updateConnection = async (connection: ConnectionRecord, action: "accept" | "decline" | "block"): Promise<void> => {
+    if (updating) return;
+    setUpdating(connection.id);
     setSubmitMessage(null);
     setError(null);
+    const operations = { accept: acceptConnection, decline: declineConnection, block: blockConnection };
     try {
-      const updated = await acceptConnection(connectionId, accessToken);
-      setConnections((previous) =>
-        previous.map((item) => (item.id === updated.id ? updated : item))
-      );
-      setSubmitMessage("Connection accepted.");
+      const updated = await operations[action](connection.id, accessToken);
+      setConnections((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+      setBlockReview(null);
+      setSubmitMessage(action === "accept" ? "Connection accepted." : action === "block" ? "Person blocked."
+        : connection.requestedByUserId === user.publicUserId ? "Connection request withdrawn." : "Connection request declined.");
     } catch (requestError) {
-      const message = asError(requestError, "Unable to accept connection");
+      const message = asError(requestError, "Couldn’t update this connection. Refresh the list and try again.");
       setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
+      if (shouldForceSignOut(message)) onSessionInvalid();
+    } finally {
+      setUpdating(null);
     }
   };
 
-  const onDecline = async (connectionId: string): Promise<void> => {
-    setSubmitMessage(null);
-    setError(null);
-    try {
-      const updated = await declineConnection(connectionId, accessToken);
-      setConnections((previous) =>
-        previous.map((item) => (item.id === updated.id ? updated : item))
-      );
-      setSubmitMessage("Connection request declined.");
-    } catch (requestError) {
-      const message = asError(requestError, "Unable to decline connection");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
-    }
-  };
+  const currentUserId = user.publicUserId;
+  const incoming = pendingConnections.filter((item) => item.requestedByUserId !== currentUserId);
+  const sent = pendingConnections.filter((item) => item.requestedByUserId === currentUserId);
+  const relationships = new Map(connections.map((item) => [
+    item.userAId === currentUserId ? item.userBId : item.userAId, item
+  ]));
 
-  const onBlock = async (connectionId: string): Promise<void> => {
-    setSubmitMessage(null);
-    setError(null);
-    try {
-      const updated = await blockConnection(connectionId, accessToken);
-      setConnections((previous) =>
-        previous.map((item) => (item.id === updated.id ? updated : item))
-      );
-      setSubmitMessage("Person blocked.");
-    } catch (requestError) {
-      const message = asError(requestError, "Unable to block person");
-      setError(message);
-      if (shouldForceSignOut(message)) {
-        onSessionInvalid();
-      }
-    }
+  const renderConnection = (connection: ConnectionRecord): JSX.Element => {
+    const otherUserId = connection.userAId === currentUserId ? connection.userBId : connection.userAId;
+    const accepted = connection.status === "accepted";
+    const received = !accepted && connection.requestedByUserId !== currentUserId;
+    const name = personName(otherUserId);
+    return (
+      <CardSurface key={connection.id} variant={received ? "review" : "record"}>
+        <Text style={styles.dataTitle}>{name}</Text>
+        <Text style={styles.dataMeta}>{personMeta(otherUserId)}</Text>
+        <StatusLabel label={accepted ? "Connected" : received ? "Request received" : "Request sent"} tone={accepted ? "success" : "warning"} />
+        <Text style={styles.dataMeta}>Requested {formatDate(connection.requestedAt)}</Text>
+        {accepted ? (
+          <MediaPreviewList items={profileMediaByUserId[otherUserId] ?? []} emptyText="No approved profile media yet." testID={`connections-profile-media-${otherUserId}`} deferVideo />
+        ) : (
+          <Text style={styles.cardBodyMuted}>Approved profile media becomes available after you connect.</Text>
+        )}
+        {blockReview === connection.id ? (
+          <>
+            <Text style={styles.dataTitle}>Block {name}?</Text>
+            <Text style={styles.cardBodyMuted}>This ends the connection and any contact sharing between you.</Text>
+            <AppButton label="Block person" disabled={!!updating} onPress={() => void updateConnection(connection, "block")} testID={`connections-confirm-block-${connection.id}`} />
+            <AppButton label="Keep connection" variant="ghost" disabled={!!updating} onPress={() => setBlockReview(null)} testID="connections-keep" />
+          </>
+        ) : (
+          <>
+            {received ? <AppButton label="Accept request" disabled={!!updating} onPress={() => void updateConnection(connection, "accept")} testID={`connections-accept-${connection.id}`} /> : null}
+            {!accepted ? (
+              <AppButton label={received ? "Decline request" : "Withdraw request"} variant="secondary" disabled={!!updating} onPress={() => void updateConnection(connection, "decline")} testID={`connections-decline-${connection.id}`} />
+            ) : null}
+            <AppButton label="View profile" variant="secondary" onPress={() => onDiscoverProfile(otherUserId)} testID={`connections-profile-${otherUserId}`} />
+            <AppButton label={`Block ${name}`} variant="ghost" disabled={!!updating} onPress={() => setBlockReview(connection.id)} testID={`connections-block-${connection.id}`} />
+          </>
+        )}
+      </CardSurface>
+    );
   };
 
   return (
@@ -391,192 +291,76 @@ export function ConnectionsScreen({
       testID="connections-scroll"
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
+      automaticallyAdjustKeyboardInsets
     >
       <View style={styles.screenHeader}>
-        <Text style={localStyles.headerTitle}>Trusted people</Text>
-        <Text style={localStyles.headerBody}>
-          Search by name, service, location, or member ID.
-        </Text>
+        <Text style={styles.screenTitle} accessibilityRole="header">People</Text>
+        <Text style={styles.screenSubtitle}>Find members and manage your connections.</Text>
       </View>
-
-      {error ? <Banner tone="error" message={error} testID="connections-error-banner" /> : null}
-      {submitMessage ? <Banner tone="success" message={submitMessage} testID="connections-success-banner" /> : null}
-
-      <View style={localStyles.statRow}>
-        <View style={localStyles.statCard}>
-          <Text style={localStyles.statLabel}>Connected</Text>
-          <Text style={localStyles.statValue}>{acceptedConnections.length}</Text>
-        </View>
-        <View style={localStyles.statCard}>
-          <Text style={localStyles.statLabel}>Pending</Text>
-          <Text style={localStyles.statValue}>{pendingConnections.length}</Text>
-        </View>
-      </View>
-
-      <SectionCard title="Find and connect">
+      <SectionCard title="Find a person">
+        <Text style={styles.cardBodyMuted}>Search by name, service, location, or member ID.</Text>
         <InputField
           label="Find a person"
           value={targetQuery}
-          onChangeText={setTargetQuery}
-          placeholder="e.g. Anita, plumber kochi, or member ID"
+          onChangeText={(value) => { setTargetQuery(value); setSearchError(null); }}
+          placeholder="e.g. Anita or plumber"
+          onSubmitEditing={() => void onSearch()}
+          returnKeyType="search"
           testID="connections-target-user-id"
         />
-        <AppButton
-          label={searching ? "Searching..." : "Search"}
-          onPress={() => {
-            void onSearch();
-          }}
-          variant="ghost"
-          disabled={searching || submitting}
-          testID="connections-search-submit"
-        />
-        <AppButton
-          label={submitting ? "Sending..." : "Send request"}
-          onPress={() => {
-            void onRequest();
-          }}
-          disabled={submitting}
-          testID="connections-request-submit"
-        />
+        {searchError ? <Banner tone="error" message={searchError} testID="connections-search-error" /> : null}
+        {requestMessage ? <Banner tone="success" message={requestMessage} testID="connections-request-success" /> : null}
+        <AppButton label={searching ? "Searching…" : "Search people"} onPress={() => void onSearch()} disabled={searching || submitting} testID="connections-search-submit" />
+        {lastSearch !== null && lastSearch === targetQuery.trim() && visibleMatches.length === 0 ? (
+          <Text accessibilityLiveRegion="polite" style={styles.cardBodyMuted}>No people found. Try a different search.</Text>
+        ) : null}
         {visibleMatches.length > 0 ? (
           <View style={styles.stackSmall}>
-            <Text style={localStyles.sectionLabel}>Matches</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
-            {visibleMatches.map((candidate) => (
-              <View key={candidate.userId} style={[localStyles.personCard, styles.carouselCard]}>
-                <View style={localStyles.personTitleRow}>
-                  <Text style={localStyles.personName}>{candidate.displayName}</Text>
-                  <Text style={styles.pill}>Discover</Text>
-                </View>
-                <Text style={localStyles.personId}>Member ID: {candidate.userId}</Text>
-                {candidate.locationLabel ? (
-                  <Text style={localStyles.personMeta}>Location: {candidate.locationLabel}</Text>
-                ) : null}
-                {candidate.serviceCategories.length > 0 ? (
-                  <Text style={localStyles.personMeta}>
-                    Services: {candidate.serviceCategories.join(", ")}
-                  </Text>
-                ) : null}
-                <Text style={localStyles.personMeta}>
-                  {(profileMediaByUserId[candidate.userId] ?? []).length} visible profile media · Privacy-filtered profile
-                </Text>
-                <MediaPreviewList
-                  items={profileMediaByUserId[candidate.userId] ?? []}
-                  emptyText="No approved profile media is visible to you yet."
-                  testID={`connections-match-profile-media-${candidate.userId}`}
-                />
-                <AppButton
-                  label="Discover"
-                  onPress={() => onDiscoverProfile(candidate.userId)}
-                  variant="ghost"
-                  testID={`connections-match-discover-${candidate.userId}`}
-                />
-                <AppButton
-                  label="Connect"
-                  onPress={() => {
-                    void submitRequest({ targetUserId: candidate.userId });
-                  }}
-                  variant="secondary"
-                  disabled={submitting}
-                  testID={`connections-match-request-${candidate.userId}`}
-                />
-              </View>
-            ))}
-            </ScrollView>
+            <Text accessibilityRole="header" style={styles.cardTitle}>Search results</Text>
+            {visibleMatches.map((candidate) => {
+              const relationship = relationships.get(candidate.userId);
+              const status = relationship?.status;
+              return (
+                <CardSurface key={candidate.userId} variant="record">
+                  <Text style={styles.dataTitle}>{candidate.displayName}</Text>
+                  <Text style={styles.dataMeta}>Member ID: {candidate.userId}</Text>
+                  {candidate.locationLabel ? <Text style={styles.dataMeta}>{candidate.locationLabel}</Text> : null}
+                  {candidate.serviceCategories.length ? <Text style={styles.dataMeta}>{candidate.serviceCategories.join(", ")}</Text> : null}
+                  <AppButton label="View profile" onPress={() => onDiscoverProfile(candidate.userId)} variant="secondary" testID={`connections-match-discover-${candidate.userId}`} />
+                  {status === "accepted" || status === "pending" || status === "blocked" ? (
+                    <StatusLabel tone={status === "accepted" ? "success" : "neutral"} label={status === "accepted" ? "Connected" : status === "blocked" ? "Blocked" :
+                      relationship?.requestedByUserId === currentUserId ? "Request sent" : "Request received"} />
+                  ) : (
+                    <AppButton label="Send request" onPress={() => void submitRequest(candidate.userId)} disabled={submitting || loading} testID={`connections-match-request-${candidate.userId}`} />
+                  )}
+                </CardSurface>
+              );
+            })}
           </View>
         ) : null}
       </SectionCard>
-
-      <SectionCard title="Connections list">
-        {loading ? <Text style={styles.cardBodyMuted}>Loading connections...</Text> : null}
-        {!loading && connections.length === 0 ? (
-          <Text style={styles.cardBodyMuted}>No connections yet.</Text>
+      <View style={styles.stackSmall}>
+        <Text style={styles.cardTitle} accessibilityRole="header">Your connections</Text>
+        <AppButton label={loading ? "Refreshing…" : "Refresh connections"} onPress={() => void load()} variant="ghost" disabled={loading || !!updating || submitting} testID="connections-refresh" />
+        {error ? <Banner tone="error" message={error} testID="connections-error-banner" /> : null}
+        {submitMessage ? <Banner tone="success" message={submitMessage} testID="connections-success-banner" /> : null}
+        {!loading && !error && !incoming.length && !sent.length && !acceptedConnections.length ? (
+          <Text style={styles.cardBodyMuted}>No active connections. Find a member and send them a request.</Text>
         ) : null}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardCarouselRail}>
-        {visibleConnections.map((connection) => {
-          const currentUserId = user.publicUserId;
-          const otherUser =
-            connection.userAId === currentUserId ? connection.userBId : connection.userAId;
-          const canAccept =
-            connection.status === "pending" && connection.requestedByUserId !== currentUserId;
-          const canDecline = connection.status === "pending";
-          const canBlock = connection.status !== "blocked";
-          return (
-            <View key={connection.id} style={[localStyles.personCard, styles.carouselCard]}>
-              <View style={localStyles.personTitleRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={localStyles.personName}>{personName(otherUser)}</Text>
-                  <Text style={localStyles.personId}>{personMeta(otherUser)}</Text>
-                </View>
-                <Text style={styles.pill}>{connection.status}</Text>
-              </View>
-              <Text style={localStyles.personMeta}>Requested at: {formatDate(connection.requestedAt)}</Text>
-              {connection.status === "accepted" ? (
-                <MediaPreviewList
-                  items={profileMediaByUserId[otherUser] ?? []}
-                  emptyText="No approved profile media yet."
-                  testID={`connections-profile-media-${otherUser}`}
-                />
-              ) : null}
-              {canAccept ? (
-                <AppButton
-                  label="Accept"
-                  onPress={() => {
-                    void onAccept(connection.id);
-                  }}
-                  variant="secondary"
-                  testID={`connections-accept-${connection.id}`}
-                />
-              ) : null}
-              {canDecline ? (
-                <AppButton
-                  label={
-                    connection.requestedByUserId === currentUserId
-                      ? "Withdraw request"
-                      : "Decline"
-                  }
-                  onPress={() => {
-                    void onDecline(connection.id);
-                  }}
-                  variant="secondary"
-                  testID={`connections-decline-${connection.id}`}
-                />
-              ) : null}
-              {canBlock ? (
-                <AppButton
-                  label="Block"
-                  onPress={() => {
-                    void onBlock(connection.id);
-                  }}
-                  variant="ghost"
-                  testID={`connections-block-${connection.id}`}
-                />
-              ) : null}
-            </View>
-          );
-        })}
-        </ScrollView>
+        {[
+          { title: "Requests to you", items: incoming },
+          { title: "Requests you sent", items: sent },
+          { title: "Connected people", items: acceptedConnections }
+        ].map(({ title, items }) => items.length ? (
+          <View key={title} style={styles.stackSmall}>
+            <Text style={styles.fieldLabel} accessibilityRole="header">{title}</Text>
+            {items.map(renderConnection)}
+          </View>
+        ) : null)}
         {nextCursor ? (
-          <AppButton
-            label={loading ? "Loading connections" : "Load more connections"}
-            onPress={() => {
-              void loadMore();
-            }}
-            variant="secondary"
-            disabled={loading}
-            testID="connections-load-more"
-          />
+          <AppButton label={loading ? "Loading connections…" : "Load more connections"} onPress={() => void loadMore()} variant="secondary" disabled={loading || !!updating || submitting} testID="connections-load-more" />
         ) : null}
-        <AppButton
-          label={loading ? "Refreshing..." : "Refresh connections"}
-          onPress={() => {
-            void load();
-          }}
-          variant="ghost"
-          disabled={loading}
-          testID="connections-refresh"
-        />
-      </SectionCard>
+      </View>
     </ScrollView>
   );
 }

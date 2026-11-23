@@ -145,65 +145,65 @@ export const TERMS_SECTIONS: LegalSection[] = [
 export const HELP_TOPICS: HelpTopic[] = [
   {
     title: "Create an account",
-    humanIdentity: "Use your real name details and a public user ID that other members can recognize.",
-    privacyState: "Your contact details stay protected by default after registration.",
+    humanIdentity: "Use your name and choose a member ID people can recognize.",
+    privacyState: "Your contact details are private when you create an account.",
     nextSafeAction: "Accept the current Terms and Privacy Policy, then complete your profile before sharing contact information."
   },
   {
     title: "Set up your profile and media",
-    humanIdentity: "Profile details and media help other members understand who you are and what work you do.",
-    privacyState: "Profile media follows profile visibility rules; verification documents never belong in profile media.",
-    nextSafeAction: "Upload profile photos or videos only from the Profile page and wait for moderation approval."
+    humanIdentity: "Add your services and examples of your work to your profile.",
+    privacyState: "Accepted connections can see approved profile photos and videos. Verification documents stay private.",
+    nextSafeAction: "Open Profile to upload photos or videos for review."
   },
   {
     title: "Use job media",
-    humanIdentity: "Job photos and videos should explain the work context, progress, or result.",
-    privacyState: "Job media follows job visibility and moderation rules.",
-    nextSafeAction: "Attach service-relevant images or videos from the job flow and avoid contact details inside the media."
+    humanIdentity: "Add photos or videos that show the work needed, in progress, or finished.",
+    privacyState: "After approval, only people who can view the job can see its photos and videos.",
+    nextSafeAction: "Open the job to upload photos or videos. Keep contact details out of the files."
   },
   {
     title: "Find people and open Discover",
-    humanIdentity: "Search results show member cards and visible profile context.",
-    privacyState: "Discover shows only details allowed by profile, connection, media, and consent rules.",
-    nextSafeAction: "Open Discover to view the profile, then request connection or contact access only when needed."
+    humanIdentity: "Search for people by name, service, location, or member ID.",
+    privacyState: "Search results show only the details you have permission to see.",
+    nextSafeAction: "Open People to view a profile and send a connection request if you need one."
   },
   {
     title: "Control contact sharing",
-    humanIdentity: "Consent is always tied to a specific person and purpose.",
-    privacyState: "You can grant selected contact fields and revoke active grants later.",
-    nextSafeAction: "Open Privacy to review active sharing, incoming requests, history, and revocation actions."
+    humanIdentity: "Each request says who needs the contact details and why.",
+    privacyState: "Choose which requested details to share. You can stop sharing later.",
+    nextSafeAction: "Open Privacy to review requests, check your history, or stop sharing."
   },
   {
     title: "Handle verification and moderation",
-    humanIdentity: "Verification helps establish trust, while moderation keeps profile and job media service-related.",
-    privacyState: "ID documents stay private; rejected media remains private unless an allowed appeal path changes the decision.",
-    nextSafeAction: "Use Verification for ID documents and Help/Support for review questions or safety concerns."
+    humanIdentity: "Staff review verification documents and check that profile and job uploads relate to the service.",
+    privacyState: "ID documents stay private. Rejected photos and videos stay hidden unless the decision changes through an allowed appeal.",
+    nextSafeAction: "Open Verify to upload documents. Contact support with review questions or safety concerns."
   }
 ];
 
 export const FAQ_ENTRIES: FaqEntry[] = [
   {
     question: "Can other users see my phone number or address?",
-    answer: "No. Full contact fields are hidden by default and require accepted connection plus your explicit consent for the specific fields requested."
+    answer: "Your phone number and address are private. A connection can see only the details you agree to share with them."
   },
   {
     question: "Are my ID documents visible on my profile?",
-    answer: "No. Verification documents and government IDs are private and are never returned in profile, job, connection, or public media views."
+    answer: "Your ID and verification documents stay private. They never appear in profiles, jobs, connections, or public galleries."
   },
   {
     question: "Why is my photo or video not visible yet?",
-    answer: "Uploaded media must be service-relevant and approved by moderation before it appears in shared or public views."
+    answer: "Photos and videos must relate to the service and pass review before eligible members can see them."
   },
   {
-    question: "What happens when I revoke contact sharing?",
-    answer: "Future product responses stop showing the revoked fields to that person. Audit records may remain for safety, legal, and compliance purposes."
+    question: "What happens when I stop sharing contact details?",
+    answer: "The person loses access to those details in IllamHelp. We may keep audit records for safety, legal, or compliance reasons."
   },
   {
     question: "How do I report a safety or privacy issue?",
-    answer: "Use the support contact listed in Help or the grievance contact listed in the Privacy Policy. Include the member, job, media, or request context if available."
+    answer: "Contact support from Help or use the grievance contact in the Privacy Policy. Include the member ID, job, upload, or request if you can."
   },
   {
     question: "Can I delete or correct my account data?",
-    answer: "You can request correction, deletion, or anonymization. Some records may be retained where needed for legal obligations, fraud prevention, disputes, security, or audit integrity."
+    answer: "You can ask us to correct, delete, or anonymize your data. We may keep records for legal, fraud prevention, dispute, security, or audit purposes."
   }
 ];

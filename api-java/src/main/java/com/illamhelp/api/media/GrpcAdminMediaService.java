@@ -31,7 +31,7 @@ public class GrpcAdminMediaService extends com.illamhelp.api.proto.media.v1.Admi
       GrpcAuth.requireStaff(GrpcAuth.currentUser());
       responseObserver.onNext(ModerationQueuePage.newBuilder()
           .addAllItems(moderationService.listModerationQueue(blankToNull(request.getStage()), blankToNull(request.getStatus()),
-              request.getLimit() == 0 ? 50 : request.getLimit()).stream().map(this::queueItem).toList())
+              request.getLimit() == 0 ? 50 : request.getLimit(), request.getQuery(), request.getNewestFirst()).stream().map(this::queueItem).toList())
           .build());
       responseObserver.onCompleted();
     } catch (Throwable throwable) {

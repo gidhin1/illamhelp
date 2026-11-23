@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
 
@@ -12,8 +13,7 @@ import {
 import { approvedMedia } from "../MediaUploadPanel";
 import { MediaPreviewList } from "../MediaPreviewList";
 import { AppButton, Banner, SectionCard } from "../components";
-import { styles } from "../styles";
-import { useAppTheme } from "../theme-context";
+import { useAppStyles, useAppTheme } from "../theme-context";
 import { asError, shouldForceSignOut } from "../utils";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
@@ -86,6 +86,7 @@ export function PublicProfileScreen({
   onBack: () => void;
   onSessionInvalid: () => void;
 }): JSX.Element {
+  const styles = useAppStyles();
   const theme = useAppTheme();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
   const [profile, setProfile] = useState<ProfileRecord | null>(null);
@@ -115,7 +116,7 @@ export function PublicProfileScreen({
       setMediaAssets(mediaPage.items);
       setMediaCursor(mediaPage.nextCursor);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load this profile");
+      const message = asError(requestError, "Couldn’t load this profile. Go back and try opening it again.");
       setError(message);
       setProfile(null);
       setMediaAssets([]);
@@ -147,7 +148,7 @@ export function PublicProfileScreen({
       await requestConnection({ targetUserId }, accessToken);
       setRequestMessage("Connection request sent.");
     } catch (requestError) {
-      const message = asError(requestError, "Unable to send connection request");
+      const message = asError(requestError, "Couldn’t send the request. Return to People and check your connection status.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -167,7 +168,7 @@ export function PublicProfileScreen({
       <View style={styles.screenHeader}>
         <Text style={styles.pill}>Profile</Text>
         <Text style={styles.screenTitle}>{profile?.displayName ?? "Member profile"}</Text>
-        <Text style={styles.screenSubtitle}>Only privacy-allowed details and approved profile media are shown.</Text>
+        <Text style={styles.screenSubtitle}>See profile details and approved media available to you.</Text>
       </View>
       <AppButton label="Back to people" onPress={onBack} variant="ghost" testID="public-profile-back" />
       {error ? <Banner tone="error" message={error} testID="public-profile-error" /> : null}
@@ -176,7 +177,7 @@ export function PublicProfileScreen({
       {profile ? (
         <>
           <View style={localStyles.hero}>
-            <Text style={styles.pill}>Human identity</Text>
+            <Text style={styles.pill}>Member details</Text>
             <View style={localStyles.identityRow}>
               <View style={localStyles.avatar}>
                 {profilePicture ? (
@@ -196,9 +197,9 @@ export function PublicProfileScreen({
             </View>
           </View>
 
-          <SectionCard title="Privacy state">
+          <SectionCard variant="record" title="Approved photos and videos">
             <Text style={styles.cardBodyMuted}>
-              {profileMedia.length} approved profile media visible to you. Verification documents are never shown here.
+              {profileMedia.length} approved {profileMedia.length === 1 ? "file" : "files"} you can see. Verification documents stay private.
             </Text>
             <MediaPreviewList
               items={profileMedia}
@@ -217,7 +218,7 @@ export function PublicProfileScreen({
             ) : null}
           </SectionCard>
 
-          <SectionCard title="Shared details">
+          <SectionCard title="Contact details">
             <View style={localStyles.detailList}>
               <Text style={styles.dataMeta}>Email: {profile.contact.email ?? profile.contact.emailMasked ?? "Not shared"}</Text>
               <Text style={styles.dataMeta}>Phone: {profile.contact.phone ?? profile.contact.phoneMasked ?? "Not shared"}</Text>
@@ -228,18 +229,18 @@ export function PublicProfileScreen({
             </View>
           </SectionCard>
 
-          <SectionCard title="Next safe action">
+          <SectionCard title="Connection request">
             <Text style={styles.cardBodyMuted}>
               {isOwnProfile ? "This is your own profile." : "Send a connection request before asking for private contact details."}
             </Text>
             {!isOwnProfile ? (
               <AppButton
-                label={requestLoading ? "Sending request..." : "Send connection request"}
+                label={requestMessage ? "Request sent" : requestLoading ? "Sending request…" : "Send connection request"}
                 onPress={() => {
                   void onRequestConnection();
                 }}
                 loading={requestLoading}
-                disabled={requestLoading}
+                disabled={requestLoading || !!requestMessage}
                 testID="public-profile-request"
               />
             ) : null}

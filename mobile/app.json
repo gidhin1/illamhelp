@@ -8,6 +8,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
+    "plugins": ["./plugins/withFmtAppleClangFix", "./plugins/withUIKitScenes"],
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -26,6 +27,9 @@
         "backgroundColor": "#f5f3ff"
       },
       "package": "com.anonymous.illamhelp"
+    },
+    "experiments": {
+      "tsconfigPaths": false
     }
   }
 }

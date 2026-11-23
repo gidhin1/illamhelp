@@ -6,7 +6,7 @@ React Native + Expo mobile application for IllamHelp.
 
 - **Framework**: React Native + Expo (managed workflow)
 - **Navigation**: `@react-navigation/native` + `@react-navigation/bottom-tabs`
-- **Styling**: `StyleSheet.create` with theme tokens from `@illamhelp/ui-tokens`
+- **Styling**: React Native Paper with shared `@illamhelp/ui-tokens` and layout styles
 - **Theme**: Purple-Blue brand (`#6A5ACD`)
 
 ## Project Structure
@@ -32,6 +32,25 @@ mobile/
 │       └── VerificationScreen.tsx   # Identity verification
 ```
 
+## Native build compatibility
+
+Use the versions supported by Expo SDK 53 and React Native 0.79. The Metro
+configuration resolves React from this app so workspace packages load the
+same React version as React Native. Regenerate the local iOS and Android
+projects after dependency upgrades.
+
+`plugins/withFmtAppleClangFix.js` persists an iOS fmt 11 compatibility change
+through Expo prebuild. Apple Clang 21+ otherwise fails to compile this React
+Native dependency's consteval formatting code. The Podfile hook is idempotent
+and fails if the expected header changes, requiring review instead of silently
+patching an unknown version. See [the upstream report](https://github.com/fmtlib/fmt/issues/4740).
+The same Podfile hook gives the SVG filters resource bundle the app's minimum
+iOS version. The separate UIKit scene plugin binds the React Native window to
+its scene on iOS, including iOS 27.
+
+For native release checks, including staging sign-in and physical-device
+coverage, see the [UI standard](../docs/UI_STANDARD.md#release-validation).
+
 ## Start
 
 ```bash
@@ -50,7 +69,19 @@ make dev-mobile-ios        # iOS simulator
 - iOS simulator: `http://localhost:4000/api/v1`
 - Android emulator: `http://10.0.2.2:4000/api/v1`
 
-Override for LAN/device:
+Use the Android debug build (`make dev-mobile-android`) with the local HTTP
+API. For Android release builds, set the HTTPS API and media proxy URLs before
+bundling. Expo embeds these public values in the bundle.
+
+For a 16 KB release check, regenerate the Android project with Expo prebuild
+and build both artifacts with `:app:assembleRelease :app:bundleRelease`.
+Run `zipalign -c -P 16 -v 4` on the release APK, check the load segments of
+the packaged arm64-v8a and x86_64 libraries, and check for
+`PAGE_ALIGNMENT_16K` in `bundletool dump config` for the AAB. The local
+build needed 5 GB of Gradle heap to collect release dependency metadata.
+[Android 16 KB verification guide](https://developer.android.com/guide/practices/page-sizes).
+
+Override for LAN/device in development:
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=http://<lan-ip>:4000/api/v1 make dev-mobile

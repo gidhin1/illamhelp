@@ -8,7 +8,9 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+env:
+  TRIVY_VERSION: v0.76.2
 
 jobs:
   quality:
@@ -22,15 +24,15 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
-        with:
-          version: 10.26.0
+      - name: Ensure Maven is available
+        run: bash scripts/ci-setup-maven.sh
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 24
           cache: pnpm
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
       - name: Lint
         run: pnpm lint
       - name: Typecheck
@@ -46,9 +48,28 @@ jobs:
         with:
           fetch-depth: 0
       - name: Gitleaks scan
-        uses: gitleaks/gitleaks-action@dcedce43c6f43de0b836d1fe38946645c9c638dc
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          case "$(uname -m)" in
+            x86_64)
+              platform=linux_x64
+              checksum=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+              ;;
+            aarch64)
+              platform=linux_arm64
+              checksum=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
+              ;;
+            *) echo 'Unsupported Gitleaks runner architecture' >&2; exit 1 ;;
+          esac
+          archive="gitleaks_${GITLEAKS_VERSION}_${platform}.tar.gz"
+          scan_dir="$(mktemp -d)"
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${archive}" \
+            --output "$scan_dir/$archive"
+          printf '%s  %s\n' "$checksum" "$scan_dir/$archive" | sha256sum --check
+          tar -xzf "$scan_dir/$archive" -C "$scan_dir" gitleaks
+          "$scan_dir/gitleaks" git --redact --no-banner .
 
   trivy:
     name: Vulnerability Scan (Trivy FS)
@@ -61,11 +82,14 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: maven
+      - name: Ensure Maven is available
+        run: bash scripts/ci-setup-maven.sh
       - name: Warm Maven dependency cache
         run: mvn -B -f api-java/pom.xml -DskipTests dependency:go-offline
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
         with:
+          version: ${{ env.TRIVY_VERSION }}
           scan-type: fs
           scan-ref: .
           ignore-unfixed: true
@@ -79,21 +103,22 @@ jobs:
       fail-fast: false
       matrix:
         image:
-          - postgres@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+          - postgres:18-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71
           - redis@sha256:d146f83b1e0f02fc27c26a50cee39338c736674c5959db84363e6ae3cd9e02d2
-          - minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-          - minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+          - docker.io/pgsty/silo@sha256:08ce1505b5eacefbad1ca07159b242b9ce045a11c2817e3bc257b25f77bbc02d
           - nats@sha256:e4bf19f15fd3218814a4e3c9e0064e1334bd8aa20d5984b9f1a0afd084f8cc00
-          - opensearchproject/opensearch@sha256:00565f63fa1aa1643d5a2cf61cb5f09b4aeddee2f12703f01c534f051bff1a99
-          - quay.io/keycloak/keycloak:26.6.2@sha256:f9ba7b2af90db8dc749a57ca9aedca51e840cb9224441ab546a968da941da900
-          - openpolicyagent/opa@sha256:bf5d926c9c5163cd43e56de43f47165d12c1e6a91911d0a20648f8e3ab085a61
-          - clamav/clamav-debian:stable@sha256:a73435b0fa51886e9e6dd1881656023ba9dce756e055f23981270badbb8ca3d7
-          - curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13
+          - opensearchproject/opensearch:3.10.0@sha256:02d6d6e40c820ae08233b60540aa5d3d9364d64e2dc724e38d6c8c794879b2a0
+          - quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
+          - openpolicyagent/opa@sha256:564adcf7657817d3d8cab1ef6ae2612744209ddbe5e1b9773626fb2602c04db5
+          - clamav/clamav-debian:stable@sha256:cb2b6fa0bf480a3c243117204b751f062c5350569d088dc269ebeef6b4331823
+          - envoyproxy/envoy:v1.35-latest@sha256:a707c3821b4cecb5db43d8e86e983e0f57b81010fefbabc01feeb071fb8cc08e
+          - curlimages/curl@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Scan pinned image
         uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
         with:
+          version: ${{ env.TRIVY_VERSION }}
           image-ref: ${{ matrix.image }}
           scan-type: image
           scanners: vuln
@@ -107,7 +132,7 @@ jobs:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
     container:
-      image: returntocorp/semgrep:latest
+      image: semgrep/semgrep:1.186.0@sha256:6e1b04340e60e910fbb4ddbf3c857ab0918f064417ad5ac530014ccb3cf8c8f1
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Run Semgrep
@@ -123,6 +148,8 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+      - name: Ensure Maven is available
+        run: bash scripts/ci-setup-maven.sh
       - name: Build with Maven
         run: mvn clean compile
         working-directory: api-java
@@ -132,16 +159,23 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4
+        with:
+          version: v3.19.0
       - name: Helm validation
         run: |
           helm lint charts/illamhelp-local-infra charts/illamhelp-app
           helm template illamhelp charts/illamhelp-local-infra --namespace illamhelp >/tmp/illamhelp-local-infra.yaml
+          helm template illamhelp charts/illamhelp-local-infra --namespace illamhelp --set opensearch.enabled=true >/tmp/illamhelp-local-infra-with-search.yaml
           helm template illamhelp-app charts/illamhelp-app --namespace illamhelp >/tmp/illamhelp-app.yaml
 
   app-images:
     name: Build And Scan App Images
     runs-on: ubuntu-latest
     needs: [quality, trivy, trivy-images, semgrep, gitleaks, build, helm]
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -159,6 +193,7 @@ jobs:
       - name: Scan image
         uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
         with:
+          version: ${{ env.TRIVY_VERSION }}
           image-ref: illamhelp/${{ matrix.app.name }}:${{ github.sha }}
           scan-type: image
           scanners: vuln

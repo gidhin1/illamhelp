@@ -1,9 +1,14 @@
 "use client";
 
-import Image from "next/image";
+import { formatUiError } from "@illamhelp/shared-types";
+
+import { ActionControl } from "@illamhelp/ui-web";
+
 import { useEffect, useMemo, useState } from "react";
 
 import { PageShell } from "@/components/PageShell";
+import { BackToQueue, ReviewConfirmation, ReviewReceipt, useReviewWorkspace, type ReviewDecision } from "@/components/ui/ReviewWorkspace";
+import { ReviewMediaPreview } from "@/components/ui/ReviewMediaPreview";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
 import {
@@ -45,26 +50,27 @@ function formatDate(value: string): string {
 }
 
 function purposeLabel(purpose: ModerationQueueItem["purpose"]): string {
-  return purpose.replaceAll("_", " ");
+  if (purpose === "verification_document") return "Private verification documents";
+  return purpose === "profile" ? "Profile media" : "Job media";
 }
 
-function privacyState(item: ModerationQueueItem): string {
-  if (item.purpose === "verification_document") return "Private verification document";
-  if (item.purpose === "profile") return "Profile media";
-  return "Job media";
+const reviewReasons = [
+  { value: "policy_manual_review", label: "Manual review" },
+  { value: "policy_prohibited_content", label: "Prohibited content" },
+  { value: "policy_unrelated_media", label: "Unrelated media" }
+];
+
+function stateLabel(value: string): string {
+  if (value === "human_review_pending") return "Human review pending";
+  const label = value.replaceAll("_", " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-function nextModerationAction(item: ModerationQueueItem): string {
-  if (item.status === "pending" || item.status === "running") return "Run or inspect checks";
-  if (item.mediaState === "human_review_pending") return "Approve or reject";
-  return "Review decision history";
-}
-
-function profileName(profile: ProfileRecord | undefined, userId: string): string {
+function profileName(profile: ProfileRecord | null | undefined, userId: string): string {
   return profile?.displayName || `Member ${shortId(userId)}`;
 }
 
-function profileContext(profile: ProfileRecord | undefined, userId: string): string {
+function profileContext(profile: ProfileRecord | null | undefined, userId: string): string {
   if (!profile) return `Owner ID: ${shortId(userId)}`;
   return [
     [profile.city, profile.area].filter(Boolean).join(", "),
@@ -76,50 +82,36 @@ function ModerationContent(): React.JSX.Element {
   const { accessToken } = useSession();
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const [queue, setQueue] = useState<ModerationQueueItem[]>([]);
-  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
+  const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord | null>>({});
   const [queueSearch, setQueueSearch] = useState("");
+  const [serverQuery, setServerQuery] = useState("");
   const [queueSortOrder, setQueueSortOrder] = useState<QueueSortOrder>("oldest");
   const [details, setDetails] = useState<ModerationDetails | null>(null);
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
-  const [reasonCode, setReasonCode] = useState("policy_manual_review");
+  const [reasonCode, setReasonCode] = useState("");
+  const [decision, setDecision] = useState<ReviewDecision | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<ReviewDecision | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [queueRevision, setQueueRevision] = useState(0);
+  const [detailRevision, setDetailRevision] = useState(0);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const workspace = useReviewWorkspace("moderation-queue-title", "moderation-review-title");
   const [banner, setBanner] = useState<{ tone: "success" | "error" | "info"; message: string } | null>(null);
   const [processingResult, setProcessingResult] = useState<ModerationProcessResult | null>(null);
-  const [loadingQueue, setLoadingQueue] = useState(false);
+  const [loadingQueue, setLoadingQueue] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const queueSummary = useMemo(() => {
-    return {
-      total: queue.length,
-      pending: queue.filter((item) => item.status === "pending").length,
-      reviewed: queue.filter((item) => item.status === "approved" || item.status === "rejected").length
-    };
+  const visibleQueue = useMemo(() => {
+    return [...new Map(queue.map((item) => [item.mediaId, item])).values()];
   }, [queue]);
 
-  const visibleQueue = useMemo(() => {
-    const query = queueSearch.trim().toLowerCase();
-    return queue
-      .filter((item) => {
-        if (!query) return true;
-        return [
-          item.ownerUserId,
-          profileName(profilesByUserId[item.ownerUserId], item.ownerUserId),
-          profileContext(profilesByUserId[item.ownerUserId], item.ownerUserId),
-          item.mediaId,
-          item.purpose,
-          item.kind,
-          item.status,
-          item.mediaState,
-          item.reasonCode ?? ""
-        ].some((value) => value.toLowerCase().includes(query));
-      })
-      .sort((a, b) => {
-        const left = new Date(a.moderationCreatedAt).getTime();
-        const right = new Date(b.moderationCreatedAt).getTime();
-        return queueSortOrder === "oldest" ? left - right : right - left;
-      });
-  }, [profilesByUserId, queue, queueSearch, queueSortOrder]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setServerQuery(queueSearch.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [queueSearch]);
 
   const queueGroups = useMemo(() => {
     const labels: Array<ModerationQueueItem["purpose"]> = ["verification_document", "profile", "job"];
@@ -138,25 +130,19 @@ function ModerationContent(): React.JSX.Element {
     void (async () => {
       setLoadingQueue(true);
       try {
-        const items = await listModerationQueue(accessToken, { status: statusFilter, limit: 100 });
+        const items = await listModerationQueue(accessToken, {
+          status: statusFilter, limit: 100, query: serverQuery, newestFirst: queueSortOrder === "newest"
+        });
         if (!cancelled) {
           setQueue(items);
-          setBanner(null);
-          if (items.length === 0) {
-            setSelectedMediaId(null);
-            setDetails(null);
-          } else if (!selectedMediaId || !items.some((item) => item.mediaId === selectedMediaId)) {
-            setSelectedMediaId(items[0].mediaId);
-          }
+          setBanner((current) => current?.tone === "error" ? null : current);
         }
       } catch (requestError) {
         if (!cancelled) {
           setQueue([]);
-          setDetails(null);
-          setSelectedMediaId(null);
           setBanner({
             tone: "error",
-            message: requestError instanceof Error ? requestError.message : "Failed to load moderation queue"
+            message: formatUiError(requestError, "Couldn’t load uploads. Refresh the queue to try again.")
           });
         }
       } finally {
@@ -164,7 +150,7 @@ function ModerationContent(): React.JSX.Element {
       }
     })();
     return () => { cancelled = true; };
-  }, [accessToken, selectedMediaId, statusFilter]);
+  }, [accessToken, queueRevision, queueSortOrder, serverQuery, statusFilter]);
 
   useEffect(() => {
     if (!accessToken || !selectedMediaId) return;
@@ -172,23 +158,21 @@ function ModerationContent(): React.JSX.Element {
     let cancelled = false;
     void (async () => {
       setLoadingDetails(true);
+      setDetailError(null);
       try {
         const result = await getModerationDetails(selectedMediaId, accessToken);
         if (!cancelled) setDetails(result);
       } catch (requestError) {
         if (!cancelled) {
           setDetails(null);
-          setBanner({
-            tone: "error",
-            message: requestError instanceof Error ? requestError.message : "Failed to load moderation details"
-          });
+          setDetailError(formatUiError(requestError, "Couldn’t load this upload. Try loading the details again."));
         }
       } finally {
         if (!cancelled) setLoadingDetails(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [accessToken, selectedMediaId]);
+  }, [accessToken, detailRevision, selectedMediaId]);
 
   useEffect(() => {
     if (!accessToken) return;
@@ -197,7 +181,7 @@ function ModerationContent(): React.JSX.Element {
         ...queue.map((item) => item.ownerUserId),
         ...(details ? [details.media.ownerUserId] : [])
       ])
-    ).filter((userId) => !profilesByUserId[userId]);
+    ).filter((userId) => !(userId in profilesByUserId));
     if (userIds.length === 0) return;
 
     let cancelled = false;
@@ -207,14 +191,14 @@ function ModerationContent(): React.JSX.Element {
           try {
             return [userId, await getProfileByUserId(userId, accessToken)] as const;
           } catch {
-            return null;
+            return [userId, null] as const;
           }
         })
       );
       if (!cancelled) {
         setProfilesByUserId((previous) => ({
           ...previous,
-          ...Object.fromEntries(entries.filter((entry): entry is [string, ProfileRecord] => entry !== null))
+          ...Object.fromEntries(entries)
         }));
       }
     })();
@@ -222,116 +206,146 @@ function ModerationContent(): React.JSX.Element {
     return () => { cancelled = true; };
   }, [accessToken, details, profilesByUserId, queue]);
 
-  async function refreshQueueAndDetails(activeMediaId: string | null): Promise<void> {
-    if (!accessToken) return;
-
-    const items = await listModerationQueue(accessToken, { status: statusFilter, limit: 100 });
-    setQueue(items);
-
-    if (activeMediaId && items.some((item) => item.mediaId === activeMediaId)) {
-      const refreshed = await getModerationDetails(activeMediaId, accessToken);
-      setDetails(refreshed);
-      setSelectedMediaId(activeMediaId);
-      return;
-    }
-
-    if (items.length > 0) {
-      setSelectedMediaId(items[0].mediaId);
-      const refreshed = await getModerationDetails(items[0].mediaId, accessToken);
-      setDetails(refreshed);
-      return;
-    }
-
+  function clearReview() {
     setSelectedMediaId(null);
     setDetails(null);
+    setDetailError(null);
+    setShowPreview(false);
+    setReceipt(null);
+    setNotes("");
+    setReasonCode("");
+  }
+
+  function backToQueue() {
+    setShowPreview(false);
+    if (receipt) clearReview();
+    workspace.close();
+  }
+
+  function filterQueue(value: string) {
+    setStatusFilter(value);
+    clearReview();
+    workspace.close();
+  }
+
+  function openReview(mediaId: string, trigger: HTMLButtonElement) {
+    if (selectedMediaId !== mediaId || receipt) {
+      clearReview();
+      setSelectedMediaId(mediaId);
+      setLoadingDetails(true);
+      setDetailRevision((current) => current + 1);
+    }
+    workspace.show(trigger);
+  }
+
+  function refreshQueue() {
+    setQueueRevision((current) => current + 1);
+  }
+
+  function refreshDetails() {
+    setDetailRevision((current) => current + 1);
   }
 
   async function onProcessPending(): Promise<void> {
     if (!accessToken) return;
 
+    setBanner(null);
     setSubmitting(true);
     try {
       const result = await processModerationQueue(accessToken, 20);
       setProcessingResult(result);
-      await refreshQueueAndDetails(selectedMediaId);
+      refreshQueue();
+      if (selectedMediaId) refreshDetails();
       setBanner({
         tone: "success",
         message: `Processed ${result.processed} jobs (${result.technicalApproved} technical approvals, ${result.aiCompleted} AI decisions).`
       });
     } catch (requestError) {
-      setBanner({ tone: "error", message: requestError instanceof Error ? requestError.message : "Failed to process queue" });
+      setBanner({ tone: "error", message: formatUiError(requestError, "Couldn’t run automated checks. Try again.") });
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function onReview(decision: "approved" | "rejected"): Promise<void> {
-    if (!accessToken || !selectedMediaId) return;
+  async function onReview(nextDecision: ReviewDecision): Promise<void> {
+    if (!accessToken || !selectedMediaId || submitting || !canReview) return;
 
+    setDecisionError(null);
     setSubmitting(true);
     try {
-      await reviewMedia(
+      const reviewed = await reviewMedia(
         selectedMediaId,
-        { decision, reasonCode, notes: notes.trim() || undefined },
+        { decision: nextDecision, reasonCode: nextDecision === "rejected" ? reasonCode : undefined, notes: notes.trim() || undefined },
         accessToken
       );
-      await refreshQueueAndDetails(selectedMediaId);
-      setNotes("");
-      setBanner({
-        tone: "success",
-        message: decision === "approved" ? "Media approved." : "Media rejected."
-      });
+      setDetails((current) => current?.media.id === reviewed.id ? {
+        ...current,
+        media: { ...current.media, state: reviewed.state },
+        moderationJobs: current.moderationJobs.map((job) => job.stage === "human_review" && job.status === "pending" ? {
+          ...job, status: nextDecision, reasonCode: nextDecision === "rejected" ? reasonCode : null,
+          details: { ...job.details, notes: notes.trim() }
+        } : job)
+      } : current);
+      setQueue((current) => current.filter((item) => item.mediaId !== reviewed.id));
+      setReceipt(nextDecision);
+      setShowPreview(false);
+      setDecision(null);
+      refreshQueue();
     } catch (requestError) {
-      setBanner({ tone: "error", message: requestError instanceof Error ? requestError.message : "Failed to submit review" });
+      setDecisionError(formatUiError(requestError, "Couldn’t save the decision. Try again or cancel and refresh the upload."));
     } finally {
       setSubmitting(false);
     }
   }
 
+  const canReview = details?.moderationJobs.some((job) => job.stage === "human_review" && job.status === "pending") ?? false;
+  const recordedReview = details?.moderationJobs.find((job) => job.stage === "human_review" && (job.status === "approved" || job.status === "rejected"));
+  const recordedNote = recordedReview?.details?.notes;
+
   return (
-    <div className="stack admin-review-page">
+    <div className="stack admin-review-page" data-review-open={workspace.open}>
       <div className="admin-review-topbar">
         <div className="admin-review-title-block">
-           <span className="admin-review-kicker">Content Safety</span>
-           <h1 className="display-title admin-review-title">Moderation Queue</h1>
+           <h1 className="display-title admin-review-title">Review photos and videos</h1>
         </div>
-        <div className="admin-review-actions">
+        <div className="admin-review-actions review-queue-filters">
            <Button type="button" variant="secondary" data-testid="moderation-process-pending" disabled={submitting} onClick={() => void onProcessPending()}>
-             Run Machine Checks
+             Run automated checks
            </Button>
         </div>
       </div>
 
       <div className="admin-review-shell">
-        {banner && <div style={{ marginBottom: "var(--spacing-md)" }}><Banner tone={banner.tone}>{banner.message}</Banner></div>}
+        {banner && <div className="review-queue-filters" style={{ marginBottom: "var(--spacing-md)" }}><Banner tone={banner.tone}>{banner.message}</Banner></div>}
         {processingResult && (
-           <div style={{ marginBottom: "var(--spacing-md)" }}>
+           <div className="review-queue-filters" style={{ marginBottom: "var(--spacing-md)" }}>
              <Banner tone="info">Selected: {processingResult.selected}, Processed: {processingResult.processed}, Errors: {processingResult.errors}</Banner>
            </div>
         )}
 
         <div className="admin-review-layout moderation-layout">
-          <Card className="stack admin-review-panel moderation-panel" style={{ padding: 0 }}>
+          <Card variant="summary" className="stack admin-review-panel review-queue-panel" style={{ padding: 0 }}>
             <div className="admin-review-panel-header">
                <div>
-                  <h3>Queue items</h3>
-                  <div className="muted-text">
-                    {visibleQueue.length} shown · {queueSummary.total} total · {queueSummary.pending} pending · {queueSummary.reviewed} reviewed
-                  </div>
+                  <h2 id="moderation-queue-title" tabIndex={-1}>Media queue</h2>
+                  <p className="muted-text">{visibleQueue.length} {visibleQueue.length === 1 ? "upload" : "uploads"} shown</p>
+                  {queue.length === 100 ? <p className="muted-text">Showing the first 100 matches. Refine your search to find a specific upload.</p> : null}
                </div>
-               <Field label="Status">
-                   <SelectInput data-testid="moderation-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="admin-review-status-select">
-                     {statusOptions.map((opt) => <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>)}
-                   </SelectInput>
-               </Field>
+               <Button type="button" variant="ghost" disabled={loadingQueue || submitting} onClick={refreshQueue}>Refresh queue</Button>
             </div>
             <div className="admin-review-queue-tools">
-              <Field label="Find media or member">
+               <Field label="Status">
+                   <SelectInput data-testid="moderation-status-filter" value={statusFilter} onChange={(e) => filterQueue(e.target.value)}>
+                     {statusOptions.map((opt) => <option key={opt} value={opt}>{stateLabel(opt)}</option>)}
+                   </SelectInput>
+               </Field>
+              <Field label="Search uploads or members">
                 <TextInput
                   data-testid="moderation-queue-search"
                   value={queueSearch}
                   onChange={(event) => setQueueSearch(event.target.value)}
-                  placeholder="Member ID, media ID, purpose, status"
+                  placeholder="Member, media ID or purpose"
+                  maxLength={160}
                 />
               </Field>
               <Field label="Order">
@@ -347,15 +361,15 @@ function ModerationContent(): React.JSX.Element {
             </div>
 
             <div className="admin-review-list-wrap">
-               {loadingQueue && (
+               {(loadingQueue || queueSearch.trim() !== serverQuery) && (
                   <div className="admin-review-loading">Loading queue...</div>
                )}
-               {!loadingQueue && visibleQueue.length === 0 ? (
+               {!loadingQueue && queueSearch.trim() === serverQuery && visibleQueue.length === 0 ? (
                   <div style={{ padding: "var(--spacing-xl)" }}>
-                     <EmptyState title="No items found" body="Try another filter, clear search, or run machine checks to pull new items." />
+                     <EmptyState title="No items found" body="Change the filter, clear your search, or run automated checks." />
                   </div>
                ) : (
-                  <div className="admin-review-list" role="list" aria-label="Moderation queue">
+                  <div className="admin-review-list" role="region" aria-label="Moderation queue">
                     {queueGroups.map((group) => (
                       <div key={group.purpose} className="admin-review-list-group" role="group" aria-label={purposeLabel(group.purpose)}>
                         <div className="admin-review-group-label">{purposeLabel(group.purpose)} · {group.items.length}</div>
@@ -363,22 +377,20 @@ function ModerationContent(): React.JSX.Element {
                           const selected = selectedMediaId === item.mediaId;
                           const ownerProfile = profilesByUserId[item.ownerUserId];
                           return (
-                            <button
+                            <ActionControl
                               key={item.mediaId}
                               type="button"
                               className={`admin-review-list-item ${selected ? "selected" : ""}`}
                               aria-pressed={selected}
-                              onClick={() => setSelectedMediaId(item.mediaId)}
+                              onClick={(event) => openReview(item.mediaId, event.currentTarget)}
                             >
                               <span className="admin-review-list-row">
                                 <strong>{profileName(ownerProfile, item.ownerUserId)}</strong>
-                                <span className="pill">{item.mediaState.replaceAll("_", " ")}</span>
+                                <span className="pill">{stateLabel(item.mediaState)}</span>
                               </span>
-                              <span className="muted-text">{profileContext(ownerProfile, item.ownerUserId)}</span>
                               <span className="admin-review-id">Media ID: {shortId(item.mediaId)}</span>
-                              <span className="muted-text" style={{ textTransform: "capitalize" }}>{privacyState(item)} · {item.kind}</span>
-                              <span className="muted-text">{nextModerationAction(item)} · queued {formatDate(item.moderationCreatedAt)}</span>
-                            </button>
+                              <span className="muted-text">{item.kind === "image" ? "Photo" : "Video"} · {formatDate(item.moderationCreatedAt)}</span>
+                            </ActionControl>
                           );
                         })}
                       </div>
@@ -388,96 +400,96 @@ function ModerationContent(): React.JSX.Element {
             </div>
           </Card>
 
-          <Card className="stack admin-review-panel admin-review-detail-panel moderation-panel moderation-details-panel" data-testid="moderation-details-panel">
+          <Card as="section" id="moderation-review" tabIndex={-1} aria-labelledby="moderation-review-title" variant="review" className="stack admin-review-panel admin-review-detail-panel" data-testid="moderation-details-panel">
+            <BackToQueue onClick={backToQueue} />
             <div className="admin-review-detail-header">
-              <div>
-                <span className="pill">Manual review</span>
-                <h3>Review details</h3>
-              </div>
-              {details ? <span className="admin-review-id">{profileName(profilesByUserId[details.media.ownerUserId], details.media.ownerUserId)} · Media {shortId(details.media.id)}</span> : null}
+              <h2 id="moderation-review-title" tabIndex={-1}>{details ? (details.media.kind === "image" ? "Review photo" : "Review video") : "Review details"}</h2>
+              {details ? <span className="pill">{stateLabel(details.media.state)}</span> : null}
             </div>
-            
-            {loadingDetails && <p className="muted-text">Loading Details...</p>}
-            
-            {!loadingDetails && !details ? (
-                <EmptyState title="Select an item" body="Choose a queue item to inspect AI scores and moderation history." />
+            {receipt ? <ReviewReceipt>{receipt === "approved" ? "Media approved." : "Media rejected."}</ReviewReceipt> : null}
+            {detailError ? (
+              <div className="stack">
+                <Banner tone="error">{detailError}</Banner>
+                <Button type="button" variant="secondary" onClick={refreshDetails}>Retry details</Button>
+              </div>
+            ) : null}
+            {loadingDetails && !details ? <p role="status" className="muted-text">Loading upload…</p> : null}
+            {!loadingDetails && !details && !detailError ? (
+                <EmptyState title="Select an upload" body="Choose an upload to see its evidence, checks and review history." />
             ) : details ? (
               <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
                 <div className="admin-review-facts" data-testid="moderation-media-summary" aria-label="Media review details">
                   <div>
-                    <span className="muted-text">Human identity</span>
+                    <span className="muted-text">Member details</span>
                     <strong>{profileName(profilesByUserId[details.media.ownerUserId], details.media.ownerUserId)}</strong>
                     <span>{profileContext(profilesByUserId[details.media.ownerUserId], details.media.ownerUserId)}</span>
                     <span>Owner ID: {details.media.ownerUserId}</span>
                   </div>
                   <div>
-                    <span className="muted-text">Privacy state</span>
-                    <strong>{details.media.purpose.replaceAll("_", " ")}</strong>
-                    <span>{details.media.state.replaceAll("_", " ")}</span>
+                    <span className="muted-text">File access</span>
+                    <strong>{purposeLabel(details.media.purpose)}</strong>
+                    <span>{details.media.purpose === "verification_document" ? "Stays private" : "Approval follows existing access rules"}</span>
                   </div>
                   <div>
                     <span className="muted-text">Media file</span>
                     <strong>{(details.media.fileSizeBytes / 1024).toFixed(1)} KB</strong>
-                    <span>{details.media.kind.toUpperCase()} · {details.media.contentType}</span>
+                    <span>{details.media.contentType}</span>
+                    <span className="admin-review-id">{details.media.id}</span>
                   </div>
                 </div>
 
-                <div className="admin-review-preview" data-testid="moderation-media-preview">
-                  {!details.media.previewUrl ? (
-                    <Banner tone="info">Preview is not available for this media.</Banner>
-                  ) : details.media.kind === "image" ? (
-                    <Image
-                      data-testid="moderation-preview-image"
-                      src={details.media.previewUrl}
-                      alt={`Preview ${details.media.id}`}
-                      width={1200}
-                      height={800}
-                      unoptimized
-                      priority
-                      style={{ maxWidth: "100%", maxHeight: "320px", height: "auto", width: "auto", borderRadius: "var(--radius-sm)" }}
-                    />
-                  ) : (
-                    <video
-                      data-testid="moderation-preview-video"
-                      controls
-                      preload="metadata"
-                      style={{ width: "100%", maxHeight: "320px", borderRadius: "var(--radius-sm)" }}
-                    >
-                      <source src={details.media.previewUrl} type={details.media.contentType} />
-                    </video>
-                  )}
-                </div>
+                <section className="stack" aria-labelledby="media-evidence-title" data-testid="moderation-media-preview">
+                  <h3 id="media-evidence-title">Upload evidence</h3>
+                  {showPreview && loadingDetails ? <p role="status" className="muted-text">Loading preview…</p> : showPreview ? (
+                    <div className="admin-review-preview">
+                      <ReviewMediaPreview key={detailRevision} media={details.media} alt="Upload preview" testIdPrefix="moderation-preview" />
+                    </div>
+                  ) : <p className="muted-text">Open the file to inspect it before deciding.</p>}
+                  <div className="review-preview-actions">
+                    <Button type="button" variant="secondary" disabled={loadingDetails} onClick={() => {
+                      setShowPreview(true);
+                      setLoadingDetails(true);
+                      refreshDetails();
+                    }}>{loadingDetails ? "Refreshing…" : showPreview ? "Refresh preview" : "Preview upload"}</Button>
+                    {showPreview ? <Button type="button" variant="ghost" onClick={() => setShowPreview(false)}>Close preview</Button> : null}
+                  </div>
+                </section>
 
-                <div className="stack admin-review-form">
-                    <Field label="Review reason">
-                      <SelectInput data-testid="moderation-reason-code" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)}>
-                        <option value="policy_manual_review">Manual review</option>
-                        <option value="policy_safe_service_media">Safe service media</option>
-                        <option value="policy_prohibited_content">Prohibited content</option>
-                        <option value="policy_unrelated_media">Unrelated media</option>
+                {canReview ? (
+                  <div className="stack admin-review-form">
+                    <h3>Record a decision</h3>
+                    <Field label="Rejection reason" hint="Required to reject this upload.">
+                      <SelectInput data-testid="moderation-reason-code" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)}>
+                        <option value="">Choose a reason</option>
+                        {reviewReasons.map((reason) => <option key={reason.value} value={reason.value}>{reason.label}</option>)}
                       </SelectInput>
                     </Field>
-
-                    <Field label="Moderator Notes" hint="Optional internal notes">
-                      <TextArea data-testid="moderation-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Rationale..." style={{ minHeight: "88px" }} />
+                    <Field label="Moderator notes" hint="Optional. These notes are for staff.">
+                      <TextArea data-testid="moderation-notes" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add a review note" />
                     </Field>
-
                     <div className="admin-review-decision-actions">
-                      <Button type="button" data-testid="moderation-approve" disabled={submitting} onClick={() => void onReview("approved")} style={{ flex: 1 }}>
-                        Approve
+                      <Button type="button" data-testid="moderation-approve" disabled={submitting} onClick={() => { setDecisionError(null); setDecision("approved"); }}>
+                        Approve upload
                       </Button>
-                      <Button type="button" variant="secondary" data-testid="moderation-reject" disabled={submitting} onClick={() => void onReview("rejected")} style={{ flex: 1, color: "var(--error-text)" }}>
-                        Reject
+                      <Button type="button" variant="secondary" data-testid="moderation-reject" disabled={submitting || !reasonCode} onClick={() => { setDecisionError(null); setDecision("rejected"); }}>
+                        Reject upload
                       </Button>
                     </div>
-                </div>
+                  </div>
+                ) : (
+                  <div className="stack admin-review-form">
+                    <h3>{recordedReview ? "Recorded decision" : "Review status"}</h3>
+                    <p>{recordedReview ? stateLabel(recordedReview.status) : "There is no pending manual review for this upload."}</p>
+                    {typeof recordedNote === "string" && recordedNote ? <p>{recordedNote}</p> : null}
+                  </div>
+                )}
 
                 <div className="stack" style={{ gap: "8px" }}>
-                  <h4 style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Job log</h4>
+                  <h3 style={{ fontSize: "0.9rem", color: "var(--muted)" }}>Processing history</h3>
                   {details.moderationJobs.map((job) => (
                     <div key={job.id} className="admin-review-job-log-row">
                       <div>
-                        <div style={{ fontWeight: 600, color: "var(--ink)", textTransform: "capitalize" }}>{job.stage}</div>
+                        <div style={{ fontWeight: 600, color: "var(--ink)", textTransform: "capitalize" }}>{stateLabel(job.stage)}</div>
                         {job.reasonCode ? <div className="muted-text">Reason: {job.reasonCode}</div> : null}
                       </div>
                       <span className="pill" style={{ padding: "2px 8px" }}>{job.status}</span>
@@ -485,6 +497,23 @@ function ModerationContent(): React.JSX.Element {
                   ))}
                 </div>
 
+                {receipt ? <Button type="button" variant="secondary" className="review-receipt-back" onClick={backToQueue}>Return to queue</Button> : null}
+                <ReviewConfirmation
+                  decision={decision}
+                  subject="upload"
+                  busy={submitting}
+                  onClose={() => setDecision(null)}
+                  onConfirm={() => { if (decision) void onReview(decision); }}
+                >
+                  <p>{decision === "rejected"
+                    ? "The upload will stay hidden and the owner will be notified."
+                    : details.media.purpose === "verification_document"
+                      ? "The document remains private and available for verification review."
+                      : "People who already have access will be able to view this upload."}</p>
+                  {decision === "rejected" ? <p><strong>Reason</strong> {reviewReasons.find((reason) => reason.value === reasonCode)?.label}</p> : null}
+                  {notes.trim() ? <p className="review-confirm-note">{notes.trim()}</p> : null}
+                  {decisionError ? <Banner tone="error">{decisionError}</Banner> : null}
+                </ReviewConfirmation>
               </div>
             ) : null}
           </Card>

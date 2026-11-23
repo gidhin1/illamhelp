@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionControl } from "@illamhelp/ui-web";
+
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 
@@ -137,11 +139,11 @@ export function MediaPreviewGrid({
             >
               <div className="media-frame">
                 {asset.kind === "image" ? (
-                  <button
+                  <ActionControl
                     type="button"
                     className="media-frame-button"
                     onClick={() => showActiveIndex(index)}
-                    aria-label={`Maximise approved ${mediaPurposeLabel(asset.purpose)} photo`}
+                    aria-label={`Open full size: ${mediaPurposeLabel(asset.purpose)} photo`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -152,7 +154,7 @@ export function MediaPreviewGrid({
                       width={640}
                       height={800}
                     />
-                  </button>
+                  </ActionControl>
                 ) : (
                   <video
                     className="media-inline-video"
@@ -168,14 +170,14 @@ export function MediaPreviewGrid({
                 )}
                 <span className="media-kind-badge">{asset.kind === "image" ? "Photo" : "Video"}</span>
                 {asset.kind === "video" ? <span className="media-play-badge" aria-hidden="true">Play</span> : null}
-                <button
+                <ActionControl
                   type="button"
                   className="media-maximise-button"
                   onClick={() => showActiveIndex(index)}
-                  aria-label={`Maximise approved ${mediaPurposeLabel(asset.purpose)} ${asset.kind}`}
+                  aria-label={`Open full size: ${mediaPurposeLabel(asset.purpose)} ${asset.kind}`}
                 >
-                  Maximise
-                </button>
+                  Open full size
+                </ActionControl>
               </div>
             </article>
           ))}
@@ -183,7 +185,7 @@ export function MediaPreviewGrid({
         {items.length > 1 ? (
           <div className="media-carousel-dots" aria-label="Media slides">
             {items.map((asset, index) => (
-              <button
+              <ActionControl
                 key={asset.id}
                 type="button"
                 className={index === currentIndex ? "active" : undefined}
@@ -204,12 +206,12 @@ export function MediaPreviewGrid({
           </div>
           {items.length > 1 ? (
             <div className="media-story-actions" aria-label="Carousel controls">
-              <button type="button" onClick={() => scrollToIndex(currentIndex - 1)} disabled={currentIndex === 0}>
+              <ActionControl type="button" onClick={() => scrollToIndex(currentIndex - 1)} disabled={currentIndex === 0}>
                 Previous
-              </button>
-              <button type="button" onClick={() => scrollToIndex(currentIndex + 1)} disabled={currentIndex === items.length - 1}>
+              </ActionControl>
+              <ActionControl type="button" onClick={() => scrollToIndex(currentIndex + 1)} disabled={currentIndex === items.length - 1}>
                 Next
-              </button>
+              </ActionControl>
             </div>
           ) : null}
         </div>
@@ -229,9 +231,9 @@ export function MediaPreviewGrid({
                 <strong>{activeAsset.kind === "image" ? "Photo" : "Video"}</strong>
                 <span>{formatBytes(activeAsset.fileSizeBytes)} · {formatDate(activeAsset.createdAt).split(",")[0]}</span>
               </div>
-              <button ref={closeButtonRef} type="button" className="media-viewer-close" onClick={() => setActiveIndex(null)}>
+              <ActionControl ref={closeButtonRef} type="button" className="media-viewer-close" onClick={() => setActiveIndex(null)}>
                 Close
-              </button>
+              </ActionControl>
             </div>
             <div className="media-viewer-frame">
               {activeAsset.kind === "image" ? (
@@ -245,7 +247,7 @@ export function MediaPreviewGrid({
             </div>
             {items.length > 1 ? (
               <div className="media-viewer-actions">
-                <button
+                <ActionControl
                   type="button"
                   className="button secondary"
                   disabled={activeIndex === 0}
@@ -254,9 +256,9 @@ export function MediaPreviewGrid({
                   }}
                 >
                   Previous media
-                </button>
+                </ActionControl>
                 <span>{(activeIndex ?? 0) + 1} of {items.length}</span>
-                <button
+                <ActionControl
                   type="button"
                   className="button secondary"
                   disabled={activeIndex === items.length - 1}
@@ -265,7 +267,7 @@ export function MediaPreviewGrid({
                   }}
                 >
                   Next media
-                </button>
+                </ActionControl>
               </div>
             ) : null}
           </section>

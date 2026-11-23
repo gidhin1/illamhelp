@@ -1,5 +1,3 @@
-import { createMediaClient } from "@illamhelp/media-client";
-
 import { trackEvent, utmParams } from "./analytics";
 
 export type UserType = "seeker" | "provider" | "both";
@@ -227,10 +225,6 @@ export interface PublicMediaAssetRecord {
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
   "http://localhost:4000/api/v1";
-
-const mediaClient = createMediaClient({
-  baseUrl: process.env.NEXT_PUBLIC_MEDIA_GRPC_WEB_URL
-});
 
 function asErrorMessage(payload: ApiErrorPayload | undefined, fallback: string): string {
   if (!payload) {
@@ -822,11 +816,17 @@ export function canViewConsent(
   );
 }
 
+export async function listOwnJobMedia(jobId: string, accessToken: string): Promise<MediaAssetRecord[]> {
+  const { mediaClient } = await import("./media-client");
+  return mediaClient.listOwnJobMedia(jobId, accessToken);
+}
+
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
   return listMyMediaPage(accessToken).then((payload) => normalizeListPayload(payload));
 }
 
-export function listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {
+export async function listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {
+  const { mediaClient } = await import("./media-client");
   return mediaClient.listMyMediaPage(accessToken, cursor);
 }
 
@@ -834,15 +834,16 @@ export function listPublicApprovedMedia(ownerUserId: string, accessToken: string
   return listPublicApprovedMediaPage(ownerUserId, accessToken).then((payload) => normalizeListPayload(payload));
 }
 
-export function listPublicApprovedMediaPage(
+export async function listPublicApprovedMediaPage(
   ownerUserId: string,
   accessToken: string,
   cursor?: string
 ): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
+  const { mediaClient } = await import("./media-client");
   return mediaClient.listProfileMediaPage(ownerUserId, accessToken, cursor);
 }
 
-export function createMediaUploadTicket(
+export async function createMediaUploadTicket(
   payload: {
     kind: MediaKind;
     contentType: string;
@@ -854,45 +855,48 @@ export function createMediaUploadTicket(
   },
   accessToken: string
 ): Promise<UploadTicketRecord> {
+  const { mediaClient } = await import("./media-client");
   return mediaClient.createUploadTicket(payload, accessToken);
 }
 
-export function completeMediaUpload(
+export async function completeMediaUpload(
   mediaId: string,
   payload: { etag?: string },
   accessToken: string
 ): Promise<MediaAssetRecord> {
-  return mediaClient.completeMediaUpload(mediaId, payload, accessToken).then((asset) => {
-    if (asset.purpose === "profile") {
-      trackEvent("profile_media_uploaded", {
-        surface: "web",
-        media_kind: asset.kind,
-        media_count: 1
-      });
-    }
-    if (asset.purpose === "job") {
-      trackEvent("job_media_uploaded", {
-        surface: "web",
-        media_kind: asset.kind,
-        media_count: 1
-      });
-    }
-    return asset;
-  });
+  const { mediaClient } = await import("./media-client");
+  const asset = await mediaClient.completeMediaUpload(mediaId, payload, accessToken);
+  if (asset.purpose === "profile") {
+    trackEvent("profile_media_uploaded", {
+      surface: "web",
+      media_kind: asset.kind,
+      media_count: 1
+    });
+  }
+  if (asset.purpose === "job") {
+    trackEvent("job_media_uploaded", {
+      surface: "web",
+      media_kind: asset.kind,
+      media_count: 1
+    });
+  }
+  return asset;
 }
 
-export function listVerificationDocumentsPage(
+export async function listVerificationDocumentsPage(
   accessToken: string,
   cursor?: string
 ): Promise<CursorPageResponse<MediaAssetRecord>> {
+  const { mediaClient } = await import("./media-client");
   return mediaClient.listVerificationDocumentsPage(accessToken, cursor);
 }
 
-export function listJobMediaPage(
+export async function listJobMediaPage(
   jobId: string,
   accessToken: string,
   cursor?: string
 ): Promise<CursorPageResponse<PublicMediaAssetRecord>> {
+  const { mediaClient } = await import("./media-client");
   return mediaClient.listJobMediaPage(jobId, accessToken, cursor);
 }
 

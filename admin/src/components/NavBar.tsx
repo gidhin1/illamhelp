@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionControl } from "@illamhelp/ui-web";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -15,74 +17,39 @@ import { useSession } from "@/components/session/SessionProvider";
 import { Button } from "@/components/ui/primitives";
 
 const navLinks = [
-  { href: "/", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/moderation", label: "Moderation", Icon: ShieldAlert },
-  { href: "/verifications", label: "Verifications", Icon: BadgeCheck },
-  { href: "/audit", label: "Consent + Audit", Icon: FileSearch }
+  { href: "/", label: "Dashboard", shortLabel: "Dashboard", Icon: LayoutDashboard },
+  { href: "/moderation", label: "Moderation", shortLabel: "Moderation", Icon: ShieldAlert },
+  { href: "/verifications", label: "Verifications", shortLabel: "Verification", Icon: BadgeCheck },
+  { href: "/audit", label: "Audit contact sharing", shortLabel: "Audit", Icon: FileSearch }
 ];
 
 const webAppUrl = process.env.NEXT_PUBLIC_WEB_APP_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
-export function NavBar(): React.JSX.Element {
+export function NavBar(): React.JSX.Element | null {
   const pathname = usePathname();
   const { user, hasAdminAccess, signOut } = useSession();
+  if (!user || !hasAdminAccess || pathname === "/auth/login") return null;
 
   const mobileBottomNav = (
-    <nav className="bottom-nav">
-      {navLinks.map((link) => {
-        const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
-        const Icon = link.Icon;
+    <nav className="bottom-nav" aria-label="Admin navigation">
+      {navLinks.map(({ href, label, shortLabel, Icon }) => {
+        const active = pathname === href || pathname.startsWith(`${href}/`);
         return (
-          <Link
-            key={link.href}
-            href={link.href}
-            aria-label={link.label}
-            aria-current={active ? "page" : undefined}
-            title={link.label}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: "4px",
-              padding: "8px",
-              color: active ? "var(--brand)" : "var(--muted)",
-              minWidth: "64px"
-            }}
-          >
-            <Icon size={24} strokeWidth={active ? 2.3 : 2} />
-            <span style={{ fontSize: "10px", fontWeight: active ? 600 : 500 }}>
-              {link.label}
-            </span>
+          <Link key={href} href={href} aria-label={label} aria-current={active ? "page" : undefined} className="admin-tab">
+            <Icon size={20} aria-hidden="true" />
+            <span>{shortLabel}</span>
           </Link>
         );
       })}
-      {user && (
-        <button
-          onClick={signOut}
-          aria-label="Sign out"
-          title="Sign out"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: "4px",
-            padding: "8px",
-            color: "var(--muted)",
-            minWidth: "64px",
-            background: "none",
-            border: "none",
-            cursor: "pointer"
-          }}
-        >
-          <LogOut size={24} />
-          <span style={{ fontSize: "10px", fontWeight: 500 }}>Sign Out</span>
-        </button>
-      )}
+      <ActionControl onClick={signOut} className="admin-tab">
+        <LogOut size={20} aria-hidden="true" />
+        <span>Sign out</span>
+      </ActionControl>
     </nav>
   );
 
   const desktopSidebar = (
-    <nav className="sidebar-nav">
+    <nav className="sidebar-nav" aria-label="Admin navigation">
       <Link
         href="/"
         aria-label="Dashboard"
@@ -117,7 +84,7 @@ export function NavBar(): React.JSX.Element {
           className="display-title sidebar-brand-label"
           style={{ fontSize: "1.25rem", color: "var(--ink)" }}
         >
-          Ops Center
+          IllamHelp Admin
         </span>
       </Link>
 
@@ -153,14 +120,13 @@ export function NavBar(): React.JSX.Element {
         })}
       </div>
 
-      {user ? (
         <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>
           <div style={{ display: "flex", gap: "10px", alignItems: "center", marginBottom: "16px" }}>
              <User size={36} color="var(--brand)" />
              <div className="sidebar-label">
                 <div style={{ fontWeight: 600 }}>{user.publicUserId}</div>
                 <div className="pill" style={{ padding: "2px 6px", fontSize: "0.7rem", marginTop: 4 }}>
-                  {hasAdminAccess ? "Admin" : "Member"}
+                  {user.roles.includes("admin") ? "Admin" : "Support"}
                 </div>
              </div>
           </div>
@@ -172,7 +138,7 @@ export function NavBar(): React.JSX.Element {
             className="admin-sidebar-action"
             style={{ width: "100%", justifyContent: "flex-start" }}
           >
-             <LogOut size={18} /> <span className="sidebar-label">Sign Out</span>
+             <LogOut size={18} /> <span className="sidebar-label">Sign out</span>
           </Button>
           <div className="sidebar-label" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14, fontSize: "0.78rem" }}>
             <a href={`${webAppUrl}/privacy-policy`} target="_blank" rel="noreferrer">Privacy</a>
@@ -181,13 +147,7 @@ export function NavBar(): React.JSX.Element {
             <a href={`${webAppUrl}/help`} target="_blank" rel="noreferrer">Help</a>
           </div>
         </div>
-      ) : (
-        <div style={{ width: "100%", padding: "12px", marginTop: "auto" }}>
-          <Link href="/auth/login" className="button admin-sidebar-action" style={{ width: "100%" }}>
-            <User size={18} /> <span className="sidebar-label">Sign in</span>
-          </Link>
-        </div>
-      )}
+
     </nav>
   );
 

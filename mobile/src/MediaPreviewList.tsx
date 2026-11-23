@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { useState } from "react";
 import { useVideoPlayer, VideoView } from "expo-video";
 import { Image, Modal, Pressable, ScrollView, Text, View } from "react-native";
@@ -55,11 +56,13 @@ function VideoSurface({
 export function MediaPreviewList({
   items,
   emptyText = "No approved media yet.",
-  testID
+  testID,
+  deferVideo = false
 }: {
   items: PublicMediaAssetRecord[];
   emptyText?: string;
   testID?: string;
+  deferVideo?: boolean;
 }): JSX.Element {
   const styles = useAppStyles();
   const purposeLabel = (purpose: string) => purpose.replace(/_/g, " ");
@@ -109,7 +112,7 @@ export function MediaPreviewList({
                   setActiveIndex(index);
                 }}
                 accessibilityRole="button"
-                accessibilityLabel={`Maximise approved ${purposeLabel(asset.purpose)} photo`}
+                accessibilityLabel={`Open full size: ${purposeLabel(asset.purpose)} photo`}
               >
                 <Image
                   source={{ uri: asset.downloadUrl }}
@@ -118,6 +121,10 @@ export function MediaPreviewList({
                   accessibilityLabel={`Approved ${purposeLabel(asset.purpose)} photo`}
                 />
               </Pressable>
+            ) : deferVideo ? (
+              <View style={styles.mediaSelectionVideo}>
+                <Text style={styles.mediaPreviewVideoLabel}>Approved video</Text>
+              </View>
             ) : (
               <VideoSurface
                 uri={asset.downloadUrl}
@@ -130,30 +137,43 @@ export function MediaPreviewList({
               <View style={styles.mediaKindPill}>
                 <Text style={styles.mediaKindPillText}>{asset.kind === "image" ? "Photo" : "Video"}</Text>
               </View>
-              {asset.kind === "video" ? (
+              {asset.kind === "video" && !deferVideo ? (
                 <View style={styles.mediaPlayPill} pointerEvents="none">
                   <Text style={styles.mediaKindPillText}>Play</Text>
                 </View>
               ) : null}
-              <Pressable
-                style={({ pressed }) => [
-                  styles.mediaMaximisePill,
-                  pressed ? styles.mediaPreviewCardPressed : null
-                ]}
-                onPress={() => {
-                  setCurrentIndex(index);
-                  setActiveIndex(index);
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={`Maximise approved ${purposeLabel(asset.purpose)} ${asset.kind}`}
-              >
-                <Text style={styles.mediaMaximiseText}>Maximise</Text>
-              </Pressable>
+              {asset.kind === "image" ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.mediaMaximisePill,
+                    pressed ? styles.mediaPreviewCardPressed : null
+                  ]}
+                  onPress={() => {
+                    setCurrentIndex(index);
+                    setActiveIndex(index);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open full size: ${purposeLabel(asset.purpose)} photo`}
+                >
+                  <Text style={styles.mediaMaximiseText}>Open full size</Text>
+                </Pressable>
+              ) : null}
             </View>
             <View style={styles.mediaPreviewMeta}>
               <Text style={styles.dataTitle}>{asset.kind === "image" ? "Photo" : "Video"}</Text>
               <Text style={styles.dataMeta}>{formatBytes(asset.fileSizeBytes)} · {asset.state.replace(/_/g, " ")}</Text>
             </View>
+            {asset.kind === "video" ? (
+              <AppButton
+                label="Open full size"
+                accessibilityLabel={`Open full size: ${purposeLabel(asset.purpose)} video`}
+                variant="secondary"
+                onPress={() => {
+                  setCurrentIndex(index);
+                  setActiveIndex(index);
+                }}
+              />
+            ) : null}
           </View>
         ))}
       </ScrollView>

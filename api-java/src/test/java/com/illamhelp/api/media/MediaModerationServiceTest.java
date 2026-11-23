@@ -124,14 +124,16 @@ class MediaModerationServiceTest {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     MediaModerationService service = service(repository, mock(NotificationService.class),
         mock(AuditService.class), mock(StorageService.class));
-    when(repository.listModerationQueue("human_review", "pending", 100)).thenReturn(List.of());
+    when(repository.listModerationQueue("human_review", "pending", 100, "sample case", true)).thenReturn(List.of());
 
-    assertThat(service.listModerationQueue("human_review", "pending", 999)).isEmpty();
-    verify(repository).listModerationQueue("human_review", "pending", 100);
-    assertThatThrownBy(() -> service.listModerationQueue("manual", "pending", 10))
+    assertThat(service.listModerationQueue("human_review", "pending", 999, " Sample Case ", true)).isEmpty();
+    verify(repository).listModerationQueue("human_review", "pending", 100, "sample case", true);
+    assertThatThrownBy(() -> service.listModerationQueue("manual", "pending", 10, "", false))
         .isInstanceOf(ApiException.class).hasMessage("Unsupported moderation stage: manual");
-    assertThatThrownBy(() -> service.listModerationQueue("human_review", "done", 10))
+    assertThatThrownBy(() -> service.listModerationQueue("human_review", "done", 10, "", false))
         .isInstanceOf(ApiException.class).hasMessage("Unsupported moderation status: done");
+    assertThatThrownBy(() -> service.listModerationQueue(null, "pending", 10, "a".repeat(161), false))
+        .isInstanceOf(ApiException.class).hasMessage("Search must be 160 characters or fewer");
   }
 
   @Test

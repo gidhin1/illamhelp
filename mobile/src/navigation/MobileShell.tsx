@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
@@ -5,6 +6,7 @@ import {
   type StyleProp,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type ViewProps,
   type ViewStyle
@@ -41,6 +43,7 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       backgroundColor: colors.bg
     },
     header: {
+      flexShrink: 0,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
@@ -66,11 +69,13 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
     headerTitle: {
       color: colors.ink,
       fontSize: 17,
+      textAlign: "center",
       fontWeight: "700"
     },
     headerSubtitle: {
       color: colors.muted,
       fontSize: 11,
+      textAlign: "center",
       marginTop: 1
     },
     content: {
@@ -78,6 +83,7 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       paddingHorizontal: 18
     },
     bottomBar: {
+      flexShrink: 0,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
@@ -112,9 +118,11 @@ function createShellStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderColor: colors.line
     },
     bottomItemLabel: {
+      alignSelf: "stretch",
       color: colors.muted,
       fontSize: 11,
-      fontWeight: "600"
+      fontWeight: "600",
+      textAlign: "center"
     },
     bottomItemLabelActive: {
       color: colors.brandText
@@ -318,6 +326,7 @@ export function MobileShell({
   children: React.ReactNode;
 }): JSX.Element {
   const theme = useAppTheme();
+  const { fontScale } = useWindowDimensions();
   const styles = useMemo(() => createShellStyles(theme.colors), [theme.colors]);
   const insets = useSafeAreaInsets();
   const title = getNavigationItem(currentRoute)?.mobileTitle ?? "IllamHelp";
@@ -417,7 +426,7 @@ export function MobileShell({
         >
           <NavIcon name="menu" size={26} color={theme.colors.ink} />
         </Pressable>
-        <View style={styles.headerTitleWrap}>
+        <View key={fontScale} style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>{title}</Text>
           <Text style={styles.headerSubtitle}>IllamHelp</Text>
         </View>
@@ -465,7 +474,7 @@ export function MobileShell({
                   color={active ? theme.colors.brand : theme.colors.muted}
                 />
               </View>
-              <Text style={[styles.bottomItemLabel, active ? styles.bottomItemLabelActive : null]}>{item.label}</Text>
+              <Text key={fontScale} style={[styles.bottomItemLabel, active ? styles.bottomItemLabelActive : null]}>{item.label}</Text>
             </Pressable>
           );
         })}

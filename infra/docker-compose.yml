@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres@sha256:96d56f7f57c6aacd1fcb908bc83b345ec5f83231ee486dd66a1baadce274db88
+    image: postgres:18-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71
     container_name: illamhelp-postgres
     restart: unless-stopped
     environment:
@@ -35,7 +35,7 @@ services:
       retries: 5
 
   minio:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    image: &object-storage-image docker.io/pgsty/silo@sha256:08ce1505b5eacefbad1ca07159b242b9ce045a11c2817e3bc257b25f77bbc02d
     container_name: illamhelp-minio
     restart: unless-stopped
     environment:
@@ -43,7 +43,7 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     ports:
-      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
       - "127.0.0.1:9001:9001"
     volumes:
       - minio_data:/data
@@ -54,7 +54,7 @@ services:
       retries: 5
 
   minio-init:
-    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    image: *object-storage-image
     container_name: illamhelp-minio-init
     depends_on:
       minio:
@@ -84,7 +84,7 @@ services:
       start_period: 5s
 
   opensearch:
-    image: opensearchproject/opensearch@sha256:00565f63fa1aa1643d5a2cf61cb5f09b4aeddee2f12703f01c534f051bff1a99
+    image: opensearchproject/opensearch:3.10.0@sha256:02d6d6e40c820ae08233b60540aa5d3d9364d64e2dc724e38d6c8c794879b2a0
     container_name: illamhelp-opensearch
     restart: unless-stopped
     environment:
@@ -109,13 +109,13 @@ services:
       start_period: 30s
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.6.2@sha256:f9ba7b2af90db8dc749a57ca9aedca51e840cb9224441ab546a968da941da900
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3
     container_name: illamhelp-keycloak
     restart: unless-stopped
     command: ["start-dev", "--http-port=8080"]
     environment:
-      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
-      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
     ports:
       - "127.0.0.1:8080:8080"
     healthcheck:
@@ -126,7 +126,7 @@ services:
       start_period: 30s
 
   opa:
-    image: openpolicyagent/opa@sha256:bf5d926c9c5163cd43e56de43f47165d12c1e6a91911d0a20648f8e3ab085a61
+    image: openpolicyagent/opa@sha256:564adcf7657817d3d8cab1ef6ae2612744209ddbe5e1b9773626fb2602c04db5
     container_name: illamhelp-opa
     restart: unless-stopped
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
@@ -136,7 +136,7 @@ services:
       - "127.0.0.1:8181:8181"
 
   clamav:
-    image: clamav/clamav-debian:stable@sha256:a73435b0fa51886e9e6dd1881656023ba9dce756e055f23981270badbb8ca3d7
+    image: clamav/clamav-debian:stable@sha256:cb2b6fa0bf480a3c243117204b751f062c5350569d088dc269ebeef6b4331823
     container_name: illamhelp-clamav
     restart: unless-stopped
     ports:
@@ -151,7 +151,7 @@ services:
       start_period: 60s
 
   media-grpc-web:
-    image: envoyproxy/envoy:v1.35-latest
+    image: envoyproxy/envoy:v1.35-latest@sha256:a707c3821b4cecb5db43d8e86e983e0f57b81010fefbabc01feeb071fb8cc08e
     container_name: illamhelp-media-grpc-web
     restart: unless-stopped
     ports:

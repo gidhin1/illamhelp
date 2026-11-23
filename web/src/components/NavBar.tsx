@@ -23,6 +23,7 @@ import {
   BOTTOM_BAR_NAV,
   DRAWER_NAV,
   MOBILE_NAVIGATION,
+  legalPages,
   type AppNavIcon,
   type AppNavItem,
   type ThemePreference
@@ -30,7 +31,6 @@ import {
 
 import { useSession } from "@/components/session/SessionProvider";
 import { useThemePreference } from "@/components/ThemeProvider";
-import { Button } from "@/components/ui/primitives";
 import { getUnreadNotificationCount } from "@/lib/api";
 
 const desktopLinks = [
@@ -110,10 +110,12 @@ function ThemeButtons(): JSX.Element {
   );
 }
 
-export function NavBar(): JSX.Element {
+export function NavBar({ unreadCount }: { unreadCount?: number } = {}): JSX.Element {
   const pathname = usePathname();
+  const prefetch = pathname === "/auth/login" ? false : undefined;
   const { user, accessToken, signOut } = useSession();
-  const [unreadAlerts, setUnreadAlerts] = useState(0);
+  const [fetchedUnread, setFetchedUnread] = useState(0);
+  const unreadAlerts = unreadCount ?? fetchedUnread;
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [jobsExpanded, setJobsExpanded] = useState(false);
   const drawerToggleRef = useRef<HTMLButtonElement>(null);
@@ -174,11 +176,11 @@ export function NavBar(): JSX.Element {
       try {
         const response = await getUnreadNotificationCount(accessToken);
         if (!cancelled) {
-          setUnreadAlerts(response.unreadCount);
+          setFetchedUnread(response.unreadCount);
         }
       } catch {
         if (!cancelled) {
-          setUnreadAlerts(0);
+          setFetchedUnread(0);
         }
       }
     };
@@ -190,7 +192,8 @@ export function NavBar(): JSX.Element {
 
   const currentTitle = useMemo(() => {
     const match = [...MOBILE_NAVIGATION, ...DRAWER_NAV.flatMap((item) => item.children ?? [])].find((item) => isActivePath(pathname, item.webHref));
-    return match?.mobileTitle ?? "IllamHelp";
+    const legalPage = Object.values(legalPages).find((page) => page.href === pathname);
+    return match?.mobileTitle ?? legalPage?.label ?? "IllamHelp";
   }, [pathname]);
 
   return (
@@ -213,18 +216,18 @@ export function NavBar(): JSX.Element {
           <span className="mobile-shell-subtitle">IllamHelp</span>
         </div>
         {user ? (
-          <Link href="/profile" className="mobile-shell-avatar" aria-label="Open profile">
+          <Link prefetch={prefetch} href="/profile" className="mobile-shell-avatar" aria-label="Open profile">
             {user.publicUserId.slice(0, 1).toUpperCase()}
           </Link>
         ) : (
-          <Link href="/auth/login" className="mobile-shell-icon-button" aria-label="Sign in">
+          <Link prefetch={prefetch} href="/auth/login" className="mobile-shell-icon-button" aria-label="Sign in">
             <NavIcon name="profile" />
           </Link>
         )}
       </header>
 
       <aside className="sidebar-nav">
-        <Link href="/" className="sidebar-brand" aria-label="IllamHelp home">
+        <Link prefetch={prefetch} href="/" className="sidebar-brand" aria-label="IllamHelp home">
           <span className="brand-mark" aria-hidden="true">I</span>
           <span className="nav-label sidebar-brand-label">
             IllamHelp
@@ -234,7 +237,7 @@ export function NavBar(): JSX.Element {
           {desktopLinks.map((link) => {
             const active = isActivePath(pathname, link.webHref);
             return (
-              <Link key={link.key} href={link.webHref ?? "/"} className={`sidebar-link ${active ? "active" : ""}`} aria-label={link.label} aria-current={active ? "page" : undefined} title={link.label}>
+              <Link prefetch={prefetch} key={link.key} href={link.webHref ?? "/"} className={`sidebar-link ${active ? "active" : ""}`} aria-label={link.label} aria-current={active ? "page" : undefined} title={link.label}>
                 <span style={{ position: "relative", display: "inline-flex" }}>
                   <NavIcon name={link.icon} />
                   {link.key === "alerts" && user && unreadAlerts > 0 ? (
@@ -252,20 +255,25 @@ export function NavBar(): JSX.Element {
           {user ? (
             <>
               <div className="card soft sidebar-user-chip">{user.publicUserId}</div>
-              <Button className="sidebar-session-action" variant="ghost" onClick={signOut}>
+              <Link prefetch={prefetch} href="/settings" className="sidebar-session-action button ghost"
+                aria-label="Settings" title="Settings" aria-current={pathname === "/settings" ? "page" : undefined}>
+                <NavIcon name="settings" className="sidebar-action-glyph" />
+                <span className="sidebar-action-label">Settings</span>
+              </Link>
+              <button type="button" className="sidebar-session-action button ghost" onClick={signOut} aria-label="Sign out" title="Sign out">
                 <NavIcon name="profile" className="sidebar-action-glyph" />
                 <span className="sidebar-action-label">Sign out</span>
-              </Button>
+              </button>
             </>
           ) : (
             <div className="sidebar-footer-actions">
-              <Link href="/auth/login" className="button ghost sidebar-session-action">
+              <Link prefetch={prefetch} href="/auth/login" className="button ghost sidebar-session-action" aria-label="Sign in" title="Sign in">
                 <NavIcon name="profile" className="sidebar-action-glyph" />
-                <span className="sidebar-action-label">Log in</span>
+                <span className="sidebar-action-label">Sign in</span>
               </Link>
-              <Link href="/auth/register" className="button sidebar-session-action">
+              <Link prefetch={prefetch} href="/auth/register" className="button sidebar-session-action" aria-label="Create account" title="Create account">
                 <NavIcon name="people" className="sidebar-action-glyph" />
-                <span className="sidebar-action-label">Sign up</span>
+                <span className="sidebar-action-label">Create account</span>
               </Link>
             </div>
           )}
@@ -277,6 +285,7 @@ export function NavBar(): JSX.Element {
           const active = isActivePath(pathname, link.webHref);
           return (
             <Link
+              prefetch={prefetch}
               key={link.key}
               href={link.webHref ?? "/"}
               className={`mobile-bottom-link ${active ? "active" : ""}`}
@@ -347,6 +356,7 @@ export function NavBar(): JSX.Element {
                             const childActive = isActivePath(pathname, child.webHref);
                             return (
                               <Link
+                                prefetch={prefetch}
                                 key={child.key}
                                 href={child.webHref ?? "/jobs/discover"}
                                 className={`mobile-drawer-child ${childActive ? "active" : ""}`}
@@ -365,6 +375,7 @@ export function NavBar(): JSX.Element {
                 const active = isActivePath(pathname, item.webHref);
                 return (
                   <Link
+                    prefetch={prefetch}
                     key={item.key}
                     href={item.webHref ?? "/"}
                     className={`mobile-drawer-link ${active ? "active" : ""}`}
@@ -390,8 +401,8 @@ export function NavBar(): JSX.Element {
               </button>
             ) : (
               <div className="mobile-drawer-auth-actions">
-                <Link href="/auth/login" className="button secondary">Log in</Link>
-                <Link href="/auth/register" className="button">Sign up</Link>
+                <Link prefetch={prefetch} href="/auth/login" className="button secondary">Sign in</Link>
+                <Link prefetch={prefetch} href="/auth/register" className="button">Create account</Link>
               </div>
             )}
           </div>

@@ -5,6 +5,7 @@
 - `playwright.web.config.ts`: Web app UI flow on desktop Chromium.
 - `playwright.admin.config.ts`: Admin portal UI flow on desktop Chromium.
 - `playwright.mobile.config.ts`: Mobile React Native UI rendered through Expo Web at a phone viewport.
+- `playwright.migration.config.ts`: Browser and viewport regressions for the member web app and admin portal across Chromium, WebKit, and Firefox.
 
 ## Flows covered
 
@@ -29,6 +30,28 @@ make ui-test-web
 make ui-test-admin
 make ui-test-mobile
 ```
+
+Build the web and admin apps before running the browser and viewport suite.
+Signed-in cases require the local backend and their fixture credentials.
+
+```bash
+corepack pnpm --filter @illamhelp/web build
+corepack pnpm --filter @illamhelp/admin build
+corepack pnpm exec playwright install chromium webkit firefox
+corepack pnpm run test:ui:migration
+```
+
+Set `PW_MIGRATION_AUTH=true` to include member workflows with real UI
+registration. Set `PW_MIGRATION_ADMIN=true` and supply the temporary staff
+fixture credentials to include the authenticated admin display sweep. The
+browser suite can also use existing production servers with
+`PW_AUDIT_EXTERNAL=true`, `PW_AUDIT_MEMBER_ORIGIN`, and
+`PW_AUDIT_ADMIN_ORIGIN`. Set `PW_FIREFOX_WS_ENDPOINT` when using a matching
+Playwright Firefox server for local browser coverage. Set
+`PW_CAPTURE_DISPLAY=true` to save screenshots for passing display cases as well.
+
+The smoke tests create their own members, job posts, and alerts. Authenticated
+browser checks use visible sign-in, sign-out, and consent controls.
 
 ## Environment overrides
 

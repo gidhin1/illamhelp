@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { createElement, type ComponentType } from "react";
 import {
   Bell,

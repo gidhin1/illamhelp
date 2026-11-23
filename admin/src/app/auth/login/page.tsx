@@ -1,5 +1,7 @@
 "use client";
 
+import { formatUiError } from "@illamhelp/shared-types";
+
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
@@ -39,7 +41,7 @@ export default function AdminLoginPage(): React.JSX.Element {
       await applyAuthSession(session);
       router.replace("/");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Sign in failed");
+      setError(formatUiError(requestError, "Couldn’t sign in. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -52,7 +54,7 @@ export default function AdminLoginPage(): React.JSX.Element {
           <SectionHeader
             eyebrow="Admin"
             title="Sign in"
-            subtitle="Use an admin or support account to access moderation and privacy oversight tools."
+            subtitle="Sign in with your admin or support account."
           />
           <Card className="stack">
             <form onSubmit={onSubmit} className="stack">

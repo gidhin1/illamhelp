@@ -14,6 +14,7 @@ import {
   listJobsPage,
   listNotifications,
   listPublicApprovedMediaPage,
+  refreshSession,
   register,
   requestConsentAccess,
   searchConnections,
@@ -30,6 +31,20 @@ function jsonResponse(payload: unknown, status = 200): Response {
 describe("mobile API client", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("refreshes with a refresh token and preserves the rejection status", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ accessToken: "new-access", refreshToken: "rotated" }))
+      .mockResolvedValueOnce(jsonResponse({ message: "Invalid credentials" }, 401));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(refreshSession("old-refresh")).resolves.toMatchObject({ refreshToken: "rotated" });
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:4000/api/v1/auth/refresh", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ refreshToken: "old-refresh" })
+    }));
+    await expect(refreshSession("rejected")).rejects.toMatchObject({ status: 401 });
   });
 
   it("uses the iOS local API and encodes cursor requests", async () => {
@@ -180,5 +195,8 @@ describe("mobile API client", () => {
     await expect(listJobsPage("token")).rejects.toThrow("Network down (/jobs)");
     expect(formatDate(null)).toBe("-");
     expect(formatDate("not-a-date")).toBe("not-a-date");
+    expect(formatDate("2026-11-19 12:05:32.855548+03")).toBe(
+      formatDate("2026-11-19T09:05:32.855Z")
+    );
   });
 });

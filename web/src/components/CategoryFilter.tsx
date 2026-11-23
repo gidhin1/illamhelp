@@ -1,5 +1,7 @@
 "use client";
 
+import { ActionControl } from "@illamhelp/ui-web";
+
 import { useState } from "react";
 
 import { categories } from "@/lib/mock-data";
@@ -14,7 +16,7 @@ export function CategoryFilter(): JSX.Element {
         {categories.map((category) => {
           const selected = active === category.id;
           return (
-            <button
+            <ActionControl
               key={category.id}
               type="button"
               className="pill"
@@ -26,7 +28,7 @@ export function CategoryFilter(): JSX.Element {
               onClick={() => setActive(category.id)}
             >
               {category.label}
-            </button>
+            </ActionControl>
           );
         })}
       </div>

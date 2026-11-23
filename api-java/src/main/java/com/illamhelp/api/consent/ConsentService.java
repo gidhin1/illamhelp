@@ -116,8 +116,8 @@ public class ConsentService {
     String granteeUserId = requesterUserId;
     auditService.logEvent(ownerUserId, granteeUserId, "pii_access_granted", String.valueOf(purpose),
         Map.of("requestId", requestId, "grantId", grant.getId()));
-    notificationService.create(granteeUserId, "consent_grant_received", "Contact access granted",
-        "A member granted access to requested contact details.", Map.of("grantId", grant.getId()));
+    notificationService.create(granteeUserId, "consent_grant_received", "Contact details shared with you",
+        "Open Privacy to see which contact details the member shared.", Map.of("grantId", grant.getId()));
     return toGrantRecord(grant);
   }
 
@@ -130,8 +130,8 @@ public class ConsentService {
     String granteeUserId = revoked.getGranteeUserId();
     auditService.logEvent(ownerUserId, granteeUserId, "pii_access_revoked", revoked.getPurpose(),
         Map.of("grantId", grantId));
-    notificationService.create(granteeUserId, "consent_grant_revoked", "Contact access revoked",
-        "A member revoked contact access.", Map.of("grantId", grantId));
+    notificationService.create(granteeUserId, "consent_grant_revoked", "Contact sharing stopped",
+        "A member stopped sharing contact details with you.", Map.of("grantId", grantId));
     return toGrantRecord(revoked);
   }
 

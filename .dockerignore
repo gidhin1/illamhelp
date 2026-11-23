@@ -18,3 +18,10 @@ node_modules
 test-results
 tests/playwright/reports
 web/.next
+**/node_modules
+**/.next
+**/dist
+**/coverage
+mobile/android
+mobile/ios
+mobile/artifacts
