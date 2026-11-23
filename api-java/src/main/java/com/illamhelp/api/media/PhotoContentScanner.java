@@ -127,7 +127,8 @@ class PhotoContentScanner {
 
   static String runImageTool(List<String> command, byte[] image, int outputLimit, int timeoutSeconds, int threadLimit)
       throws IOException {
-    var builder = new ProcessBuilder(command);
+    // The command uses a deployment-configured executable and fixed arguments. Images go through stdin.
+    var builder = new ProcessBuilder(command); // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
     builder.redirectError(ProcessBuilder.Redirect.DISCARD);
     builder.environment().put("OMP_THREAD_LIMIT", Integer.toString(threadLimit));
     Process process = builder.start();

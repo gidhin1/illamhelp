@@ -192,7 +192,8 @@ class VideoContentScanner {
   }
 
   static byte[] run(List<String> command, int timeoutSeconds, boolean diagnostics) throws IOException {
-    var builder = new ProcessBuilder(command);
+    // Commands use configured tools, fixed options, and server-created paths inside the scan directory.
+    var builder = new ProcessBuilder(command); // nosemgrep: java.lang.security.audit.command-injection-process-builder.command-injection-process-builder
     if (diagnostics) {
       builder.redirectErrorStream(true);
     } else {

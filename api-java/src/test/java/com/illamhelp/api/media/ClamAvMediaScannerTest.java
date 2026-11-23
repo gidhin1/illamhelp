@@ -48,6 +48,19 @@ class ClamAvMediaScannerTest {
   }
 
   @Test
+  void rejectsPublicScannerAddressesBeforeReadingUploads() throws Exception {
+    var storage = mock(StorageService.class);
+    var scanner = new ClamAvMediaScanner(storage, "203.0.113.1", 3310,
+        mock(PhotoContentScanner.class), mock(VideoContentScanner.class));
+
+    assertThatThrownBy(() -> scanner.scan(Map.of(
+        "kind", "image", "checksumSha256", checksum(), "fileSizeBytes", CONTENT.length)))
+        .isInstanceOf(IOException.class)
+        .hasRootCauseMessage("ClamAV requires a private network endpoint");
+    org.mockito.Mockito.verifyNoInteractions(storage);
+  }
+
+  @Test
   void skipsVerificationDocuments() throws IOException {
     var scanner = new ClamAvMediaScanner(mock(StorageService.class), "unused", 3310, new PhotoContentScanner("", new VisualContentScanner("")), mock(VideoContentScanner.class));
     assertThat(scanner.scan(Map.of("purpose", "verification_document")).malware()).isEqualTo(ClamAvMediaScanner.Result.DISABLED);

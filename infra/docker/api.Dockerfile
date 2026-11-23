@@ -13,7 +13,6 @@ FROM eclipse-temurin:21-jre AS api-runtime
 WORKDIR /app
 RUN useradd --system --uid 10001 --home-dir /app illamhelp && rm -f /usr/bin/pebble
 EXPOSE 4000 9090
-ENTRYPOINT ["java", "-jar", "/app/api.jar"]
 
 FROM api-runtime AS speech-base
 ARG TARGETARCH
@@ -64,6 +63,7 @@ ENV VIDEO_WHISPER_EXECUTABLE=/usr/local/bin/whisper-cli \
 FROM speech-runtime AS speech
 COPY --from=build /workspace/api-java/target/api-0.1.0.jar /app/api.jar
 USER 10001
+ENTRYPOINT ["java", "-jar", "/app/api.jar"]
 
 FROM scratch AS visual-model
 ADD --checksum=sha256:cd8c0a19566f199b5c64da402f1d6a9daf80d094fe6536befb060a2cc59449c2 https://huggingface.co/Falconsai/nsfw_image_detection/resolve/96cb0d0342c7afb80cab76ecc58b265fa44da256/config.json /model/config.json
@@ -91,6 +91,7 @@ ENV PATH=/opt/illamhelp/visual-env/bin:$PATH \
 LABEL com.illamhelp.visual-model="Falconsai/nsfw_image_detection@96cb0d0342c7afb80cab76ecc58b265fa44da256"
 COPY --from=build /workspace/api-java/target/api-0.1.0.jar /app/api.jar
 USER 10001
+ENTRYPOINT ["java", "-jar", "/app/api.jar"]
 
 FROM api-runtime AS standard
 ARG INSTALL_PHOTO_OCR=false
@@ -107,3 +108,4 @@ RUN if [ "$INSTALL_VIDEO_SCREENING" = "true" ]; then \
     fi
 COPY --from=build /workspace/api-java/target/api-0.1.0.jar /app/api.jar
 USER 10001
+ENTRYPOINT ["java", "-jar", "/app/api.jar"]

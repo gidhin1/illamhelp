@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -108,10 +109,18 @@ class ClamAvMediaScanner {
 
   private Result scanBytes(Map<String, Object> asset, String checksum, long size, OutputStream captured)
       throws IOException {
+    InetAddress address = InetAddress.getByName(host);
+    byte[] addressBytes = address.getAddress();
+    boolean uniqueLocalIpv6 = addressBytes.length == 16 && (addressBytes[0] & 0xfe) == 0xfc;
+    if (!address.isLoopbackAddress() && !(addressBytes.length == 4 && address.isSiteLocalAddress())
+        && !uniqueLocalIpv6) {
+      throw new IOException("ClamAV requires a private network endpoint");
+    }
     return storage.readForScreening(String.valueOf(asset.get("bucketName")), String.valueOf(asset.get("objectKey")),
         input -> {
-          try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), 2000);
+          // ClamAV INSTREAM is plaintext and only connects to the validated private address.
+          try (Socket socket = new Socket()) { // nosemgrep: java.lang.security.audit.crypto.unencrypted-socket.unencrypted-socket
+            socket.connect(new InetSocketAddress(address, port), 2000);
             socket.setSoTimeout(15000);
             try (DataOutputStream output = new DataOutputStream(socket.getOutputStream())) {
               output.write("zINSTREAM\0".getBytes(StandardCharsets.US_ASCII));
