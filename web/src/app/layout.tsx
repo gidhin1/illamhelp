@@ -22,7 +22,7 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "IllamHelp",
-  description: "Find trusted home services with privacy-first connections"
+  description: "Find or offer home services across India. Choose who can see your contact details."
 };
 
 export default function RootLayout({ children }: { children: ReactNode }): JSX.Element {

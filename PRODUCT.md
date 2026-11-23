@@ -6,7 +6,7 @@ product
 
 ## Users
 
-IllamHelp serves households in Kerala and Tamil Nadu who need trusted help at home, service providers who want a reliable way to find work, and operations teams who review profiles, media, verification requests, and safety signals. Customer-facing web and mobile users are often trying to finish a practical task quickly: register, describe a service need, find suitable providers or jobs, agree on work, manage contact sharing, and track status without learning technical language.
+IllamHelp serves households across India who need trusted help at home, service providers who want a reliable way to find work, and operations teams who review profiles, media, verification requests, and safety signals. Customer-facing web and mobile users are often trying to finish a practical task quickly: register, describe a service need, find suitable providers or jobs, agree on work, manage contact sharing, and track status without learning technical language.
 
 Admins, moderators, support agents, and future operations staff need denser views, clear queues, decision history, and fast ways to act without losing the human context behind each case.
 

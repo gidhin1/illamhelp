@@ -991,7 +991,7 @@ export function JobsScreen({
                     latestDraftRef.current.locationText = value;
                     setLocationText(value);
                   }}
-                  placeholder="Kakkanad, Kochi"
+                  placeholder="Area and city, town or village"
                   testID="jobs-location"
                 />
                 <Text style={styles.fieldLabel}>Visibility</Text>
