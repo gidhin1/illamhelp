@@ -22,7 +22,7 @@ import {
   cancelBooking,
   closeBooking,
   completeBooking,
-  completeMediaUpload,
+  completeMediaUpload, requestMediaReview,
   createMediaUploadTicket,
   formatDate,
   getProfileByUserId,
@@ -724,6 +724,11 @@ export default function JobDetailPage(): JSX.Element {
                           inputRef={fileInputRef}
                           pendingItems={pendingReviewMedia(ownJobMedia.filter((asset) => asset.jobId === job.id && asset.state !== "uploaded"))}
                           rejectedItems={ownJobMedia.filter((asset) => asset.jobId === job.id && asset.state === "rejected")}
+                          onRequestReview={async (mediaId) => {
+                            if (!accessToken) throw new Error("Sign in to request a review.");
+                            const updated = await requestMediaReview(mediaId, accessToken);
+                            setOwnJobMedia((previous) => previous.map((asset) => asset.id === updated.id ? updated : asset));
+                          }}
                           error={mediaError}
                           success={mediaMessage}
                           uploading={uploadingMedia}

@@ -2,6 +2,8 @@ package com.illamhelp.api.storage;
 
 import com.illamhelp.api.config.AppProperties;
 import java.net.URI;
+import java.io.IOException;
+import java.io.InputStream;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -69,6 +71,24 @@ public class StorageService {
       HeadObjectResponse response = client.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
       return new UploadedObject(response.contentType(), response.contentLength(),
           response.metadata().get("checksum-sha256"), response.eTag());
+    }
+  }
+
+  @FunctionalInterface
+  public interface ObjectReader<T> {
+    T read(InputStream input) throws IOException;
+  }
+
+  public <T> T readForScreening(String bucket, String key, ObjectReader<T> reader) throws IOException {
+    try (S3Client client = client();
+        var object = client.getObject(GetObjectRequest.builder().bucket(bucket).key(key)
+            .overrideConfiguration(config -> config.apiCallTimeout(Duration.ofSeconds(60))
+                .apiCallAttemptTimeout(Duration.ofSeconds(45))).build())) {
+      try {
+        return reader.read(object);
+      } finally {
+        object.abort();
+      }
     }
   }
 

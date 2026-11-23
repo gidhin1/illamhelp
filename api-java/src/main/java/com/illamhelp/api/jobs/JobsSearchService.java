@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -18,6 +19,13 @@ public class JobsSearchService {
   private final RestClient restClient;
   private volatile boolean indexReady;
   private volatile long indexRetryAfterMs;
+
+  @Value("${illamhelp.job-search-provider}")
+  private String searchProvider;
+
+  boolean usePostgresRanking() {
+    return "postgresql".equals(searchProvider);
+  }
 
   public JobsSearchService(AppProperties properties, RestClient.Builder builder) {
     this.properties = properties;

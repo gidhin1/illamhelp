@@ -9,6 +9,7 @@ option java_outer_classname = "MediaApiProto";
 service MediaService {
   rpc CreateUploadTicket(CreateUploadTicketRequest) returns (UploadTicket);
   rpc CompleteUpload(CompleteUploadRequest) returns (MediaAsset);
+  rpc RequestMediaReview(RequestMediaReviewRequest) returns (MediaAsset);
   rpc ListMyMedia(ListMyMediaRequest) returns (MediaPage);
   rpc ListProfileMedia(ListProfileMediaRequest) returns (DownloadableMediaPage);
   rpc ListJobMedia(ListJobMediaRequest) returns (DownloadableMediaPage);
@@ -66,6 +67,10 @@ message UploadTicket {
   string object_key = 6;
 }
 
+message RequestMediaReviewRequest {
+  string media_id = 1;
+}
+
 message CompleteUploadRequest {
   string media_id = 1;
   string etag = 2;
@@ -108,6 +113,9 @@ message MediaAsset {
   MediaState state = 12;
   string created_at = 13;
   string updated_at = 14;
+  string rejection_reason_code = 15;
+  string rejection_message = 16;
+  bool appeal_eligible = 17;
 }
 
 message DownloadableMedia {

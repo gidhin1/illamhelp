@@ -1,0 +1,4 @@
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.12.0%2Bcpu-cp314-cp314-manylinux_2_28_aarch64.whl#sha256=797c066367792c92eb97cafba7fd0caa8d7455e6078a4ee880630077378dc372 ; platform_machine == "aarch64"
+torch @ https://download-r2.pytorch.org/whl/cpu/torch-2.12.0%2Bcpu-cp314-cp314-manylinux_2_28_x86_64.whl#sha256=a8f419ce3f25388d36e67153ec63b3a1b17059c49f5a7759a7e91ac4843660d3 ; platform_machine == "x86_64"
+transformers==5.24.0
+Pillow==13.0.0

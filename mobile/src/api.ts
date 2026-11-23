@@ -199,6 +199,9 @@ export interface MediaAssetRecord {
   state: MediaState;
   createdAt: string;
   updatedAt: string;
+  rejectionReasonCode?: string | null;
+  rejectionMessage?: string | null;
+  appealEligible?: boolean;
 }
 
 export interface UploadTicketRecord {
@@ -885,6 +888,10 @@ export function listOwnJobMedia(jobId: string, accessToken: string): Promise<Med
 
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
   return listMyMediaPage(accessToken).then((payload) => normalizeListPayload(payload));
+}
+
+export async function requestMediaReview(mediaId: string, accessToken: string): Promise<MediaAssetRecord> {
+  return mediaClient.requestMediaReview(mediaId, accessToken);
 }
 
 export function listMyMediaPage(accessToken: string, cursor?: string): Promise<CursorPageResponse<MediaAssetRecord>> {

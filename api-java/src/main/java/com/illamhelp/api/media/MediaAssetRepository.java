@@ -9,18 +9,53 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UUID> {
-  @Query(value = """
+  String APPEAL_ELIGIBLE = """
+      purpose IN ('profile', 'job') AND state = 'rejected'::media_state
+      AND moderation_reason_codes[array_upper(moderation_reason_codes, 1)] = 'technical_photo_format_mismatch'
+      AND EXISTS (SELECT 1 FROM moderation_jobs automated WHERE automated.media_asset_id = ma.id
+        AND automated.stage = 'ai_review' AND automated.status = 'rejected'
+        AND automated.reason_code = 'technical_photo_format_mismatch')
+      AND NOT EXISTS (SELECT 1 FROM moderation_jobs reviewed WHERE reviewed.media_asset_id = ma.id
+        AND reviewed.stage = 'human_review')
+      """;
+
+  String OWNED_MEDIA = """
       SELECT id, owner_user_id AS "ownerUserId", profile_user_id AS "profileUserId", job_id AS "jobId",
              purpose::text, kind::text, bucket_name AS "bucketName",
              object_key AS "objectKey", content_type AS "contentType", file_size_bytes AS "fileSizeBytes",
-             checksum_sha256 AS "checksumSha256", state::text, created_at AS "createdAt", updated_at AS "updatedAt"
-      FROM media_assets WHERE owner_user_id = cast(:userId as uuid)
+             checksum_sha256 AS "checksumSha256", state::text, created_at AS "createdAt", updated_at AS "updatedAt",
+             CASE WHEN state = 'rejected'::media_state THEN
+               moderation_reason_codes[array_upper(moderation_reason_codes, 1)] END AS "rejectionReasonCode",
+             coalesce((
+      """ + APPEAL_ELIGIBLE + """
+      ), false) AS "appealEligible"
+      FROM media_assets ma WHERE owner_user_id = cast(:userId as uuid)
+      """;
+
+  @Query(value = OWNED_MEDIA + """
         AND (cast(:cursorCreatedAt as text) IS NULL
           OR (created_at, id) < (cast(:cursorCreatedAt as timestamptz), cast(:cursorId as uuid)))
       ORDER BY created_at DESC, id DESC LIMIT :limit
       """, nativeQuery = true)
   List<Map<String, Object>> listMine(@Param("userId") String userId, @Param("cursorCreatedAt") String cursorCreatedAt,
       @Param("cursorId") String cursorId, @Param("limit") int limit);
+
+  @Query(value = OWNED_MEDIA + " AND id = cast(:mediaId as uuid)", nativeQuery = true)
+  Map<String, Object> findOwnedMedia(@Param("userId") String userId, @Param("mediaId") String mediaId);
+
+  @Modifying
+  @Query(value = """
+      WITH appealed AS (
+        UPDATE media_assets ma SET state = 'appeal_pending'::media_state, updated_at = now()
+        WHERE ma.id = cast(:mediaId as uuid) AND owner_user_id = cast(:userId as uuid) AND (
+      """ + APPEAL_ELIGIBLE + """
+        )
+        RETURNING id
+      )
+      INSERT INTO moderation_jobs (media_asset_id, stage, status, details)
+      SELECT id, 'human_review', 'pending', '{"source":"owner_appeal"}'::jsonb FROM appealed
+      """, nativeQuery = true)
+  int enqueueOwnerAppeal(@Param("userId") String userId, @Param("mediaId") String mediaId);
 
   @Query(value = """
       SELECT id, owner_user_id AS "ownerUserId", profile_user_id AS "profileUserId", job_id AS "jobId",
@@ -164,17 +199,42 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
   @Query(value = """
       WITH candidate AS (
         SELECT id FROM moderation_jobs
-        WHERE status = 'pending'::moderation_status
-          AND stage IN ('technical_validation'::moderation_stage, 'ai_review'::moderation_stage)
+        WHERE EXISTS (SELECT 1 FROM media_assets asset
+          WHERE asset.id = media_asset_id AND asset.state = 'scanning'::media_state)
+          AND ((status = 'pending'::moderation_status AND screening_available_at <= now()
+            AND stage IN ('technical_validation'::moderation_stage, 'ai_review'::moderation_stage))
+          OR (status = 'running'::moderation_status AND stage = 'ai_review'::moderation_stage
+            AND screening_lease_until <= now()))
         ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE SKIP LOCKED
       ), claimed AS (
-        UPDATE moderation_jobs mj SET status = 'running'::moderation_status
+        UPDATE moderation_jobs mj SET status = 'running'::moderation_status,
+          screening_lease_token = gen_random_uuid(),
+          screening_lease_until = now() + interval '3 minutes',
+          screening_attempts = screening_attempts + 1
         FROM candidate c WHERE mj.id = c.id
-        RETURNING mj.id, mj.media_asset_id, mj.stage
+        RETURNING mj.id, mj.media_asset_id, mj.stage, mj.screening_lease_token, mj.screening_attempts
       )
-      SELECT id::text, media_asset_id::text AS "mediaId", stage::text FROM claimed
+      SELECT id::text, media_asset_id::text AS "mediaId", stage::text, screening_lease_token::text AS "leaseToken",
+             screening_attempts AS "attempts" FROM claimed
       """, nativeQuery = true)
   Map<String, Object> claimNextAutomatedJob();
+
+  @Query(value = """
+      SELECT id::text FROM moderation_jobs
+      WHERE id = cast(:id as uuid) AND status = 'running'::moderation_status
+        AND screening_lease_token = cast(:lease as uuid) AND screening_lease_until > now()
+      FOR UPDATE
+      """, nativeQuery = true)
+  String lockScreeningLease(@Param("id") String id, @Param("lease") String lease);
+
+  @Modifying
+  @Query(value = """
+      UPDATE moderation_jobs SET status = 'pending'::moderation_status,
+        screening_available_at = now() + make_interval(mins => :delay),
+        screening_lease_until = NULL, screening_lease_token = NULL
+      WHERE id = cast(:id as uuid)
+      """, nativeQuery = true)
+  void retryScreening(@Param("id") String id, @Param("delay") int delayMinutes);
 
   @Modifying
   @Query(value = """
@@ -206,7 +266,7 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
           moderation_reason_codes = CASE WHEN cast(:reasonCode as text) IS NULL THEN moderation_reason_codes
             WHEN moderation_reason_codes @> ARRAY[cast(:reasonCode as text)] THEN moderation_reason_codes
             ELSE array_append(moderation_reason_codes, cast(:reasonCode as text)) END, updated_at = now()
-        WHERE id = cast(:mediaId as uuid) AND state = 'human_review_pending'::media_state
+        WHERE id = cast(:mediaId as uuid) AND state IN ('human_review_pending'::media_state, 'appeal_pending'::media_state)
         RETURNING id, owner_user_id, profile_user_id, job_id, purpose, kind, bucket_name, object_key, content_type, file_size_bytes,
                   checksum_sha256, state, created_at, updated_at
       )
@@ -297,7 +357,9 @@ public interface MediaAssetRepository extends JpaRepository<MediaAssetEntity, UU
   void enqueueModerationStage(@Param("mediaId") String mediaId, @Param("stage") String stage, @Param("details") String details);
 
   @Query(value = """
-      SELECT owner_user_id AS "ownerUserId", object_key AS "objectKey", content_type AS "contentType"
+      SELECT owner_user_id AS "ownerUserId", object_key AS "objectKey", bucket_name AS "bucketName",
+             content_type AS "contentType", purpose::text, kind::text, file_size_bytes AS "fileSizeBytes",
+             checksum_sha256 AS "checksumSha256"
       FROM media_assets WHERE id = cast(:id as uuid)
       """, nativeQuery = true)
   Map<String, Object> findAiMedia(@Param("id") String mediaId);

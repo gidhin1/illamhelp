@@ -61,9 +61,51 @@ const reviewReasons = [
 ];
 
 function stateLabel(value: string): string {
+  if (value === "appeal_pending") return "Appeal pending";
   if (value === "human_review_pending") return "Human review pending";
   const label = value.replaceAll("_", " ");
   return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function screeningLabel(value: string): string {
+  const labels: Record<string, string> = {
+    clean: "No malware detected",
+    unverified: "File checksum could not be verified",
+    decoded: "Photo decoded",
+    animated_photo: "Animation needs review",
+    format_mismatch: "File format mismatch",
+    technical_photo_format_mismatch: "File format mismatch",
+    malware_detected: "Malware detected",
+    no_candidate: "No contact details flagged",
+    contact_candidate: "Possible contact details",
+    ambiguous_number: "Number needs review",
+    not_run: "Check not run",
+    disabled: "Check not run",
+    unavailable: "Check unavailable",
+    no_candidate_in_sample: "No contact details flagged in sampled frames",
+    incomplete_frame_check: "Frame check incomplete",
+    outside_screening_limits: "Video exceeds screening limits",
+    audio_not_checked: "Audio track found. Listen during review.",
+    no_audio_stream: "No audio track found",
+    silent_audio: "Decoded audio is silent",
+    multiple_audio_tracks: "Multiple audio tracks. Check each track.",
+    unsupported_audio_language: "Audio language needs review",
+    speech_unconfirmed: "Speech could not be confirmed",
+    spoken_contact_candidate: "Possible spoken contact details",
+    spoken_number_needs_review: "Spoken number needs review",
+    no_contact_in_transcript: "No contact details flagged in transcript",
+    possible_explicit_imagery: "Possible explicit imagery",
+    no_visual_candidate: "No explicit imagery flagged",
+    incomplete_visual_check: "Visual check incomplete",
+    below_50: "Below 50%",
+    "50_to_89": "50% to below 90%",
+    "90_or_above": "90% or higher",
+    no_scene_sample: "No scene change sampled",
+    scene_sampled: "Scene change sampled",
+    scene_already_sampled: "Scene change covered by a spaced sample",
+    scene_timestamp_unavailable: "Scene timestamp unavailable"
+  };
+  return labels[value] ?? stateLabel(value);
 }
 
 function profileName(profile: ProfileRecord | null | undefined, userId: string): string {
@@ -258,7 +300,7 @@ function ModerationContent(): React.JSX.Element {
       if (selectedMediaId) refreshDetails();
       setBanner({
         tone: "success",
-        message: `Processed ${result.processed} jobs (${result.technicalApproved} technical approvals, ${result.aiCompleted} AI decisions).`
+        message: `Processed ${result.processed} jobs (${result.technicalApproved} technical approvals, ${result.aiCompleted} routed to review).`
       });
     } catch (requestError) {
       setBanner({ tone: "error", message: formatUiError(requestError, "Couldn’t run automated checks. Try again.") });
@@ -297,6 +339,22 @@ function ModerationContent(): React.JSX.Element {
       setSubmitting(false);
     }
   }
+
+  const screening = details?.moderationJobs.filter((job) => job.stage === "ai_review" &&
+    (typeof job.details?.malwareCheck === "string" || job.reasonCode === "malware_detected" ||
+      job.reasonCode === "technical_photo_format_mismatch")).at(-1);
+  const screeningChecks = [
+    ["Malware", screening?.reasonCode === "malware_detected" ? "malware_detected" : screening?.details.malwareCheck],
+    ["Photo format", screening?.reasonCode === "technical_photo_format_mismatch"
+      ? "format_mismatch" : screening?.details.photoValidation],
+    ["Visible contact details", screening?.details.contactCheck],
+    ["Photo visual check", screening?.details.visualCheck],
+    ["Sampled video frames", screening?.details.videoFrames],
+    ["Video visual check", screening?.details.videoVisualCheck],
+    ["Visual model score band", screening?.details.visualConfidence],
+    ["Scene changes", screening?.details.videoSceneCheck],
+    ["Video audio", screening?.details.videoAudio]
+  ] as const;
 
   const canReview = details?.moderationJobs.some((job) => job.stage === "human_review" && job.status === "pending") ?? false;
   const recordedReview = details?.moderationJobs.find((job) => job.stage === "human_review" && (job.status === "approved" || job.status === "rejected"));
@@ -438,6 +496,45 @@ function ModerationContent(): React.JSX.Element {
                   </div>
                 </div>
 
+                {screening ? (
+                  <section className="stack" aria-labelledby="moderation-screening-title">
+                    <h3 id="moderation-screening-title">Screening results</h3>
+                    <dl className="admin-screening-results">
+                      {screeningChecks.map(([label, result]) => typeof result === "string" ? (
+                        <div key={label}><dt>{label}</dt><dd>{screeningLabel(result)}</dd></div>
+                      ) : null)}
+                    </dl>
+                    {typeof screening.details.videoFrameCount === "string" ? (
+                      <p className="muted-text">Frames sampled {screening.details.videoFrameCount}</p>
+                    ) : null}
+                    {typeof screening.details.videoVisualFrameCount === "string" ? (
+                      <p className="muted-text">Frames checked for explicit imagery {screening.details.videoVisualFrameCount}</p>
+                    ) : null}
+                    {typeof screening.details.videoVisualFlaggedSeconds === "string" ? (
+                      <p className="muted-text">
+                        Visual flags near {screening.details.videoVisualFlaggedSeconds.split(",").map((time) => `${time}s`).join(", ")}
+                      </p>
+                    ) : null}
+                    {typeof screening.details.visualDetector === "string" ? (
+                      <p className="muted-text">Visual detector {screening.details.visualDetector}</p>
+                    ) : null}
+                    {typeof screening.details.videoFlaggedSeconds === "string" ? (
+                      <p className="muted-text">
+                        Frames flagged at {screening.details.videoFlaggedSeconds.split(",").map((time) => `${time}s`).join(", ")}
+                      </p>
+                    ) : null}
+                    {typeof screening.details.videoAudioFlaggedSeconds === "string" ? (
+                      <p className="muted-text">Listen near {screening.details.videoAudioFlaggedSeconds}s</p>
+                    ) : null}
+                    {typeof screening.details.videoAudioDetector === "string" ? (
+                      <p className="muted-text">Speech detector {screening.details.videoAudioDetector}</p>
+                    ) : null}
+                    {typeof screening.details.contactDetector === "string" ? (
+                      <p className="muted-text">Text detector {screening.details.contactDetector}</p>
+                    ) : null}
+                  </section>
+                ) : null}
+
                 <section className="stack" aria-labelledby="media-evidence-title" data-testid="moderation-media-preview">
                   <h3 id="media-evidence-title">Upload evidence</h3>
                   {showPreview && loadingDetails ? <p role="status" className="muted-text">Loading preview…</p> : showPreview ? (
@@ -457,7 +554,10 @@ function ModerationContent(): React.JSX.Element {
 
                 {canReview ? (
                   <div className="stack admin-review-form">
-                    <h3>Record a decision</h3>
+                    <h3>{details.media.state === "appeal_pending" ? "Decide owner appeal" : "Record a decision"}</h3>
+                    {details.media.state === "appeal_pending" ? (
+                      <p className="muted-text">The owner requested another review. The upload stays hidden until approved.</p>
+                    ) : null}
                     <Field label="Rejection reason" hint="Required to reject this upload.">
                       <SelectInput data-testid="moderation-reason-code" value={reasonCode} onChange={(event) => setReasonCode(event.target.value)}>
                         <option value="">Choose a reason</option>
@@ -489,8 +589,12 @@ function ModerationContent(): React.JSX.Element {
                   {details.moderationJobs.map((job) => (
                     <div key={job.id} className="admin-review-job-log-row">
                       <div>
-                        <div style={{ fontWeight: 600, color: "var(--ink)", textTransform: "capitalize" }}>{stateLabel(job.stage)}</div>
-                        {job.reasonCode ? <div className="muted-text">Reason: {job.reasonCode}</div> : null}
+                        <div style={{ fontWeight: 600, color: "var(--ink)", textTransform: "capitalize" }}>{job.details?.source === "owner_appeal" ? "Owner appeal" : job.stage === "ai_review"
+                          ? job.details?.screeningStatus === "human_review_required"
+                            ? "Routed to human review"
+                            : job.details?.aiScores ? "Historical simulated scores" : stateLabel(job.stage)
+                          : stateLabel(job.stage)}</div>
+                        {job.reasonCode ? <div className="muted-text">{screeningLabel(job.reasonCode)}</div> : null}
                       </div>
                       <span className="pill" style={{ padding: "2px 8px" }}>{job.status}</span>
                     </div>

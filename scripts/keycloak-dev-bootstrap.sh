@@ -75,11 +75,13 @@ if [[ -z "${KEYCLOAK_CLIENT_SECRET}" && -f "${ENV_FILE}" ]]; then
   KEYCLOAK_CLIENT_SECRET="$(read_env_value "KEYCLOAK_CLIENT_SECRET" "${ENV_FILE}")"
 fi
 
-KEYCLOAK_ADMIN_USER="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
-KEYCLOAK_ADMIN_PASSWORD="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
+KEYCLOAK_ADMIN_USER="$(docker exec "${CONTAINER_NAME}" printenv KC_BOOTSTRAP_ADMIN_USERNAME 2>/dev/null ||
+  docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
+KEYCLOAK_ADMIN_PASSWORD="$(docker exec "${CONTAINER_NAME}" printenv KC_BOOTSTRAP_ADMIN_PASSWORD 2>/dev/null ||
+  docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
 
 if [[ -z "${KEYCLOAK_ADMIN_USER}" || -z "${KEYCLOAK_ADMIN_PASSWORD}" ]]; then
-  echo "KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD are not set in the running Keycloak container."
+  echo "Bootstrap admin credentials are missing in the running Keycloak container."
   echo "Set them in .env, then run: make down && make up-auth"
   exit 1
 fi

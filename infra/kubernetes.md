@@ -76,10 +76,38 @@ GitHub Actions builds API, web, and admin images from:
 Images are scanned with Trivy. On branch pushes, CI publishes to GHCR as:
 
 - `ghcr.io/gidhin1/illamhelp/api:<sha>`
+- `ghcr.io/gidhin1/illamhelp/api-speech:<sha>`
+- `ghcr.io/gidhin1/illamhelp/api-visual:<sha>`
 - `ghcr.io/gidhin1/illamhelp/web:<sha>`
 - `ghcr.io/gidhin1/illamhelp/admin:<sha>`
 
 Pull requests build and scan images without requiring live cluster credentials.
+
+## Video speech screening
+
+Use the same local kind and Helm commands to enable speech screening. Run these after `make k8s-create`.
+
+```bash
+make k8s-build-load K8S_API_TARGET=speech
+make k8s-up K8S_API_TARGET=speech
+make k8s-smoke
+```
+
+The local deployment selects the speech API tag and the ClamAV service from the infrastructure release. For a hosted Helm deployment, use `images.api.repository=ghcr.io/gidhin1/illamhelp/api-speech`, set `images.api.tag` to the CI build SHA and `config.clamavHost` to your ClamAV service. `config.clamavPort` defaults to 3310. The image includes FFmpeg, English and Malayalam OCR, whisper.cpp v1.9.5, and the pinned multilingual tiny model. Speech results are evidence for staff review.
+
+Use the existing Helm rollback command to restore a prior release. For local kind, running the standard build and up commands selects the standard API image again.
+
+## Visual screening
+
+The visual API image includes the speech and OCR tools plus the pinned Falconsai model. It runs the model locally and records its findings for staff review.
+
+```bash
+make k8s-build-load K8S_API_TARGET=visual
+make k8s-up K8S_API_TARGET=visual
+make k8s-smoke
+```
+
+For hosted Helm deployments, use `charts/illamhelp-app/values-visual.yaml` with `images.api.repository=ghcr.io/gidhin1/illamhelp/api-visual`, the CI build SHA as `images.api.tag`, and the reachable ClamAV service as `config.clamavHost`. The visual overlay requests 1 CPU and 1 GiB of memory and sets limits of 2 CPU and 2 GiB for initial evaluation. Use the existing Helm rollback command or select the speech image to disable the visual model.
 
 ## Production Notes
 

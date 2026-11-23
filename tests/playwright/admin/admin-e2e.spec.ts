@@ -1,5 +1,6 @@
 import { expect, Locator, Page, test } from "@playwright/test";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import { openSignedOutMemberHome, E2eUser, makeUser, parseMemberId } from "../utils/flow-helpers";
 
@@ -126,12 +127,12 @@ async function openWebAuthEntry(page: Page, mode: "register" | "login"): Promise
     await analyticsChoice.getByRole("button", { name: "Decline analytics" }).click();
   }
   if (mode === "register") {
-    await page.getByRole("link", { name: /join now|sign up|create account|register/i }).first().click();
+    await page.getByRole("main").getByRole("link", { name: "Create account", exact: true }).first().click();
     await expect(page.getByLabel("First name")).toBeVisible();
     return;
   }
 
-  await page.getByRole("link", { name: /sign in/i }).first().click();
+  await page.getByRole("main").getByRole("link", { name: "Sign in", exact: true }).first().click();
   await expect(page.getByLabel("Username or email")).toBeVisible();
 }
 
@@ -534,15 +535,36 @@ for (const outcome of verificationOutcomes) {
   });
 }
 
+async function openApprovedProfileMedia(page: Page, memberId: string): Promise<void> {
+  const ownerInput = page.getByTestId("profile-public-owner-input");
+  if (!(await ownerInput.isVisible())) {
+    await page.getByText("Preview a member’s approved media", { exact: true }).click();
+  }
+  // Profile loading supplies the default member ID. Wait before replacing it.
+  await expect(ownerInput).not.toHaveValue("");
+  await ownerInput.fill(memberId);
+  const galleryLoaded = page.waitForResponse(response =>
+    response.url().endsWith("/ListProfileMedia") && response.ok()
+  );
+  const viewApproved = page.getByRole("button", { name: "View approved media", exact: true });
+  await viewApproved.click();
+  await galleryLoaded;
+  await expect(viewApproved).toBeEnabled();
+  await expect(ownerInput).toHaveValue(memberId);
+}
+
 for (const [media, decision] of [["profile", "approved"], ["job", "approved"], ["profile", "rejected"]] as const) {
   const approved = decision === "approved";
   const scenario = approved ? `admin approves a ${media} video and a member can play it` : "admin rejects a profile video and keeps it out of the approved gallery";
   test(scenario, async ({ browser }) => {
-    test.setTimeout(30_000);
+    const speechFixture = !approved ? process.env.PW_VIDEO_SPEECH_FIXTURE : undefined;
+    const verifyVisual = !approved && process.env.PW_MEDIA_VISUAL === "true";
+    test.setTimeout(speechFixture || verifyVisual ? 120_000 : 30_000);
     const member = makeUser(media === "profile" ? "provider" : "both");
     const adminUser = readAdminPortalUser();
     const memberPage = await browser.newPage();
     const adminPage = await browser.newPage();
+    const viewerPage = speechFixture ? await browser.newPage() : undefined;
 
     try {
       await registerWebUser(memberPage, member);
@@ -564,11 +586,12 @@ for (const [media, decision] of [["profile", "approved"], ["job", "approved"], [
       }
 
       await memberPage.getByLabel(media === "job" ? "Choose job photos or videos" : "Choose photos or videos").setInputFiles(
-        path.resolve("tests/playwright/fixtures", media === "profile" ? "service-proof-video.mp4" : "sample-video-640x360.mp4")
+        speechFixture ?? path.resolve("tests/playwright/fixtures", media === "profile" ? "service-proof-video.mp4" : "sample-video-640x360.mp4")
       );
       await memberPage.getByRole("button", { name: "Upload for review", exact: true }).click();
       if (media === "profile") {
         await expect(memberPage.getByTestId("profile-media-upload-pending")).toContainText("Video");
+        await expect(memberPage.getByText(/uploaded for review/i).first()).toBeVisible();
       } else {
         await expect(memberPage.getByRole("status")).toContainText("1 job file uploaded for review.");
         const pending = memberPage.getByTestId("job-media-upload-pending");
@@ -579,14 +602,42 @@ for (const [media, decision] of [["profile", "approved"], ["job", "approved"], [
 
       await loginAdminPortalByUi(adminPage, adminUser);
       await clickAdminNav(adminPage, "Moderation");
+      await adminPage.getByTestId("moderation-queue-search").fill(member.username);
       await adminPage.getByRole("button", { name: "Run automated checks" }).click();
 
-      await adminPage.getByTestId("moderation-queue-search").fill(member.username);
       const queue = adminPage.getByRole("region", { name: "Moderation queue" });
       const reviewItem = queue.getByRole("button").filter({
         hasText: new RegExp(`${member.firstName} ${member.lastName}.*human review pending`, "i")
       });
+      // The scheduled worker can finish a claimed upload after the manual check returns.
+      await expect(async () => {
+        if (!(await reviewItem.isVisible())) {
+          await adminPage.getByRole("button", { name: "Refresh queue", exact: true }).click({ timeout: 3000 });
+        }
+        await expect(reviewItem).toBeVisible({ timeout: 1500 });
+      }).toPass({ timeout: verifyVisual ? 75_000 : 12_000, intervals: [500, 1000] });
       await reviewItem.click();
+      await expect(adminPage.getByRole("heading", { name: "Screening results" })).toBeVisible();
+      if (verifyVisual) {
+        const evidence = adminPage.getByRole("region", { name: "Screening results" });
+        await expect(evidence.getByText("Video visual check", { exact: true })).toBeVisible();
+        await expect(evidence.getByText(/Visual detector Falconsai · [a-f0-9]{7}/)).toBeVisible();
+        await expect(evidence.getByText(/Frames checked for explicit imagery [1-4]/)).toBeVisible();
+      }
+      if (speechFixture) {
+        const evidence = adminPage.getByRole("region", { name: "Screening results" });
+        await expect(evidence.getByText("No malware detected", { exact: true })).toBeVisible();
+        await expect(evidence.getByText("Possible spoken contact details", { exact: true })).toBeVisible();
+        await expect(evidence.getByText(/Listen near \d+\.\d{2}s/)).toBeVisible();
+        await expect(evidence.getByText("Speech detector whisper.cpp", { exact: true })).toBeVisible();
+        await expect(evidence).not.toContainText(/call me at|987[\s.-]*654[\s.-]*3210/i);
+      }
+      if (viewerPage) {
+        await registerWebUser(viewerPage, makeUser("both"));
+        await clickWebNav(viewerPage, "Profile");
+        await openApprovedProfileMedia(viewerPage, memberId);
+        await expect(viewerPage.getByText("Connect with this member to see their approved photos and videos.")).toBeVisible();
+      }
       const preview = adminPage.getByTestId("moderation-preview-video");
       await expect(preview).toHaveCount(0);
       await adminPage.getByRole("button", { name: "Preview upload", exact: true }).click();
@@ -616,21 +667,32 @@ for (const [media, decision] of [["profile", "approved"], ["job", "approved"], [
         .getByRole("cell", { name: "media_human_review_decided" })).toBeVisible();
 
       if (media === "profile") {
-        await memberPage.getByText("Preview a member’s approved media", { exact: true }).click();
-        await memberPage.getByTestId("profile-public-owner-input").fill(memberId);
-        const galleryLoaded = memberPage.waitForResponse(response =>
-          response.url().endsWith("/ListProfileMedia") && response.ok()
-        );
-        const viewApproved = memberPage.getByRole("button", { name: "View approved media", exact: true });
-        await viewApproved.click();
-        await galleryLoaded;
-        await expect(viewApproved).toBeEnabled();
+        await openApprovedProfileMedia(memberPage, memberId);
       } else {
         await memberPage.getByRole("button", { name: "Refresh job media" }).click();
         await expect(memberPage.getByTestId("job-media-upload-pending")).toHaveCount(0);
       }
       if (!approved) {
         await expect(memberPage.getByTestId("profile-public-media-grid-empty")).toBeVisible();
+        if (viewerPage) {
+          await openApprovedProfileMedia(viewerPage, memberId);
+          await expect(viewerPage.getByText("Connect with this member to see their approved photos and videos.")).toBeVisible();
+        }
+        await memberPage.reload();
+        const rejected = memberPage.getByTestId("profile-media-upload-rejected");
+        const originalViewport = memberPage.viewportSize();
+        for (const width of [1440, 1024, 768, 390, 320]) {
+          await memberPage.setViewportSize({ width, height: 900 });
+          await expect(rejected).toContainText("Video was not approved");
+          await expect(rejected).toContainText("This upload stays hidden");
+          await expect(rejected.getByRole("button", { name: "Request review" })).toHaveCount(0);
+          expect(await rejected.evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(
+            await rejected.evaluate((element) => element.clientWidth) + 1
+          );
+        }
+        if (originalViewport) await memberPage.setViewportSize(originalViewport);
+        const mobileNavigation = memberPage.getByRole("button", { name: "Open navigation" });
+        if (await mobileNavigation.isVisible()) await mobileNavigation.click();
         await clickWebNav(memberPage, "Alerts");
         await expect(memberPage.getByRole("heading", { name: "Media rejected", exact: true })).toBeVisible();
         return;
@@ -642,6 +704,49 @@ for (const [media, decision] of [["profile", "approved"], ["job", "approved"], [
     } finally {
       await memberPage.close();
       await adminPage.close();
+      await viewerPage?.close();
     }
   });
 }
+
+
+test("member requests review of an automatically rejected photo", async ({ browser }) => {
+  test.skip(process.env.PW_MEDIA_APPEAL !== "true", "Requires a locally configured ClamAV scanner");
+  test.setTimeout(60_000);
+  const member = makeUser("provider");
+  const memberPage = await browser.newPage();
+  const adminPage = await browser.newPage();
+  try {
+    await registerWebUser(memberPage, member);
+    await clickWebNav(memberPage, "Profile");
+    await memberPage.getByLabel("Choose photos or videos").setInputFiles({
+      name: "format-check.jpg",
+      mimeType: "image/jpeg",
+      buffer: await readFile(path.resolve("tests/playwright/fixtures/service-proof-sink.png"))
+    });
+    await memberPage.getByRole("button", { name: "Upload for review", exact: true }).click();
+    await expect(memberPage.getByText(/uploaded for review/i).first()).toBeVisible();
+
+    const rejected = memberPage.getByTestId("profile-media-upload-rejected");
+    await expect(async () => {
+      await memberPage.reload();
+      await expect(rejected.getByRole("button", { name: "Request review" })).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 25_000, intervals: [1000, 2000] });
+    await memberPage.setViewportSize({ width: 390, height: 844 });
+    await rejected.getByRole("button", { name: "Request review" }).click();
+    await expect(memberPage.getByText("Review requested. Your upload stays hidden while we review it.")).toBeVisible();
+    await expect(memberPage.getByTestId("profile-media-upload-pending")).toContainText("Review requested");
+
+    await loginAdminPortalByUi(adminPage, readAdminPortalUser());
+    await clickAdminNav(adminPage, "Moderation");
+    await adminPage.getByTestId("moderation-queue-search").fill(member.username);
+    await adminPage.getByRole("region", { name: "Moderation queue" }).getByRole("button")
+      .filter({ hasText: "Appeal pending" }).click();
+    await expect(adminPage.getByRole("heading", { name: "Decide owner appeal" })).toBeVisible();
+    await expect(adminPage.getByRole("heading", { name: "Screening results" })).toBeVisible();
+    await expect(adminPage.getByText("File format mismatch", { exact: true }).first()).toBeVisible();
+  } finally {
+    await memberPage.close();
+    await adminPage.close();
+  }
+});

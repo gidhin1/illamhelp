@@ -1,17 +1,18 @@
 "use client";
 
+import { mediaAppealError, mediaAppealReceipt, pendingMediaReviewLabel } from "@illamhelp/shared-types";
 import { ActionControl } from "@illamhelp/ui-web";
 import { FilePicker } from "./FilePicker";
 
 import type { CSSProperties } from "react";
-import { ChangeEvent, RefObject, useMemo } from "react";
+import { ChangeEvent, RefObject, useMemo, useState } from "react";
 
 import { formatDate, MediaAssetRecord, PublicMediaAssetRecord } from "@/lib/api";
 import { Banner, Button } from "@/components/ui/primitives";
 
 type OwnerMedia = MediaAssetRecord | PublicMediaAssetRecord;
 
-const REVIEW_STATES = new Set(["uploaded", "scanning", "ai_reviewed", "human_review_pending"]);
+const REVIEW_STATES = new Set(["uploaded", "scanning", "ai_reviewed", "human_review_pending", "appeal_pending"]);
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -27,10 +28,6 @@ function fileKindLabel(file: File): string {
 
 function mediaKindLabel(asset: OwnerMedia): string {
   return asset.kind === "image" ? "Photo" : "Video";
-}
-
-function stateLabel(state: string): string {
-  return state.replaceAll("_", " ");
 }
 
 function fileName(asset: OwnerMedia): string {
@@ -57,6 +54,7 @@ export function MediaUploadPanel({
   inputRef,
   pendingItems,
   rejectedItems = [],
+  onRequestReview,
   error,
   success,
   uploading,
@@ -74,6 +72,7 @@ export function MediaUploadPanel({
   inputRef: RefObject<HTMLInputElement | null>;
   pendingItems: OwnerMedia[];
   rejectedItems?: OwnerMedia[];
+  onRequestReview?: (mediaId: string) => Promise<void>;
   error: string | null;
   success: string | null;
   uploading: boolean;
@@ -92,6 +91,25 @@ export function MediaUploadPanel({
   function onCapture(event: ChangeEvent<HTMLInputElement>): void {
     onFileChange(event);
     event.currentTarget.value = "";
+  }
+
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewReceipt, setReviewReceipt] = useState(false);
+
+  async function requestReview(mediaId: string) {
+    if (!onRequestReview || reviewing) return;
+    setReviewing(mediaId);
+    setReviewError(null);
+    setReviewReceipt(false);
+    try {
+      await onRequestReview(mediaId);
+      setReviewReceipt(true);
+    } catch {
+      setReviewError(mediaAppealError);
+    } finally {
+      setReviewing(null);
+    }
   }
 
   return (
@@ -171,6 +189,7 @@ export function MediaUploadPanel({
         </div>
       ) : null}
 
+      <div aria-live="polite" className="media-review-live">{reviewReceipt ? <p className="media-review-receipt">{mediaAppealReceipt}</p> : null}</div>
       {pendingItems.length > 0 ? (
         <div className="media-review-list" data-testid={`${testId}-pending`}>
           <div className="media-review-title">Pending review</div>
@@ -181,25 +200,34 @@ export function MediaUploadPanel({
                 <span className="muted-text">{fileName(asset)}</span>
               </div>
               <div className="media-review-meta">
-                <span className="status-chip pending">{stateLabel(asset.state)}</span>
+                <span className="status-chip pending">{pendingMediaReviewLabel(asset.state)}</span>
                 <span className="muted-text">{formatDate(asset.createdAt).split(",")[0]}</span>
               </div>
             </div>
           ))}
         </div>
       ) : null}
+      {reviewError ? <Banner tone="error">{reviewError}</Banner> : null}
       {rejectedItems.length > 0 ? (
         <div className="media-review-list" data-testid={`${testId}-rejected`}>
-          <div className="media-review-title">Needs a replacement</div>
+          <div className="media-review-title">Rejected uploads</div>
           {rejectedItems.map((asset) => (
-            <div className="media-review-row" key={asset.id}>
+            <div className="media-review-row media-review-row--rejected" key={asset.id}>
               <div>
                 <strong>{mediaKindLabel(asset)} was not approved</strong>
+                {"rejectionMessage" in asset && asset.rejectionMessage ? <span className="muted-text">{asset.rejectionMessage}</span> : null}
                 <span className="muted-text">Added {formatDate(asset.createdAt)}</span>
               </div>
+              {onRequestReview && "appealEligible" in asset && asset.appealEligible ? (
+                <Button type="button" variant="secondary" className="media-appeal-action" disabled={reviewing !== null}
+                  aria-busy={reviewing === asset.id}
+                  onClick={() => void requestReview(asset.id)}>
+                  {reviewing === asset.id ? "Requesting review…" : "Request review"}
+                </Button>
+              ) : null}
             </div>
           ))}
-          <p className="muted-text">Choose a different photo or video to send for review.</p>
+          <p className="muted-text">You can upload a replacement.</p>
         </div>
       ) : null}
     </div>

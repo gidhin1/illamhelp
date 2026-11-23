@@ -1050,6 +1050,30 @@ input, textarea, select {
   font-size: 0.8rem;
 }
 
+.admin-screening-results {
+  display: grid;
+  margin: 0;
+}
+
+.admin-screening-results > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: var(--spacing-sm);
+  padding-block: var(--spacing-sm);
+  border-block-end: 1px solid var(--line);
+}
+
+.admin-screening-results dt {
+  color: var(--muted);
+}
+
+.admin-screening-results dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
 .verification-evidence-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

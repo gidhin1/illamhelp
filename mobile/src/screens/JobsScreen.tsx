@@ -1,10 +1,11 @@
+import { mediaChecksum } from "../media-checksum";
 import type { JSX } from "react";
 import { applicationMessageHint, bookingActions, bookingConfirmation, bookingControls, validateApplicationMessage, type BookingAction } from "@illamhelp/shared-types";
 
 import {
   acceptJobApplication, applyToJob,
   AuthenticatedUser, cancelBooking, closeBooking, completeBooking,
-  completeMediaUpload,
+  completeMediaUpload, requestMediaReview,
   createJob, createMediaUploadTicket, formatDate, getProfileByUserId, JobApplicationRecord, JobRecord, listJobApplications, listJobMediaPage, listJobsPage, listMyJobApplications,
   markPaymentDone,
   listOwnJobMedia, markPaymentReceived, MediaAssetRecord, MediaKind, ProfileRecord, PublicMediaAssetRecord, rejectJobApplication,
@@ -13,7 +14,7 @@ import {
 } from "../api";
 
 import {
-  validateJobPayload, shouldForceSignOut, asError, CreateJobPayload, randomHex
+  validateJobPayload, shouldForceSignOut, asError, CreateJobPayload
 } from "../utils";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -763,7 +764,7 @@ export function JobsScreen({
             jobId,
             contentType: file.mimeType,
             fileSizeBytes: file.size,
-            checksumSha256: randomHex(64),
+            checksumSha256: await mediaChecksum(file.uri),
             originalFileName: file.name
           },
           accessToken
@@ -1267,6 +1268,11 @@ export function JobsScreen({
               pickedFiles={pickedJobMediaFiles}
               pendingItems={pendingReviewMedia(ownMedia.filter((asset) => asset.jobId === selectedOwnJob.id && asset.state !== "uploaded"))}
               rejectedItems={ownMedia.filter((asset) => asset.jobId === selectedOwnJob.id && asset.state === "rejected")}
+              onRequestReview={async (mediaId) => {
+                if (!accessToken) throw new Error("Sign in to request a review.");
+                const updated = await requestMediaReview(mediaId, accessToken);
+                setOwnMedia((previous) => previous.map((asset) => asset.id === updated.id ? updated : asset));
+              }}
               uploading={jobMediaUploading}
               error={jobMediaError}
               success={jobMediaSuccess}

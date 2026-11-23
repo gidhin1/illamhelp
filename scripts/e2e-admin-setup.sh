@@ -60,8 +60,10 @@ KEYCLOAK_REALM="${KEYCLOAK_REALM:-illamhelp}"
 KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-$(read_env_value "KEYCLOAK_CLIENT_ID" "${ENV_FILE}")}"
 KEYCLOAK_CLIENT_ID="${KEYCLOAK_CLIENT_ID:-illamhelp-api}"
 
-KEYCLOAK_ADMIN_USER="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
-KEYCLOAK_ADMIN_PASSWORD="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
+KEYCLOAK_ADMIN_USER="$(docker exec "${CONTAINER_NAME}" printenv KC_BOOTSTRAP_ADMIN_USERNAME 2>/dev/null ||
+  docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
+KEYCLOAK_ADMIN_PASSWORD="$(docker exec "${CONTAINER_NAME}" printenv KC_BOOTSTRAP_ADMIN_PASSWORD 2>/dev/null ||
+  docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
 
 if [[ -z "${KEYCLOAK_ADMIN_USER}" || -z "${KEYCLOAK_ADMIN_PASSWORD}" ]]; then
   echo "KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD are missing in ${CONTAINER_NAME}."

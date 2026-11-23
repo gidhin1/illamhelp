@@ -3,15 +3,17 @@ package com.illamhelp.api.media;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.illamhelp.api.audit.AuditService;
-import com.illamhelp.api.common.ApiException;
 import com.illamhelp.api.config.AppProperties;
+import com.illamhelp.api.notifications.NotificationService;
+import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 public class MediaAutomatedModerationWorker {
@@ -19,44 +21,70 @@ public class MediaAutomatedModerationWorker {
   private final AuditService auditService;
   private final ObjectMapper objectMapper;
   private final AppProperties properties;
+  private final TransactionTemplate transactions;
+  private final ClamAvMediaScanner scanner;
+  private final NotificationService notifications;
   private final Set<String> allowedImageTypes;
   private final Set<String> allowedVideoTypes;
 
   public MediaAutomatedModerationWorker(MediaAssetRepository mediaAssetRepository, AuditService auditService,
-      ObjectMapper objectMapper, AppProperties properties) {
+      ObjectMapper objectMapper, AppProperties properties, PlatformTransactionManager transactionManager,
+      ClamAvMediaScanner scanner, NotificationService notifications) {
     this.mediaAssetRepository = mediaAssetRepository;
     this.auditService = auditService;
     this.objectMapper = objectMapper;
     this.properties = properties;
+    this.transactions = new TransactionTemplate(transactionManager);
+    this.scanner = scanner;
+    this.notifications = notifications;
     this.allowedImageTypes = mediaTypes(properties.mediaAllowedImageTypes());
     this.allowedVideoTypes = mediaTypes(properties.mediaAllowedVideoTypes());
   }
 
-  @Transactional
   public Outcome processNext() {
+    Work work = transactions.execute(status -> claim());
+    if (work.outcome() != null) {
+      return work.outcome();
+    }
+    ClamAvMediaScanner.Screening result;
+    try {
+      result = scanner.scan(work.asset());
+    } catch (IOException | RuntimeException exception) {
+      return transactions.execute(status -> finishScreening(work, null));
+    }
+    return transactions.execute(status -> finishScreening(work, result));
+  }
+
+  private Work claim() {
     Map<String, Object> job = mediaAssetRepository.claimNextAutomatedJob();
     if (job == null || job.isEmpty()) {
-      return Outcome.none();
+      return Work.completed(Outcome.none());
     }
     String jobId = String.valueOf(job.get("id"));
     String mediaId = String.valueOf(job.get("mediaId"));
-    try {
-      if ("technical_validation".equals(job.get("stage"))) {
-        boolean approved = processTechnical(jobId, mediaId);
-        return approved ? Outcome.technicalApprovedResult() : Outcome.technicalRejectedResult();
-      }
-      processAi(jobId, mediaId);
-      return Outcome.aiCompletedResult();
-    } catch (RuntimeException exception) {
+    if ("technical_validation".equals(job.get("stage"))) {
+      return Work.completed(processTechnical(jobId, mediaId));
+    }
+    Map<String, Object> asset = mediaAssetRepository.findAiMedia(mediaId);
+    if (asset == null || asset.isEmpty()) {
       mediaAssetRepository.markModerationJobError(jobId);
-      return Outcome.errorResult();
+      return Work.completed(Outcome.errorResult());
+    }
+    return new Work(jobId, mediaId, String.valueOf(job.get("leaseToken")),
+        ((Number) job.get("attempts")).intValue(), new LinkedHashMap<>(asset), null);
+  }
+
+  private record Work(String jobId, String mediaId, String lease, int attempts, Map<String, Object> asset, Outcome outcome) {
+    static Work completed(Outcome outcome) {
+      return new Work(null, null, null, 0, null, outcome);
     }
   }
 
-  private boolean processTechnical(String jobId, String mediaId) {
+  private Outcome processTechnical(String jobId, String mediaId) {
     Map<String, Object> media = mediaAssetRepository.findTechnicalMedia(mediaId);
     if (media == null || media.isEmpty()) {
-      throw new ApiException(HttpStatus.NOT_FOUND, "Media asset not found");
+      mediaAssetRepository.markModerationJobError(jobId);
+      return Outcome.errorResult();
     }
     String kind = String.valueOf(media.get("kind"));
     String contentType = String.valueOf(media.get("contentType")).toLowerCase();
@@ -71,33 +99,59 @@ public class MediaAutomatedModerationWorker {
       auditService.logEvent(null, String.valueOf(media.get("ownerUserId")),
           "media_technical_validation_rejected", null,
           Map.of("mediaId", mediaId, "moderationJobId", jobId, "reasonCode", reasonCode));
-      return false;
+      return Outcome.technicalRejectedResult();
     }
     mediaAssetRepository.approveModerationJob(jobId);
     mediaAssetRepository.enqueueModerationStage(mediaId, "ai_review",
         json(Map.of("source", "technical_validation", "previousJobId", jobId)));
     auditService.logEvent(null, String.valueOf(media.get("ownerUserId")),
         "media_technical_validation_passed", null, Map.of("mediaId", mediaId, "moderationJobId", jobId));
-    return true;
+    return Outcome.technicalApprovedResult();
   }
 
-  private void processAi(String jobId, String mediaId) {
-    Map<String, Object> media = mediaAssetRepository.findAiMedia(mediaId);
-    if (media == null || media.isEmpty()) {
-      throw new ApiException(HttpStatus.NOT_FOUND, "Media asset not found");
+  private Outcome finishScreening(Work work, ClamAvMediaScanner.Screening result) {
+    if (mediaAssetRepository.lockScreeningLease(work.jobId(), work.lease()) == null) {
+      return Outcome.errorResult();
     }
-    boolean contactRisk = (String.valueOf(media.get("objectKey")) + " " + String.valueOf(media.get("contentType")))
-        .toLowerCase().matches(".*(whatsapp|telegram|phone|contact|call-now|email|number).*");
-    Map<String, Object> scores = Map.of(
-        "professionalRelevance", 0.82, "adultSexualRisk", 0.03, "violenceRisk", 0.02,
-        "spamContactLeakageRisk", contactRisk ? 0.85 : 0.12);
-    String reasonCode = contactRisk ? "ai_contact_leakage_high" : null;
-    mediaAssetRepository.completeAiModerationJob(jobId, json(Map.of("aiScores", scores)));
-    mediaAssetRepository.enqueueModerationStage(mediaId, "human_review",
-        json(Map.of("source", "ai_review", "previousJobId", jobId, "aiScores", scores)));
-    mediaAssetRepository.updateAiReviewState(mediaId, json(scores), reasonCode);
-    auditService.logEvent(null, String.valueOf(media.get("ownerUserId")), "media_ai_review_completed", null,
-        Map.of("mediaId", mediaId, "moderationJobId", jobId, "aiScores", scores));
+    Map<String, Object> current = mediaAssetRepository.findAiMedia(work.mediaId());
+    if (current == null || !work.asset().equals(new LinkedHashMap<>(current))) {
+      result = null;
+    }
+    int[] retryMinutes = {1, 5, 30};
+    if (result == null && work.attempts() <= retryMinutes.length) {
+      mediaAssetRepository.retryScreening(work.jobId(), retryMinutes[work.attempts() - 1]);
+      return Outcome.errorResult();
+    }
+    String ownerId = String.valueOf(work.asset().get("ownerUserId"));
+    String rejection = null;
+    if (result != null && result.malware() == ClamAvMediaScanner.Result.INFECTED) {
+      rejection = "malware_detected";
+    } else if (result != null && result.malware() == ClamAvMediaScanner.Result.CLEAN
+        && "format_mismatch".equals(result.contentChecks().get("photoValidation"))) {
+      rejection = "technical_photo_format_mismatch";
+    }
+    if (rejection != null) {
+      mediaAssetRepository.rejectTechnicalJob(work.jobId(), rejection);
+      mediaAssetRepository.rejectTechnicalAsset(work.mediaId(), rejection);
+      notifications.create(ownerId, "media_rejected", "Media rejected", MediaService.rejectionMessage(rejection),
+          Map.of("mediaId", work.mediaId(), "reasonCode", rejection));
+      auditService.logEvent(null, ownerId,
+          "malware_detected".equals(rejection) ? "media_malware_rejected" : "media_technical_validation_rejected", null,
+          Map.of("mediaId", work.mediaId(), "moderationJobId", work.jobId(), "reasonCode", rejection));
+      return Outcome.technicalRejectedResult();
+    }
+    Map<String, Object> evidence = new LinkedHashMap<>();
+    evidence.put("screeningStatus", "human_review_required");
+    evidence.put("malwareCheck", result == null ? "unavailable" : result.malware().name().toLowerCase(java.util.Locale.ROOT));
+    if (result != null) {
+      evidence.putAll(result.contentChecks());
+    }
+    mediaAssetRepository.completeAiModerationJob(work.jobId(), json(evidence));
+    mediaAssetRepository.enqueueModerationStage(work.mediaId(), "human_review", json(evidence));
+    mediaAssetRepository.updateAiReviewState(work.mediaId(), null, null);
+    auditService.logEvent(null, ownerId, "media_routed_to_human_review", null,
+        Map.of("mediaId", work.mediaId(), "moderationJobId", work.jobId()));
+    return Outcome.aiCompletedResult();
   }
 
   private Set<String> mediaTypes(String values) {

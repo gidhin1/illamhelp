@@ -36,7 +36,7 @@ import {
   TextInput
 } from "@/components/ui/primitives";
 import {
-  completeMediaUpload,
+  completeMediaUpload, requestMediaReview,
   createMediaUploadTicket,
   DashboardResponse,
   formatDate,
@@ -543,6 +543,12 @@ export default function ProfilePage(): JSX.Element {
                     selectedFiles={uploadFiles}
                     inputRef={fileInputRef}
                     pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
+                    rejectedItems={mediaAssets.filter((asset) => asset.purpose === "profile" && asset.state === "rejected")}
+                    onRequestReview={async (mediaId) => {
+                      if (!accessToken) throw new Error("Sign in to request a review.");
+                      const updated = await requestMediaReview(mediaId, accessToken);
+                      setMediaAssets((previous) => previous.map((asset) => asset.id === updated.id ? updated : asset));
+                    }}
                     error={uploadError}
                     success={uploadSuccess}
                     uploading={uploading}

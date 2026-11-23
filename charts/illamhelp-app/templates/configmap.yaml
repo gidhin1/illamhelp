@@ -20,3 +20,7 @@ data:
   OPA_URL: {{ .Values.config.opaUrl | quote }}
   OPENSEARCH_ENABLED: {{ .Values.config.openSearchEnabled | quote }}
   OPENSEARCH_URL: {{ .Values.config.openSearchUrl | quote }}
+  {{- if .Values.config.clamavHost }}
+  CLAMAV_HOST: {{ .Values.config.clamavHost | quote }}
+  CLAMAV_PORT: {{ .Values.config.clamavPort | quote }}
+  {{- end }}

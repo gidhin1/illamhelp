@@ -18,7 +18,10 @@ K8S_NAMESPACE ?= illamhelp
 K8S_APP_RELEASE ?= illamhelp-app
 K8S_INFRA_RELEASE ?= illamhelp
 K8S_IMAGE_TAG ?= local
-K8S_API_IMAGE ?= illamhelp/api:$(K8S_IMAGE_TAG)
+K8S_API_TARGET ?= standard
+K8S_API_TAG := $(K8S_IMAGE_TAG)$(if $(filter-out standard,$(K8S_API_TARGET)),-$(K8S_API_TARGET))
+K8S_API_IMAGE ?= illamhelp/api:$(K8S_API_TAG)
+K8S_CLAMAV_HOST ?= $(if $(filter speech visual,$(K8S_API_TARGET)),$(K8S_INFRA_RELEASE)-clamav)
 K8S_WEB_IMAGE ?= illamhelp/web:$(K8S_IMAGE_TAG)
 K8S_ADMIN_IMAGE ?= illamhelp/admin:$(K8S_IMAGE_TAG)
 K8S_PUBLIC_API_URL ?= http://localhost:4000/api/v1
@@ -265,7 +268,7 @@ k8s-create:
 k8s-build-load:
 	@command -v docker >/dev/null 2>&1 || { echo "'docker' is required for k8s-build-load."; exit 1; }
 	@command -v kind >/dev/null 2>&1 || { echo "'kind' is required for k8s-build-load."; exit 1; }
-	docker build -f infra/docker/api.Dockerfile -t "$(K8S_API_IMAGE)" .
+	docker build --target "$(K8S_API_TARGET)" -f infra/docker/api.Dockerfile -t "$(K8S_API_IMAGE)" .
 	docker build -f infra/docker/web.Dockerfile \
 		--build-arg NEXT_PUBLIC_API_BASE_URL="$(K8S_PUBLIC_API_URL)" \
 		--build-arg NEXT_PUBLIC_MEDIA_GRPC_WEB_URL="$(K8S_PUBLIC_GRPC_WEB_URL)" \
@@ -294,8 +297,10 @@ k8s-up:
 	K8S_NAMESPACE="$(K8S_NAMESPACE)" K8S_INFRA_RELEASE="$(K8S_INFRA_RELEASE)" bash scripts/k8s-local-secret.sh
 	helm upgrade --install "$(K8S_INFRA_RELEASE)" charts/illamhelp-local-infra --namespace "$(K8S_NAMESPACE)" --wait --timeout=12m
 	helm upgrade --install "$(K8S_APP_RELEASE)" charts/illamhelp-app --namespace "$(K8S_NAMESPACE)" \
+		$(if $(filter visual,$(K8S_API_TARGET)),--values charts/illamhelp-app/values-visual.yaml) \
 		--set images.api.repository=illamhelp/api \
-		--set images.api.tag="$(K8S_IMAGE_TAG)" \
+		--set-string images.api.tag="$(K8S_API_TAG)" \
+		--set-string config.clamavHost="$(K8S_CLAMAV_HOST)" \
 		--set images.web.repository=illamhelp/web \
 		--set images.web.tag="$(K8S_IMAGE_TAG)" \
 		--set images.admin.repository=illamhelp/admin \

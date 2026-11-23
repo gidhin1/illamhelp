@@ -42,6 +42,8 @@ config:
   opaUrl: "http://illamhelp-opa:8181"
   openSearchEnabled: "false"
   openSearchUrl: "http://illamhelp-opensearch:9200"
+  clamavHost: ""
+  clamavPort: 3310
 
 # Use an existing Secret by default. make k8s-up creates it from the ignored .env file.
 secrets:

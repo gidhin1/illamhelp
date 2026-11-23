@@ -30,6 +30,9 @@ final class GrpcMediaMappers {
         .setFileSizeBytes(record.fileSizeBytes() == null ? 0 : record.fileSizeBytes())
         .setChecksumSha256(value(record.checksumSha256()))
         .setState(state(record.state()))
+        .setRejectionReasonCode(record.rejectionReasonCode() == null ? "" : record.rejectionReasonCode())
+        .setRejectionMessage(record.rejectionMessage() == null ? "" : record.rejectionMessage())
+        .setAppealEligible(record.appealEligible())
         .setCreatedAt(value(record.createdAt()))
         .setUpdatedAt(value(record.updatedAt()))
         .build();

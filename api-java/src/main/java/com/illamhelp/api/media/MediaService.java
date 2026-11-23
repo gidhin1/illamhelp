@@ -35,6 +35,10 @@ public class MediaService {
     this.objectMapper = objectMapper;
   }
 
+  public MediaAssetRecord requestReview(String userId, String mediaId) {
+    return mediaMutationService.requestReview(userId, mediaId);
+  }
+
   public MediaPage<MediaAssetRecord> listMine(String userId, Integer limit, String cursorValue) {
     int pageSize = pageSize(limit);
     CursorPages.Cursor cursor = CursorPages.decode(cursorValue);
@@ -168,6 +172,7 @@ public class MediaService {
   }
 
   static MediaAssetRecord mediaAssetRecord(Map<String, Object> row) {
+    String reason = string(row, "rejectionReasonCode");
     return new MediaAssetRecord(
         string(row, "id"),
         string(row, "ownerUserId"),
@@ -182,7 +187,20 @@ public class MediaService {
         string(row, "checksumSha256"),
         string(row, "state"),
         string(row, "createdAt"),
-        string(row, "updatedAt"));
+        string(row, "updatedAt"), reason, rejectionMessage(reason), Boolean.TRUE.equals(row.get("appealEligible")));
+  }
+
+  static String rejectionMessage(String reason) {
+    if (reason == null) {
+      return null;
+    }
+    return switch (reason) {
+      case "malware_detected" -> "This file failed the security scan. Upload a new copy from a trusted source.";
+      case "technical_photo_format_mismatch" -> "The file does not match its photo format. Export it again as JPEG, PNG, or WebP and retry.";
+      case "technical_size_out_of_bounds" -> "This file is outside the allowed size range. Choose a smaller file and try again.";
+      case "technical_unsupported_content_type" -> "This file type is unsupported. Choose a supported photo or video and try again.";
+      default -> "This upload stays hidden. Contact support from Help if you have questions.";
+    };
   }
 
   private void verifyUpload(Map<String, Object> expected, StorageService.UploadedObject uploaded, String suppliedEtag) {
@@ -253,7 +271,8 @@ public class MediaService {
 
   public record MediaAssetRecord(String id, String ownerUserId, String profileUserId, String jobId, String kind,
       String purpose, String bucketName, String objectKey, String contentType, Long fileSizeBytes,
-      String checksumSha256, String state, String createdAt, String updatedAt) {
+      String checksumSha256, String state, String createdAt, String updatedAt,
+      String rejectionReasonCode, String rejectionMessage, boolean appealEligible) {
   }
 
   public record PublicMediaRecord(String id, String ownerUserId, String profileUserId, String jobId, String kind,

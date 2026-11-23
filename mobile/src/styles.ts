@@ -553,6 +553,20 @@ export function createAppStyles(theme: AppTheme) {
     borderColor: theme.colors.warning,
     gap: 3
   },
+  mediaRejectedRow: {
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.line,
+    paddingTop: 12,
+    gap: 8
+  },
+  mediaReviewReceipt: {
+    color: theme.colors.ink,
+    backgroundColor: theme.colors.surfaceAlt,
+    borderStartWidth: 3,
+    borderStartColor: theme.colors.brand,
+    padding: 12,
+    fontSize: theme.typography.sm
+  },
   notificationMetaRow: {
     flexDirection: "row",
     flexWrap: "wrap",

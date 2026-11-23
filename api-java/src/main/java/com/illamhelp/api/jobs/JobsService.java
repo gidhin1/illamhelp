@@ -75,14 +75,16 @@ public class JobsService {
     }
     int limit = integer(query.limit(), 20, 1, 50, "limit");
     String effectiveStatuses = statuses == null ? "posted" : statuses;
-    JobsSearchService.SearchResult indexed = jobsSearchService.searchJobIds(new JobsSearchService.SearchCriteria(
+    boolean postgres = jobsSearchService.usePostgresRanking();
+    JobsSearchService.SearchResult indexed = postgres ? new JobsSearchService.SearchResult(false, List.of())
+        : jobsSearchService.searchJobIds(new JobsSearchService.SearchCriteria(
         rawQuery, rawCategory, rawLocationText, minSeekerRating, Arrays.asList(effectiveStatuses.split(",")),
         latitude, longitude, radiusKm, limit));
     if (indexed.available() && indexed.ids().isEmpty()) {
       return List.of();
     }
     String[] preferredIds = indexed.available() ? indexed.ids().toArray(String[]::new) : null;
-    return jobRepository.searchVisible(preferredIds, userId, q, category, locationText, minSeekerRating,
+    return jobRepository.searchVisible(preferredIds, userId, q, postgres ? rawQuery : null, category, locationText, minSeekerRating,
         effectiveStatuses, visibility, latitude, longitude, radiusKm, limit)
         .stream().map(this::publicJobRecord).toList();
   }

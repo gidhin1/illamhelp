@@ -168,6 +168,13 @@ jobs:
           helm template illamhelp charts/illamhelp-local-infra --namespace illamhelp >/tmp/illamhelp-local-infra.yaml
           helm template illamhelp charts/illamhelp-local-infra --namespace illamhelp --set opensearch.enabled=true >/tmp/illamhelp-local-infra-with-search.yaml
           helm template illamhelp-app charts/illamhelp-app --namespace illamhelp >/tmp/illamhelp-app.yaml
+          helm template illamhelp-app charts/illamhelp-app --namespace illamhelp \
+            --set images.api.repository=illamhelp/api-speech \
+            --set-string config.clamavHost=illamhelp-clamav >/tmp/illamhelp-app-with-speech.yaml
+          helm template illamhelp-app charts/illamhelp-app --namespace illamhelp \
+            --values charts/illamhelp-app/values-visual.yaml \
+            --set images.api.repository=illamhelp/api-visual \
+            --set-string config.clamavHost=illamhelp-clamav >/tmp/illamhelp-app-with-visual.yaml
 
   app-images:
     name: Build And Scan App Images
@@ -182,6 +189,12 @@ jobs:
         app:
           - name: api
             dockerfile: infra/docker/api.Dockerfile
+          - name: api-speech
+            dockerfile: infra/docker/api.Dockerfile
+            target: speech
+          - name: api-visual
+            dockerfile: infra/docker/api.Dockerfile
+            target: visual
           - name: web
             dockerfile: infra/docker/web.Dockerfile
           - name: admin
@@ -189,7 +202,43 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       - name: Build image
-        run: docker build -f "${{ matrix.app.dockerfile }}" -t "illamhelp/${{ matrix.app.name }}:${{ github.sha }}" .
+        env:
+          BUILD_TARGET: ${{ matrix.app.target }}
+          DOCKERFILE: ${{ matrix.app.dockerfile }}
+          APP_IMAGE: illamhelp/${{ matrix.app.name }}:${{ github.sha }}
+        run: |
+          args=()
+          if [[ -n "$BUILD_TARGET" ]]; then args+=(--target "$BUILD_TARGET"); fi
+          docker build "${args[@]}" -f "$DOCKERFILE" -t "$APP_IMAGE" .
+      - name: Check speech tools offline
+        if: matrix.app.target == 'speech' || matrix.app.target == 'visual'
+        env:
+          APP_IMAGE: illamhelp/${{ matrix.app.name }}:${{ github.sha }}
+        run: |
+          docker run --rm --network none --read-only --entrypoint /bin/sh "$APP_IMAGE" -ec '
+            test "$(id -u)" = 10001
+            test -r "$VIDEO_WHISPER_MODEL"
+            "$VIDEO_WHISPER_EXECUTABLE" --version
+            "$VIDEO_FFMPEG_EXECUTABLE" -version >/dev/null
+            "$VIDEO_FFPROBE_EXECUTABLE" -version >/dev/null
+            "$PHOTO_OCR_EXECUTABLE" --list-langs | grep -qx mal
+          '
+      - name: Run visual inference offline
+        if: matrix.app.target == 'visual'
+        env:
+          APP_IMAGE: illamhelp/${{ matrix.app.name }}:${{ github.sha }}
+        run: |
+          test "$(uname -m)" = x86_64
+          docker run --rm --network none --read-only --cpus 2 --memory 2g \
+            --tmpfs /tmp:rw,nosuid,size=64m,mode=1777 \
+            --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 \
+            --entrypoint /bin/bash "$APP_IMAGE" -euo pipefail -c '
+              test -r "$MEDIA_VISUAL_MODEL_DIRECTORY/LICENSE"
+              test ! -w "$MEDIA_VISUAL_MODEL_DIRECTORY/model.safetensors"
+              python -c "import sys; from PIL import Image; Image.new(\"RGB\", (224,224), \"white\").save(sys.stdout.buffer, \"PNG\")" |
+                time timeout 15s "$MEDIA_VISUAL_EXECUTABLE" |
+                python -c "import sys; score=float(sys.stdin.read()); assert 0 <= score <= 1; print(score)"
+            '
       - name: Scan image
         uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
         with:
