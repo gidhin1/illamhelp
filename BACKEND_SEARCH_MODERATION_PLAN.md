@@ -3,8 +3,8 @@
 | Release | Work | Status |
 |---|---|---|
 | 1 | PostgreSQL job search and comparison with OpenSearch | Implemented behind opt-in. Staging benchmark pending. |
-| 2 | Quarantined photo scanning and moderation decisions | Malware, JPEG/PNG/WebP validation, OCR, and opt-in explicit-imagery evidence verified locally. The visual image uses the existing CI and Helm deployment process. Owner appeals implemented for confirmed format mismatches. Staging and rollout qualification remain open. |
-| 3 | Video frame and audio screening | Whole-file malware checks, sampled OCR, speech, and explicit-imagery evidence verified with staff review. Speech and visual images use the existing CI and Helm deployment process. Live Chromium review and playback, native profile-video upload and playback, and pending and rejected download checks passed locally. Staging, native job-video verification on this branch, and rollout qualification remain open. |
+| 2 | Quarantined photo scanning and moderation decisions | Malware, JPEG/PNG/WebP validation, OCR, and opt-in explicit-imagery evidence verified locally. The visual image uses the existing CI and Helm deployment process. Owner appeals implemented for confirmed format mismatches. Local staging passed and qualification started with three photo fixtures. Hosted staging and the held-out rollout gate remain open. |
+| 3 | Video frame and audio screening | Whole-file malware checks, sampled OCR, speech, and explicit-imagery evidence verified with staff review. Speech and visual images use the existing CI and Helm deployment process. Live Chromium review and playback, native profile-video upload and playback, and pending and rejected download checks passed locally. Local staging passed and qualification started with three video fixtures. Hosted staging, native job-video verification on this branch, and the held-out rollout gate remain open. |
 
 ## 1. PostgreSQL job search
 
@@ -133,3 +133,28 @@
 - Native AMD64 inference completed in 3.427 seconds and returned a valid score under the 2 CPU and 2 GiB limits. The full hosted workflow, Trivy image scan, and GHCR publish passed for `cb289e1`. The published Linux AMD64 visual image is `ghcr.io/gidhin1/illamhelp/api-visual@sha256:a756e85b1e9de55ae6b0ed995c9b2962cea88777218f9b9578e11b5e71ac4022`. Local staging uses the matching application build on ARM64. [Native visual image job](https://github.com/gidhin1/illamhelp/actions/runs/45171542800/job/137682816639)
 - The first local staging install found a Kubernetes startup issue. Kubernetes injected `ILLAMHELP_CLAMAV_PORT` as a service URL, and Spring attempted to parse it as the scanner port. The API chart now disables service-link environment variables and continues resolving dependencies through their configured Service DNS names. Rechecking the rollout with the chart fix.
 - Reapplied the corrected chart using `make k8s-up`. API, web, admin, and Envoy all rolled out, and `make k8s-smoke` exited successfully. The live calibration script is uploading the six fixtures through gRPC-Web, the signed object upload, and the scheduled moderation worker. The first photo reached human review in 9.4 seconds with no owner download URL.
+- The local staging pilot completed. All six signed uploads passed ClamAV, recorded evidence from Falconsai revision `96cb0d0`, and entered human review with no download URL returned to the uploader. Each quarantined object also returned HTTP 403 to an unsigned HEAD request. The Kubernetes API, web, and admin endpoints independently returned HTTP 200. No hosted staging environment was available. The isolated local stage has been left running for further evaluation under context `kind-illamhelp-visual-staging` and namespace `illamhelp-staging`. The Helm fix is in `c048e71`. [Follow-up workflow](https://github.com/gidhin1/illamhelp/actions/runs/45173201351)
+
+## Staging detector calibration pilot
+
+The pilot used the ARM64 visual image `sha256:19497abf94d06bd938c23cbd10b09f3425956ca4f8d969bf0240a46bb443924c` with 2 CPU and 2 GiB limits, the standard API preprocessing and video time sampling, and the existing human-review-only visual policy. The elapsed times include queue delay and client polling.
+
+| Fixture | From completion request to review | Visual evidence | Audio evidence |
+|---|---:|---|---|
+| Generated sink repair photo | 9.4 s | Below 0.50 | — |
+| Licensed plumbing valve photo | 7.1 s | Below 0.50 | — |
+| Licensed plumber-under-sink photo | 7.1 s | Below 0.50 | — |
+| Synthetic spoken-contact clip | 15.1 s | Below 0.50 across 4 frames | Spoken contact candidate |
+| Synthetic silent clip | 12.1 s | Below 0.50 across 4 frames | Silent audio |
+| Licensed animation clip | 13.1 s | Below 0.50 across 4 frames | Multiple audio tracks require review |
+
+The pilot recorded three photos and three videos with no visual candidate. Each fixture was selected for known non-explicit content. This is a calibration intake check with zero independently adjudicated held-out cases. It provides no recall or precision estimate. Continue calibration with consented positive and boundary cases, then hold out independent reviewer-labeled assets by recording session and media type. Visual decisions remain in human review until the separate gates pass.
+
+The hosted Helm gate passed for the staging chart fix. Its first full workflow attempt stopped in the test job when Maven could not download the pinned Protobuf compiler from Central. The test job passed on retry and the image matrix resumed. The earlier full run and native inference verification used the same scanner code and image recipe.
+
+The full follow-up workflow passed on attempt 2 for `c048e71`. Native AMD64 inference completed in 4.029 seconds under the 15-second deadline. Trivy passed and GHCR published the visual image at `ghcr.io/gidhin1/illamhelp/api-visual@sha256:0406c5f2cc0e204a4ff7458230fc8303da27000ede943eded14a2b975178e372`. [Final visual image job](https://github.com/gidhin1/illamhelp/actions/runs/45173201351/job/137690126496)
+
+## Pull-request readiness
+
+- GitHub's `main` is an ancestor of the feature branch. Added the existing PostgreSQL search, lease, and appeal fixtures and the moderation qualification test suite to CI. PostgreSQL runs from the deployment's pinned image in a disposable container with no external network.
+- The local Apple Silicon pull-request runner can now execute the visual smoke on ARM64. GitHub-hosted runs still require AMD64 and retain the 15-second deadline.

@@ -39,6 +39,20 @@ jobs:
         run: pnpm typecheck
       - name: Test
         run: pnpm test
+      - name: Test moderation qualification
+        run: python3 -m unittest discover -s tests/media -p 'test_*.py'
+      - name: Test PostgreSQL search and moderation contracts
+        env:
+          POSTGRES_IMAGE: postgres:18-alpine@sha256:0115267ab5a509022df9319c77be365cef335adb71556c75f60f5360ee247e71
+        run: |
+          postgres=$(docker run --detach --rm --network none \
+            --env POSTGRES_HOST_AUTH_METHOD=trust "$POSTGRES_IMAGE")
+          trap 'docker stop "$postgres" >/dev/null' EXIT
+          timeout 45s bash -ec '
+            until docker exec "$1" pg_isready -h 127.0.0.1 -U postgres; do sleep 1; done
+          ' _ "$postgres"
+          python3 tests/postgres/job_search_contract.py \
+            docker exec -i "$postgres" psql -U postgres -d postgres
 
   gitleaks:
     name: Secret Scan (Gitleaks)
@@ -228,7 +242,9 @@ jobs:
         env:
           APP_IMAGE: illamhelp/${{ matrix.app.name }}:${{ github.sha }}
         run: |
-          test "$(uname -m)" = x86_64
+          if [[ "${ACT:-}" != true ]]; then
+            test "$(uname -m)" = x86_64
+          fi
           docker run --rm --network none --read-only --cpus 2 --memory 2g \
             --tmpfs /tmp:rw,nosuid,size=64m,mode=1777 \
             --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 \
