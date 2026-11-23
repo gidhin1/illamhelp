@@ -28,6 +28,9 @@ export interface MediaAssetRecord {
   contentType: string;
   fileSizeBytes: number;
   checksumSha256: string;
+  rejectionReasonCode?: string | null;
+  rejectionMessage?: string | null;
+  appealEligible?: boolean;
   state: MediaState;
   createdAt: string;
   updatedAt: string;
@@ -170,6 +173,12 @@ export function createMediaClient(options: MediaClientOptions = {}) {
       ]), accessToken));
     },
 
+    async requestMediaReview(mediaId: string, accessToken: string): Promise<MediaAssetRecord> {
+      return decodeMediaAsset(await call(`${MEDIA_SERVICE}/RequestMediaReview`, encodeMessage([
+        stringField(1, mediaId)
+      ]), accessToken));
+    },
+
     listMyMediaPage,
 
     async listOwnJobMedia(jobId: string, accessToken: string): Promise<MediaAssetRecord[]> {
@@ -251,13 +260,15 @@ async function grpcWebFetch(fetchImpl: typeof fetch, url: string, payload: Uint8
     },
     body: requestBody.buffer.slice(requestBody.byteOffset, requestBody.byteOffset + requestBody.byteLength) as ArrayBuffer
   });
-  const bytes = new Uint8Array(await response.arrayBuffer());
   if (!response.ok) {
     if (response.status === 401) {
       dispatchAuthExpired();
     }
     throw new GrpcWebError(`Request failed with ${response.status}`, response.status === 401 ? 16 : 13);
   }
+  // Immediate gRPC errors can arrive in the HTTP headers without a body.
+  assertGrpcStatus(response.headers.get("grpc-status"), response.headers.get("grpc-message"));
+  const bytes = new Uint8Array(await response.arrayBuffer());
   const first = String.fromCharCode(bytes[0] ?? 0).trim();
   if (first === "{" || first === "[") {
     return bytes;
@@ -276,8 +287,6 @@ function frame(message: Uint8Array): Uint8Array {
 function unframe(bytes: Uint8Array): Uint8Array {
   let offset = 0;
   const messages: Uint8Array[] = [];
-  let grpcStatus = 0;
-  let grpcMessage = "";
   while (offset + 5 <= bytes.length) {
     const flags = bytes[offset];
     const length = readUint32(bytes, offset + 1);
@@ -288,16 +297,25 @@ function unframe(bytes: Uint8Array): Uint8Array {
       const trailers = textDecoder.decode(payload);
       const status = trailers.match(/grpc-status:\s*(\d+)/i);
       const message = trailers.match(/grpc-message:\s*([^\r\n]+)/i);
-      grpcStatus = status ? Number(status[1]) : 0;
-      grpcMessage = message ? decodeURIComponent(message[1]) : "";
+      assertGrpcStatus(status?.[1], message?.[1]);
     } else {
       messages.push(payload);
     }
   }
-  if (grpcStatus !== 0) {
-    throw new GrpcWebError(grpcMessage || `gRPC call failed with status ${grpcStatus}`, grpcStatus);
-  }
   return messages[0] ?? new Uint8Array();
+}
+
+function assertGrpcStatus(value: string | null | undefined, encodedMessage: string | null | undefined): void {
+  if (value == null || value === "0") return;
+  const status = /^\d+$/.test(value) ? Number(value) : 13;
+  let message = encodedMessage ?? "";
+  try {
+    message = decodeURIComponent(message);
+  } catch {
+    // Keep the original message if the server sends invalid percent encoding.
+  }
+  if (status === 16) dispatchAuthExpired();
+  throw new GrpcWebError(message || `gRPC call failed with status ${status}`, status);
 }
 
 function encodeMessage(parts: Uint8Array[]): Uint8Array {
@@ -457,6 +475,9 @@ function decodeMediaAsset(bytes: Uint8Array): MediaAssetRecord {
     if (item.field === 12 && typeof item.value === "number") media.state = enumToState(item.value);
     if (item.field === 13) media.createdAt = stringValue(item.value);
     if (item.field === 14) media.updatedAt = stringValue(item.value);
+    if (item.field === 15) media.rejectionReasonCode = stringValue(item.value) || null;
+    if (item.field === 16) media.rejectionMessage = stringValue(item.value) || null;
+    if (item.field === 17) media.appealEligible = item.value === 1;
   }
   return media;
 }

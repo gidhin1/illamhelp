@@ -1,12 +1,13 @@
+import { mediaChecksum } from "../media-checksum";
 import type { JSX } from "react";
 
 import {
-  AuthenticatedUser, completeMediaUpload, createMediaUploadTicket,
+  AuthenticatedUser, completeMediaUpload, requestMediaReview, createMediaUploadTicket,
   getMyProfile, getMyVerification, listMyMediaPage, listPublicApprovedMediaPage, MediaAssetRecord, MediaKind, PublicMediaAssetRecord, ProfileRecord, updateMyProfile
 } from "../api";
 
 import {
-  randomHex, buildProfileForm,
+  buildProfileForm,
   parseServiceCategories, shouldForceSignOut, asError, ProfileFormState
 } from "../utils";
 
@@ -374,7 +375,7 @@ export function ProfileScreen({
           purpose: "profile",
           contentType: resolvedMedia.contentType,
           fileSizeBytes: file.size,
-          checksumSha256: randomHex(64),
+          checksumSha256: await mediaChecksum(file.uri),
           originalFileName: file.name
         },
         accessToken
@@ -714,6 +715,12 @@ export function ProfileScreen({
           uploadLabel="Upload for review"
           pickedFiles={pickedProfileMediaFiles}
           pendingItems={pendingReviewMedia(mediaAssets.filter((asset) => asset.purpose === "profile"))}
+          rejectedItems={mediaAssets.filter((asset) => asset.purpose === "profile" && asset.state === "rejected")}
+          onRequestReview={async (mediaId) => {
+            if (!accessToken) throw new Error("Sign in to request a review.");
+            const updated = await requestMediaReview(mediaId, accessToken);
+            setMediaAssets((previous) => previous.map((asset) => asset.id === updated.id ? updated : asset));
+          }}
           uploading={mediaUploading}
           error={mediaError}
           success={mediaSuccess}

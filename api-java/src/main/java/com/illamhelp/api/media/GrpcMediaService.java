@@ -9,6 +9,7 @@ import com.illamhelp.api.proto.media.v1.ListMyMediaRequest;
 import com.illamhelp.api.proto.media.v1.ListProfileMediaRequest;
 import com.illamhelp.api.proto.media.v1.ListVerificationDocumentsRequest;
 import com.illamhelp.api.proto.media.v1.MediaPage;
+import com.illamhelp.api.proto.media.v1.RequestMediaReviewRequest;
 import com.illamhelp.api.proto.media.v1.UploadTicket;
 import io.grpc.stub.StreamObserver;
 import org.springframework.stereotype.Service;
@@ -54,6 +55,18 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
       AuthenticatedUser user = GrpcAuth.currentUser();
       responseObserver.onNext(GrpcMediaMappers.mediaAsset(
           mediaService.complete(user.userId(), request.getMediaId(), request.getEtag())));
+      responseObserver.onCompleted();
+    } catch (Throwable throwable) {
+      responseObserver.onError(GrpcMediaMappers.status(throwable));
+    }
+  }
+
+  @Override
+  public void requestMediaReview(RequestMediaReviewRequest request,
+      StreamObserver<com.illamhelp.api.proto.media.v1.MediaAsset> responseObserver) {
+    try {
+      AuthenticatedUser user = GrpcAuth.currentUser();
+      responseObserver.onNext(GrpcMediaMappers.mediaAsset(mediaService.requestReview(user.userId(), request.getMediaId())));
       responseObserver.onCompleted();
     } catch (Throwable throwable) {
       responseObserver.onError(GrpcMediaMappers.status(throwable));

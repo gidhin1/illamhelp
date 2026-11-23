@@ -35,6 +35,9 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
       WITH ranked_ids AS (
         SELECT cast(candidate.id as uuid) AS id, candidate.search_rank
         FROM unnest(cast(:preferredIds as text[])) WITH ORDINALITY AS candidate(id, search_rank)
+      ), search_terms AS (
+        SELECT lower(cast(:rankedQuery as text)) AS keyword,
+               plainto_tsquery('simple', cast(:rankedQuery as text)) AS terms
       )
       SELECT j.id, j.seeker_user_id AS "seekerUserId", j.category, j.title, j.description, j.location_text AS "locationText",
              j.location_latitude AS "locationLatitude", j.location_longitude AS "locationLongitude",
@@ -47,6 +50,7 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
       JOIN users seeker ON seeker.id = j.seeker_user_id
       LEFT JOIN users provider ON provider.id = j.assigned_provider_user_id
       LEFT JOIN ranked_ids ranked ON ranked.id = j.id
+      CROSS JOIN search_terms search
       WHERE (cast(:preferredIds as text[]) IS NULL OR ranked.id IS NOT NULL)
         AND (j.seeker_user_id = cast(:userId as uuid) OR j.assigned_provider_user_id = cast(:userId as uuid)
         OR (j.status = 'posted'::job_status AND (j.visibility = 'public'::job_visibility
@@ -55,7 +59,10 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
               ((c.user_a_id = cast(:userId as uuid) AND c.user_b_id = j.seeker_user_id)
                OR (c.user_b_id = cast(:userId as uuid) AND c.user_a_id = j.seeker_user_id)))))))
         AND (cast(:q as text) IS NULL OR lower(j.title) LIKE :q OR lower(j.description) LIKE :q
-          OR lower(j.category) LIKE :q OR lower(j.location_text) LIKE :q)
+          OR lower(j.category) LIKE :q OR lower(j.location_text) LIKE :q
+          OR j.search_vector @@ search.terms
+          OR (length(search.keyword) >= 3 AND
+            (search.keyword <% lower(j.title) OR search.keyword <% lower(j.location_text))))
         AND (cast(:category as text) IS NULL OR lower(j.category) LIKE :category)
         AND (cast(:locationText as text) IS NULL OR lower(j.location_text) LIKE :locationText)
         AND (cast(:minSeekerRating as numeric) IS NULL OR coalesce(p.rating_average, 0) >= cast(:minSeekerRating as numeric))
@@ -67,11 +74,17 @@ public interface JobRepository extends JpaRepository<JobEntity, UUID> {
               * cos(radians(j.location_longitude) - radians(cast(:longitude as double precision)))
               + sin(radians(cast(:latitude as double precision))) * sin(radians(j.location_latitude))
           )))) <= cast(:radiusKm as double precision)))
-      ORDER BY ranked.search_rank NULLS LAST, j.created_at DESC LIMIT :limit
+      ORDER BY ranked.search_rank NULLS LAST,
+        CASE WHEN lower(j.title) = search.keyword OR lower(j.category) = search.keyword THEN 0
+             WHEN j.search_vector @@ search.terms THEN 1 ELSE 2 END,
+        ts_rank_cd(j.search_vector, search.terms) DESC NULLS LAST,
+        greatest(word_similarity(search.keyword, lower(j.title)),
+                 word_similarity(search.keyword, lower(j.location_text))) DESC NULLS LAST,
+        j.created_at DESC, j.id DESC LIMIT :limit
       """, nativeQuery = true)
   List<Map<String, Object>> searchVisible(@Param("preferredIds") String[] preferredIds, @Param("userId") String userId, @Param("q") String query,
-      @Param("category") String category, @Param("locationText") String locationText,
-      @Param("minSeekerRating") Double minSeekerRating, @Param("statuses") String statuses,
+      @Param("rankedQuery") String rankedQuery, @Param("category") String category,
+      @Param("locationText") String locationText, @Param("minSeekerRating") Double minSeekerRating, @Param("statuses") String statuses,
       @Param("visibility") String visibility, @Param("latitude") Double latitude,
       @Param("longitude") Double longitude, @Param("radiusKm") Double radiusKm, @Param("limit") int limit);
 

@@ -62,7 +62,7 @@ class JobsTests {
     when(search.searchJobIds(any())).thenReturn(new JobsSearchService.SearchResult(true, List.of("job-one", "job-two")));
     JobsService service = new JobsService(repository, mock(AuditService.class), mock(NotificationService.class), search, properties());
     when(repository.searchVisible(aryEq(new String[]{"job-one", "job-two"}), org.mockito.ArgumentMatchers.eq("actor"),
-        org.mockito.ArgumentMatchers.eq("%plumber%"), org.mockito.ArgumentMatchers.eq("%care%"),
+        org.mockito.ArgumentMatchers.eq("%plumber%"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("%care%"),
         org.mockito.ArgumentMatchers.eq("%doha%"), org.mockito.ArgumentMatchers.eq(4.2),
         org.mockito.ArgumentMatchers.eq("posted,accepted"), org.mockito.ArgumentMatchers.eq("public"),
         org.mockito.ArgumentMatchers.eq(25.28), org.mockito.ArgumentMatchers.eq(51.53),
@@ -72,7 +72,7 @@ class JobsTests {
         "Plumber", "CARE", "Doha", 4.2, "posted,accepted", "public", 25.28, 51.53, 10.0, 50))).isEmpty();
 
     verify(repository).searchVisible(aryEq(new String[]{"job-one", "job-two"}), org.mockito.ArgumentMatchers.eq("actor"),
-        org.mockito.ArgumentMatchers.eq("%plumber%"), org.mockito.ArgumentMatchers.eq("%care%"),
+        org.mockito.ArgumentMatchers.eq("%plumber%"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("%care%"),
         org.mockito.ArgumentMatchers.eq("%doha%"), org.mockito.ArgumentMatchers.eq(4.2),
         org.mockito.ArgumentMatchers.eq("posted,accepted"), org.mockito.ArgumentMatchers.eq("public"),
         org.mockito.ArgumentMatchers.eq(25.28), org.mockito.ArgumentMatchers.eq(51.53),
@@ -85,12 +85,12 @@ class JobsTests {
     JobsSearchService search = mock(JobsSearchService.class);
     when(search.searchJobIds(any())).thenReturn(new JobsSearchService.SearchResult(false, List.of()));
     JobsService service = new JobsService(repository, mock(AuditService.class), mock(NotificationService.class), search, properties());
-    when(repository.searchVisible(null, "actor", null, null, null, null, "posted", null, null, null, null, 20))
+    when(repository.searchVisible(null, "actor", null, null, null, null, null, "posted", null, null, null, null, 20))
         .thenReturn(List.of());
 
     assertThat(service.search("actor", new JobsService.SearchJobsRequest(
         null, null, null, null, null, null, null, null, null, null))).isEmpty();
-    verify(repository).searchVisible(null, "actor", null, null, null, null, "posted", null, null, null, null, 20);
+    verify(repository).searchVisible(null, "actor", null, null, null, null, null, "posted", null, null, null, null, 20);
     assertThatThrownBy(() -> service.search("actor", new JobsService.SearchJobsRequest(
         null, null, null, null, null, null, 25.28, null, null, null)))
         .isInstanceOf(ApiException.class)

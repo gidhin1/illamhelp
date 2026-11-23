@@ -35,6 +35,26 @@ public class MediaMutationService {
   }
 
   @Transactional
+  public MediaService.MediaAssetRecord requestReview(String userId, String mediaId) {
+    try {
+      java.util.UUID.fromString(mediaId);
+    } catch (IllegalArgumentException exception) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Invalid media ID");
+    }
+    int queued = mediaAssetRepository.enqueueOwnerAppeal(userId, mediaId);
+    Map<String, Object> asset = mediaAssetRepository.findOwnedMedia(userId, mediaId);
+    if (asset == null || asset.isEmpty()) {
+      throw new ApiException(HttpStatus.NOT_FOUND, "Media not found");
+    }
+    if (queued == 1) {
+      auditService.logEvent(userId, null, "media_review_requested", null, Map.of("mediaId", mediaId));
+    } else if (!"appeal_pending".equals(asset.get("state"))) {
+      throw new ApiException(HttpStatus.CONFLICT, "A review is unavailable for this upload");
+    }
+    return MediaService.mediaAssetRecord(asset);
+  }
+
+  @Transactional
   public MediaService.MediaAssetRecord recordVerifiedCompletion(String userId, String mediaId, String normalizedEtag) {
     Map<String, Object> asset = mediaAssetRepository.completeUpload(userId, mediaId);
     if (asset == null || asset.isEmpty()) {

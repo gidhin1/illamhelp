@@ -23,6 +23,37 @@ import org.junit.jupiter.api.Test;
 
 class MediaTests {
   @Test
+  void requestsAnOwnerAppealOnceAndReturnsThePendingStateOnRetry() {
+    var repository = mock(MediaAssetRepository.class);
+    var audit = mock(AuditService.class);
+    var service = new MediaMutationService(repository, audit, mock(InternalEventsService.class));
+    String mediaId = "00000000-0000-0000-0000-000000000003";
+    when(repository.enqueueOwnerAppeal("owner", mediaId)).thenReturn(1, 0);
+    when(repository.findOwnedMedia("owner", mediaId)).thenReturn(Map.of("id", mediaId, "state", "appeal_pending"));
+
+    assertThat(service.requestReview("owner", mediaId).state()).isEqualTo("appeal_pending");
+    assertThat(service.requestReview("owner", mediaId).state()).isEqualTo("appeal_pending");
+    verify(audit).logEvent("owner", null, "media_review_requested", null, Map.of("mediaId", mediaId));
+  }
+
+  @Test
+  void deniesMissingOrIneligibleAppeals() {
+    var repository = mock(MediaAssetRepository.class);
+    var audit = mock(AuditService.class);
+    var service = new MediaMutationService(repository, audit, mock(InternalEventsService.class));
+    String mediaId = "00000000-0000-0000-0000-000000000003";
+    when(repository.findOwnedMedia("owner", mediaId)).thenReturn(Map.of("state", "rejected"));
+
+    assertThatThrownBy(() -> service.requestReview("other", mediaId)).isInstanceOf(ApiException.class)
+        .hasMessage("Media not found");
+    assertThatThrownBy(() -> service.requestReview("owner", mediaId)).isInstanceOf(ApiException.class)
+        .hasMessage("A review is unavailable for this upload");
+    assertThatThrownBy(() -> service.requestReview("owner", "invalid")).isInstanceOf(ApiException.class)
+        .hasMessage("Invalid media ID");
+    verifyNoInteractions(audit);
+  }
+
+  @Test
   void controllerDelegatesPublicAndAuthenticatedMediaCalls() {
     MediaController controller = new MediaController();
     assertThatThrownBy(() -> controller.blockedList(null))

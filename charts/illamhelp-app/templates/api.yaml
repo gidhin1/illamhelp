@@ -21,6 +21,8 @@ spec:
         app.kubernetes.io/component: api
     spec:
       automountServiceAccountToken: false
+      # Service environment variables can override Spring scanner settings.
+      enableServiceLinks: false
       securityContext:
         {{- include "illamhelp-app.podSecurityContext" . | nindent 8 }}
         runAsUser: 10001

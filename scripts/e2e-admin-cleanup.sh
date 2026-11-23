@@ -64,8 +64,10 @@ if [[ "$(docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null 
   exit 0
 fi
 
-admin_user="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
-admin_password="$(docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
+admin_user="$(docker exec "${CONTAINER_NAME}" printenv KC_BOOTSTRAP_ADMIN_USERNAME 2>/dev/null ||
+  docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN 2>/dev/null || true)"
+admin_password="$(docker exec "${CONTAINER_NAME}" printenv KC_BOOTSTRAP_ADMIN_PASSWORD 2>/dev/null ||
+  docker exec "${CONTAINER_NAME}" printenv KEYCLOAK_ADMIN_PASSWORD 2>/dev/null || true)"
 if [[ -z "${admin_user}" || -z "${admin_password}" ]]; then
   exit 0
 fi

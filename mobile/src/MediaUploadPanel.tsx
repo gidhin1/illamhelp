@@ -1,8 +1,10 @@
+import { mediaAppealError, mediaAppealReceipt, pendingMediaReviewLabel } from "@illamhelp/shared-types";
 import type { JSX } from "react";
+import { useState } from "react";
 import { Image, ScrollView, Text, View } from "react-native";
 
 import type { MediaAssetRecord, PublicMediaAssetRecord } from "./api";
-import { AppButton, Banner } from "./components";
+import { AppButton, Banner, StatusLabel } from "./components";
 import { formatBytes } from "./utils";
 import { useAppStyles } from "./theme-context";
 
@@ -15,11 +17,7 @@ export interface PickedMediaFile {
 
 type OwnerMedia = MediaAssetRecord | PublicMediaAssetRecord;
 
-const REVIEW_STATES = new Set(["uploaded", "scanning", "ai_reviewed", "human_review_pending"]);
-
-function stateLabel(state: string): string {
-  return state.replace(/_/g, " ");
-}
+const REVIEW_STATES = new Set(["uploaded", "scanning", "ai_reviewed", "human_review_pending", "appeal_pending"]);
 
 function mediaTitle(asset: OwnerMedia): string {
   if ("objectKey" in asset) {
@@ -51,6 +49,7 @@ export function MediaUploadPanel({
   pickedFiles,
   pendingItems,
   rejectedItems = [],
+  onRequestReview,
   uploading,
   error,
   success,
@@ -69,6 +68,7 @@ export function MediaUploadPanel({
   pickedFiles: PickedMediaFile[];
   pendingItems: OwnerMedia[];
   rejectedItems?: OwnerMedia[];
+  onRequestReview?: (mediaId: string) => Promise<void>;
   uploading: boolean;
   error: string | null;
   success: string | null;
@@ -83,6 +83,25 @@ export function MediaUploadPanel({
   const pickedCount = pickedFiles.length;
   const photoCount = pickedFiles.filter((file) => file.mimeType.startsWith("image/")).length;
   const videoCount = pickedFiles.filter((file) => file.mimeType.startsWith("video/")).length;
+
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewReceipt, setReviewReceipt] = useState(false);
+
+  async function requestReview(mediaId: string) {
+    if (!onRequestReview || reviewing) return;
+    setReviewing(mediaId);
+    setReviewError(null);
+    setReviewReceipt(false);
+    try {
+      await onRequestReview(mediaId);
+      setReviewReceipt(true);
+    } catch {
+      setReviewError(mediaAppealError);
+    } finally {
+      setReviewing(null);
+    }
+  }
 
   return (
     <View style={styles.mediaUploadPanel} testID={testID}>
@@ -169,6 +188,7 @@ export function MediaUploadPanel({
           {onCameraPick ? "Take a photo or video, or choose files from this device." : "Choose a file from this device."}
         </Text>
       )}
+      {reviewReceipt ? <Text accessibilityLiveRegion="polite" accessibilityRole="alert" style={styles.mediaReviewReceipt}>{mediaAppealReceipt}</Text> : null}
       {pendingItems.length > 0 ? (
         <View style={styles.stackSmall} testID={`${testID}-pending`}>
           <Text style={styles.fieldLabel}>Pending review</Text>
@@ -176,21 +196,28 @@ export function MediaUploadPanel({
             <View key={asset.id} style={styles.mediaPendingRow}>
               <Text style={styles.dataTitle}>{asset.kind === "image" ? "Photo" : "Video"}</Text>
               <Text style={styles.dataMeta}>{mediaTitle(asset)}</Text>
-              <Text style={styles.dataMeta}>{stateLabel(asset.state)}</Text>
+              <StatusLabel label={pendingMediaReviewLabel(asset.state)} tone="info" />
             </View>
           ))}
         </View>
       ) : null}
+      {reviewError ? <Banner tone="error" message={reviewError} /> : null}
       {rejectedItems.length > 0 ? (
         <View style={styles.stackSmall} testID={`${testID}-rejected`}>
-          <Text style={styles.fieldLabel}>Needs a replacement</Text>
+          <Text style={styles.fieldLabel}>Rejected uploads</Text>
           {rejectedItems.map((asset) => (
-            <View key={asset.id} style={styles.mediaPendingRow}>
+            <View key={asset.id} style={styles.mediaRejectedRow}>
               <Text style={styles.dataTitle}>{asset.kind === "image" ? "Photo" : "Video"} was not approved</Text>
+              {"rejectionMessage" in asset && asset.rejectionMessage ? <Text style={styles.dataMeta}>{asset.rejectionMessage}</Text> : null}
               <Text style={styles.dataMeta}>{new Date(asset.createdAt).toLocaleDateString()}</Text>
+              {onRequestReview && "appealEligible" in asset && asset.appealEligible ? (
+                <AppButton label={reviewing === asset.id ? "Requesting review…" : "Request review"}
+                  variant="secondary" disabled={reviewing !== null} loading={reviewing === asset.id}
+                  onPress={() => void requestReview(asset.id)} />
+              ) : null}
             </View>
           ))}
-          <Text style={styles.cardBodyMuted}>Choose a different photo or video to send for review.</Text>
+          <Text style={styles.cardBodyMuted}>You can upload a replacement.</Text>
         </View>
       ) : null}
     </View>

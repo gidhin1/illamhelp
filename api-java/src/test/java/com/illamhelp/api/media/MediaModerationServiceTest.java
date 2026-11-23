@@ -54,23 +54,93 @@ class MediaModerationServiceTest {
   }
 
   @Test
-  void completesAiReviewAndFlagsContactLeakageForHumanReview() {
+  void routesUnscreenedMediaToHumanReviewWithoutSimulatedScores() {
     MediaAssetRepository repository = mock(MediaAssetRepository.class);
     AuditService audit = mock(AuditService.class);
     MediaAutomatedModerationWorker service = worker(repository, audit);
     when(repository.claimNextAutomatedJob()).thenReturn(
-        Map.of("id", "job", "mediaId", "media", "stage", "ai_review"));
-    when(repository.findAiMedia("media")).thenReturn(Map.of(
-        "ownerUserId", "owner", "objectKey", "uploads/call-now-phone.jpg", "contentType", "image/jpeg"));
+        Map.of("id", "job", "mediaId", "media", "stage", "ai_review", "leaseToken", "lease", "attempts", 1));
+    var row = Map.<String, Object>of(
+        "ownerUserId", "owner", "objectKey", "uploads/call-now-phone.jpg", "contentType", "image/jpeg");
+    when(repository.findAiMedia("media")).thenReturn(repositoryRow(row), repositoryRow(row));
 
+    when(repository.lockScreeningLease("job", "lease")).thenReturn("job");
     assertThat(service.processNext().aiCompleted()).isEqualTo(1);
     verify(repository).completeAiModerationJob(org.mockito.ArgumentMatchers.eq("job"), anyString());
     verify(repository).enqueueModerationStage(org.mockito.ArgumentMatchers.eq("media"),
         org.mockito.ArgumentMatchers.eq("human_review"), anyString());
-    verify(repository).updateAiReviewState(org.mockito.ArgumentMatchers.eq("media"), anyString(),
-        org.mockito.ArgumentMatchers.eq("ai_contact_leakage_high"));
+    verify(repository).updateAiReviewState("media", null, null);
     verify(audit).logEvent(org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.eq("owner"),
-        org.mockito.ArgumentMatchers.eq("media_ai_review_completed"), org.mockito.ArgumentMatchers.isNull(), any());
+        org.mockito.ArgumentMatchers.eq("media_routed_to_human_review"), org.mockito.ArgumentMatchers.isNull(), any());
+  }
+
+  @Test
+  void rejectsConfirmedMalwareAndNotifiesTheOwner() throws Exception {
+    var repository = mock(MediaAssetRepository.class);
+    var scanner = mock(ClamAvMediaScanner.class);
+    var notifications = mock(NotificationService.class);
+    var service = new MediaAutomatedModerationWorker(repository, mock(AuditService.class), new ObjectMapper(),
+        properties(), mock(org.springframework.transaction.PlatformTransactionManager.class), scanner, notifications);
+    var asset = Map.<String, Object>of("ownerUserId", "owner");
+    when(repository.claimNextAutomatedJob()).thenReturn(
+        Map.of("id", "job", "mediaId", "media", "stage", "ai_review", "leaseToken", "lease", "attempts", 1));
+    when(repository.findAiMedia("media")).thenReturn(asset);
+    when(repository.lockScreeningLease("job", "lease")).thenReturn("job");
+    when(scanner.scan(asset)).thenReturn(new ClamAvMediaScanner.Screening(ClamAvMediaScanner.Result.INFECTED));
+
+    assertThat(service.processNext().technicalRejected()).isEqualTo(1);
+    verify(repository).rejectTechnicalAsset("media", "malware_detected");
+    verify(notifications).create("owner", "media_rejected", "Media rejected",
+        "This file failed the security scan. Upload a new copy from a trusted source.",
+        Map.of("mediaId", "media", "reasonCode", "malware_detected"));
+  }
+
+  @Test
+  void rejectsAConfirmedFormatMismatchWithSafeCopy() throws Exception {
+    var repository = mock(MediaAssetRepository.class);
+    var scanner = mock(ClamAvMediaScanner.class);
+    var notifications = mock(NotificationService.class);
+    var service = new MediaAutomatedModerationWorker(repository, mock(AuditService.class), new ObjectMapper(),
+        properties(), mock(org.springframework.transaction.PlatformTransactionManager.class), scanner, notifications);
+    var asset = Map.<String, Object>of("ownerUserId", "owner");
+    when(repository.claimNextAutomatedJob()).thenReturn(
+        Map.of("id", "job", "mediaId", "media", "stage", "ai_review", "leaseToken", "lease", "attempts", 1));
+    when(repository.findAiMedia("media")).thenReturn(asset);
+    when(repository.lockScreeningLease("job", "lease")).thenReturn("job");
+    when(scanner.scan(asset)).thenReturn(new ClamAvMediaScanner.Screening(ClamAvMediaScanner.Result.CLEAN,
+        Map.of("photoValidation", "format_mismatch")));
+
+    assertThat(service.processNext().technicalRejected()).isEqualTo(1);
+    verify(repository).rejectTechnicalAsset("media", "technical_photo_format_mismatch");
+    verify(notifications).create("owner", "media_rejected", "Media rejected",
+        "The file does not match its photo format. Export it again as JPEG, PNG, or WebP and retry.",
+        Map.of("mediaId", "media", "reasonCode", "technical_photo_format_mismatch"));
+  }
+
+  @Test
+  void reschedulesUnavailableScannerWithoutRejectingOrNotifying() throws Exception {
+    var repository = mock(MediaAssetRepository.class);
+    var scanner = mock(ClamAvMediaScanner.class);
+    var notifications = mock(NotificationService.class);
+    var service = new MediaAutomatedModerationWorker(repository, mock(AuditService.class), new ObjectMapper(),
+        properties(), mock(org.springframework.transaction.PlatformTransactionManager.class), scanner, notifications);
+    var asset = Map.<String, Object>of("ownerUserId", "owner");
+    when(repository.claimNextAutomatedJob()).thenReturn(
+        Map.of("id", "job", "mediaId", "media", "stage", "ai_review", "leaseToken", "lease", "attempts", 2));
+    when(repository.findAiMedia("media")).thenReturn(asset);
+    when(repository.lockScreeningLease("job", "lease")).thenReturn("job");
+    when(scanner.scan(asset)).thenThrow(new java.io.IOException("timeout"));
+
+    assertThat(service.processNext().errors()).isEqualTo(1);
+    verify(repository).retryScreening("job", 5);
+    verifyNoInteractions(notifications);
+  }
+
+  @Test
+  void returnsSafeRejectionCopyForTheOwner() {
+    var asset = MediaService.mediaAssetRecord(Map.of("state", "rejected", "rejectionReasonCode", "malware_detected"));
+    assertThat(asset.rejectionReasonCode()).isEqualTo("malware_detected");
+    assertThat(asset.rejectionMessage()).contains("failed the security scan");
   }
 
   @Test
@@ -218,7 +288,14 @@ class MediaModerationServiceTest {
     return new MediaModerationService(repository, notifications, audit, storage, new ObjectMapper(), worker);
   }
 
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> repositoryRow(Map<String, Object> fields) {
+    return mock(Map.class, org.mockito.AdditionalAnswers.delegatesTo(fields));
+  }
+
   private MediaAutomatedModerationWorker worker(MediaAssetRepository repository, AuditService audit) {
-    return new MediaAutomatedModerationWorker(repository, audit, new ObjectMapper(), properties());
+    return new MediaAutomatedModerationWorker(repository, audit, new ObjectMapper(), properties(),
+        mock(org.springframework.transaction.PlatformTransactionManager.class),
+        new ClamAvMediaScanner(mock(StorageService.class), "", 3310, new PhotoContentScanner("", new VisualContentScanner("")), mock(VideoContentScanner.class)), mock(NotificationService.class));
   }
 }
