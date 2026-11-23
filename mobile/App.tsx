@@ -1,26 +1,30 @@
+import type { JSX } from "react";
 import { StatusBar } from "expo-status-bar";
-import React, { useCallback, useEffect, useState } from "react";
-import { Keyboard, SafeAreaView, Text, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, Keyboard, SafeAreaView, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { CURRENT_LEGAL_VERSIONS } from "@illamhelp/shared-types";
 
 import {
+  ApiRequestError,
   authMe,
   AuthenticatedUser,
   AuthSessionResponse,
   getUnreadNotificationCount,
   login,
+  refreshSession,
   register
 } from "./src/api";
 import { AnalyticsConsentBanner } from "./src/AnalyticsConsentBanner";
 import { identifyAnalyticsUser, trackEvent } from "./src/analytics";
-import { AppThemeProvider, useThemePreference } from "./src/theme-context";
+import { AppThemeProvider, useAppTheme, useThemePreference } from "./src/theme-context";
 import { asError } from "./src/utils";
 import { AuthMode } from "./src/components";
 import { AuthScreen, LoginFormState, RegisterFormState } from "./src/screens/AuthScreen";
 import { AppNavigator } from "./src/navigation/AppNavigator";
+import { createSessionRefresh } from "./src/session-refresh";
 
 const initialLoginForm: LoginFormState = { username: "", password: "" };
 const initialRegisterForm: RegisterFormState = {
@@ -85,8 +89,13 @@ class RootErrorBoundary extends React.Component<
 function AppContent(): JSX.Element {
   const { preference, setPreference } = useThemePreference();
   const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [session, setSession] = useState<{
+    credentials: AuthSessionResponse;
+    receivedAt: number;
+    user: AuthenticatedUser;
+  } | null>(null);
+  const stopSessionRefresh = useRef<(() => void) | null>(null);
+  const accessToken = session?.credentials.accessToken;
   const [unreadAlertsCount, setUnreadAlertsCount] = useState(0);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -94,28 +103,48 @@ function AppContent(): JSX.Element {
   const [registerForm, setRegisterForm] = useState<RegisterFormState>(initialRegisterForm);
 
   const signOut = useCallback((): void => {
-    setAccessToken(null);
-    setUser(null);
+    stopSessionRefresh.current?.();
+    setSession(null);
     setUnreadAlertsCount(0);
     setAuthError(null);
   }, []);
 
-  const applySession = useCallback(
-    async (session: AuthSessionResponse): Promise<void> => {
-      setAccessToken(session.accessToken);
-      setUser(mapSessionUser(session));
-      identifyAnalyticsUser(session.analyticsUserId);
-      try {
-        const profile = await authMe(session.accessToken);
-        setUser(profile);
-        identifyAnalyticsUser(profile.analyticsUserId);
-      } catch (requestError) {
+  const applySession = useCallback(async (credentials: AuthSessionResponse): Promise<void> => {
+    const receivedAt = Date.now();
+    const user = await authMe(credentials.accessToken);
+    setSession({ credentials, receivedAt, user });
+    identifyAnalyticsUser(user.analyticsUserId);
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+
+    const refresh = createSessionRefresh(
+      session.credentials,
+      session.receivedAt,
+      refreshSession,
+      (error) => error instanceof ApiRequestError && [400, 401, 403].includes(error.status),
+      (credentials) => {
+        const receivedAt = Date.now();
+        const user = mapSessionUser(credentials);
+        setSession({ credentials, receivedAt, user });
+        identifyAnalyticsUser(user.analyticsUserId);
+      },
+      () => {
         signOut();
-        throw requestError;
+        setAuthMode("login");
+        setAuthError("Your session expired. Sign in again.");
       }
-    },
-    [signOut]
-  );
+    );
+    stopSessionRefresh.current = refresh.stop;
+    const subscription = AppState.addEventListener("change", (state) => refresh.setActive(state === "active"));
+    refresh.setActive(AppState.currentState === "active" || AppState.currentState == null);
+    return () => {
+      refresh.stop();
+      stopSessionRefresh.current = null;
+      subscription.remove();
+    };
+  }, [session, signOut]);
 
   useEffect(() => {
     if (!accessToken) {
@@ -142,6 +171,14 @@ function AppContent(): JSX.Element {
 
   const onLogin = useCallback(async (): Promise<void> => {
     Keyboard.dismiss();
+    if (!loginForm.username.trim()) {
+      setAuthError("Enter your username or email.");
+      return;
+    }
+    if (!loginForm.password) {
+      setAuthError("Enter your password.");
+      return;
+    }
     setAuthBusy(true);
     setAuthError(null);
     try {
@@ -149,7 +186,7 @@ function AppContent(): JSX.Element {
       await applySession(session);
       setLoginForm(initialLoginForm);
     } catch (requestError) {
-      setAuthError(asError(requestError, "Unable to sign in"));
+      setAuthError(asError(requestError, "Couldn’t sign in. Try again."));
     } finally {
       setAuthBusy(false);
     }
@@ -166,7 +203,7 @@ function AppContent(): JSX.Element {
         source: "register_form"
       });
       if (normalizedUserId.length < 3) {
-        throw new Error("User ID must be at least 3 characters.");
+        throw new Error("Enter a member ID with at least 3 characters.");
       }
       if (!registerForm.legalAccepted) {
         throw new Error("Accept the current Terms and Privacy Policy to create an account.");
@@ -186,17 +223,17 @@ function AppContent(): JSX.Element {
       await applySession(session);
       setRegisterForm(initialRegisterForm);
     } catch (requestError) {
-      setAuthError(asError(requestError, "Unable to register"));
+      setAuthError(asError(requestError, "Couldn’t create your account. Check your details and try again."));
     } finally {
       setAuthBusy(false);
     }
   }, [applySession, registerForm]);
 
-  if (accessToken && user) {
+  if (session) {
     return (
       <AppNavigator
-        accessToken={accessToken}
-        user={user}
+        accessToken={session.credentials.accessToken}
+        user={session.user}
         unreadAlertsCount={unreadAlertsCount}
         signOut={signOut}
         setUnreadAlertsCount={setUnreadAlertsCount}
@@ -222,16 +259,24 @@ function AppContent(): JSX.Element {
   );
 }
 
+function ThemedApp(): JSX.Element {
+  const theme = useAppTheme();
+  return (
+    <View style={{ flex: 1 }}>
+      <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
+      <AppContent />
+      <AnalyticsConsentBanner />
+    </View>
+  );
+}
+
 export default function App(): JSX.Element {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <RootErrorBoundary>
         <SafeAreaProvider>
           <AppThemeProvider>
-          <View style={{ flex: 1 }}>
-            <AppContent />
-            <AnalyticsConsentBanner />
-          </View>
+            <ThemedApp />
           </AppThemeProvider>
         </SafeAreaProvider>
       </RootErrorBoundary>

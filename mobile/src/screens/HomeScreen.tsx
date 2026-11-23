@@ -1,8 +1,9 @@
+import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { DashboardResponse, formatDate, getMyDashboard } from "../api";
-import { AppButton, Banner, MotionView, SectionCard } from "../components";
+import { AppButton, Banner, CardSurface, SectionCard, StatusLabel } from "../components";
 import { asError, shouldForceSignOut } from "../utils";
 import { useAppStyles, useAppTheme } from "../theme-context";
 
@@ -10,223 +11,23 @@ type FeedFilter = "all" | "active" | "nearby";
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    header: {
-      gap: 14,
-      marginBottom: 4
-    },
-    heroPanel: {
-      borderRadius: 14,
-      padding: 20,
-      gap: 14,
-      backgroundColor: colors.brand,
-      shadowColor: colors.shadow,
-      shadowOpacity: 0.14,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 5 },
-      elevation: 4
-    },
-    heroPill: {
-      alignSelf: "flex-start",
-      borderRadius: 999,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      backgroundColor: "rgba(255,255,255,0.14)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.26)",
-      color: colors.onStrong,
-      overflow: "hidden",
-      fontSize: 12,
-      fontWeight: "700"
-    },
-    headerTitle: {
-      color: colors.onStrong,
-      fontSize: 30,
-      lineHeight: 36,
-      fontWeight: "700"
-    },
-    headerBody: {
-      color: "rgba(255,255,255,0.86)",
-      fontSize: 16,
-      lineHeight: 24,
-      maxWidth: 320
-    },
-    signalRail: {
-      gap: 8
-    },
-    signalCard: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      minHeight: 44,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      backgroundColor: "rgba(255,255,255,0.12)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.24)"
-    },
-    signalDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: colors.onStrong
-    },
-    signalText: {
-      color: colors.onStrong,
-      fontSize: 13,
-      fontWeight: "700",
-      lineHeight: 18,
-      flex: 1
-    },
-    filterRow: {
-      flexDirection: "row",
-      gap: 8,
-      marginTop: 6,
-      flexWrap: "wrap"
-    },
-    filterChip: {
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.surfaceAlt,
-      paddingHorizontal: 14,
-      paddingVertical: 10
-    },
-    filterChipActive: {
-      backgroundColor: colors.surface,
-      borderColor: colors.brand
-    },
-    filterChipLabel: {
-      color: colors.muted,
-      fontSize: 13,
-      fontWeight: "700",
-      lineHeight: 18
-    },
-    filterChipLabelActive: {
-      color: colors.brand
-    },
-    statsRow: {
-      flexDirection: "row",
-      gap: 10,
-      paddingRight: 10
-    },
-    statCard: {
-      width: 146,
-      borderRadius: 12,
-      padding: 16,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.line,
-      gap: 6
-    },
-    statLabel: {
-      color: colors.muted,
-      fontSize: 12,
-      fontWeight: "600",
-      lineHeight: 16
-    },
-    statValue: {
-      color: colors.ink,
-      fontSize: 26,
-      fontWeight: "700",
-      lineHeight: 31
-    },
-    statCardAccent: {
-      backgroundColor: colors.surfaceAlt,
-      borderColor: colors.brand
-    },
-    feedSection: {
-      gap: 12
-    },
-    feedHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center"
-    },
-    feedTitle: {
-      color: colors.ink,
-      fontSize: 20,
-      fontWeight: "700",
-      lineHeight: 25
-    },
-    jobCard: {
-      width: 292,
-      borderRadius: 12,
-      padding: 18,
-      gap: 12,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.line
-    },
-    jobCardActive: {
-      borderColor: colors.brand,
-      backgroundColor: colors.surfaceAlt
-    },
-    jobMetaRow: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      gap: 12
-    },
-    jobCategory: {
-      color: colors.brand,
-      fontSize: 13,
-      fontWeight: "700",
-      lineHeight: 18,
-      paddingHorizontal: 12,
-      paddingVertical: 7,
-      borderRadius: 999,
-      backgroundColor: colors.surfaceAlt,
-      borderWidth: 1,
-      borderColor: colors.line,
-      overflow: "hidden"
-    },
-    jobStatus: {
-      color: colors.muted,
-      fontSize: 12,
-      fontWeight: "600",
-      lineHeight: 16
-    },
-    jobTitle: {
-      color: colors.ink,
-      fontSize: 21,
-      fontWeight: "700",
-      lineHeight: 26
-    },
-    jobBody: {
-      color: colors.muted,
-      fontSize: 15,
-      lineHeight: 22
-    },
-    jobFooter: {
-      flexDirection: "row",
-      gap: 10,
-      alignItems: "center",
-      flexWrap: "wrap"
-    },
-    jobFooterText: {
-      color: colors.muted,
-      fontSize: 13,
-      fontWeight: "600",
-      lineHeight: 18
-    },
-    privacyNote: {
-      color: colors.brandText,
-      fontSize: 13,
-      fontWeight: "700",
-      lineHeight: 18
-    }
+    filters: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    filter: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center", borderRadius: 12 },
+    selected: { backgroundColor: colors.surfaceAlt },
+    filterLabel: { color: colors.ink, fontWeight: "600" },
+    selectedLabel: { color: colors.brandText },
+    heading: { flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", justifyContent: "space-between", gap: 8 }
   });
 }
 
 export function HomeScreen({
   accessToken,
   onSessionInvalid,
-  onOpenJobs
+  onNavigate
 }: {
   accessToken: string;
   onSessionInvalid: () => void;
-  onOpenJobs?: () => void;
+  onNavigate: (route: "jobs-discover" | "jobs-posted" | "people" | "privacy") => void;
 }): JSX.Element {
   const styles = useAppStyles();
   const theme = useAppTheme();
@@ -243,7 +44,7 @@ export function HomeScreen({
       const payload = await getMyDashboard(accessToken);
       setDashboard(payload);
     } catch (requestError) {
-      const message = asError(requestError, "Failed to load home feed");
+      const message = asError(requestError, "Couldn’t load your jobs and updates. Try again.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -281,116 +82,71 @@ export function HomeScreen({
       keyboardDismissMode="on-drag"
       showsVerticalScrollIndicator={false}
     >
-      <MotionView style={[localStyles.header, localStyles.heroPanel]} variant="rise">
-        <Text style={localStyles.heroPill}>Today in IllamHelp</Text>
-        <Text style={localStyles.headerTitle}>Your next steps</Text>
-        <Text style={localStyles.headerBody}>
-          Review jobs, contact sharing, and profile updates that need your attention.
-        </Text>
-        <View style={localStyles.signalRail} accessibilityLabel="Home safety highlights">
-          {[
-            "Human identity first: review the person or job owner",
-            "Privacy state visible: contact details stay controlled",
-            "Next safe action: post, apply, or check alerts"
-          ].map((label) => (
-            <View key={label} style={localStyles.signalCard}>
-              <View style={localStyles.signalDot} />
-              <Text style={localStyles.signalText}>{label}</Text>
-            </View>
-          ))}
-        </View>
-      </MotionView>
+      <View style={styles.screenHeader}>
+        <Text style={styles.screenTitle} accessibilityRole="header">Your jobs and updates</Text>
+        <Text style={styles.screenSubtitle}>See recent jobs, connections, and contact requests.</Text>
+        <AppButton label="Post a job" testID="home-post-job" onPress={() => onNavigate("jobs-posted")} />
+      </View>
 
       {error ? <Banner tone="error" message={error} /> : null}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
-        <View style={localStyles.statCard}>
-          <Text style={localStyles.statLabel}>Jobs</Text>
-          <Text style={localStyles.statValue}>{dashboard?.metrics.totalJobs ?? 0}</Text>
-        </View>
-        <View style={localStyles.statCard}>
-          <Text style={localStyles.statLabel}>Connections</Text>
-          <Text style={localStyles.statValue}>{dashboard?.metrics.totalConnections ?? 0}</Text>
-        </View>
-        <View style={[localStyles.statCard, localStyles.statCardAccent]}>
-          <Text style={localStyles.statLabel}>Pending</Text>
-          <Text style={localStyles.statValue}>{dashboard?.metrics.pendingConnections ?? 0}</Text>
-        </View>
-      </ScrollView>
-
-      <View style={localStyles.filterRow}>
-        {([
-          ["all", "All"],
-          ["active", "Active"],
-          ["nearby", "Nearby"]
-        ] as const).map(([value, label]) => {
+      <View style={localStyles.heading}>
+        <Text style={styles.cardTitle} accessibilityRole="header">Recent jobs</Text>
+        <Text style={styles.cardBodyMuted}>{filteredJobs.length} {filteredJobs.length === 1 ? "update" : "updates"}</Text>
+      </View>
+      <View style={localStyles.filters}>
+        {([["all", "All"], ["active", "Active"], ["nearby", "Nearby"]] as const).map(([value, label]) => {
           const active = filter === value;
           return (
             <Pressable
               key={value}
               onPress={() => setFilter(value)}
-              style={[localStyles.filterChip, active ? localStyles.filterChipActive : null]}
+              style={[localStyles.filter, active && localStyles.selected]}
               testID={`home-filter-${value}`}
               accessibilityRole="button"
               accessibilityLabel={`${label} jobs`}
               accessibilityState={{ selected: active }}
             >
-              <Text style={[localStyles.filterChipLabel, active ? localStyles.filterChipLabelActive : null]}>
-                {label}
-              </Text>
+              <Text style={[localStyles.filterLabel, active && localStyles.selectedLabel]}>{label}</Text>
             </Pressable>
           );
         })}
       </View>
 
-      <View style={localStyles.feedSection}>
-        <View style={localStyles.feedHeader}>
-          <Text style={localStyles.feedTitle}>Recent jobs</Text>
-          <Text style={styles.cardBodyMuted}>{filteredJobs.length} updates</Text>
-        </View>
+      {loading ? <Text style={styles.cardBodyMuted}>Refreshing your feed...</Text> : null}
+      {!loading && !filteredJobs.length ? (
+        <SectionCard title="No updates yet" subtitle="Change the filter or check back after you post a job." >
+          <AppButton label="Browse jobs" variant="ghost" onPress={() => onNavigate("jobs-discover")} />
+        </SectionCard>
+      ) : null}
+      {filteredJobs.map((job) => (
+        <CardSurface key={job.id} variant="record">
+          <View style={localStyles.heading}>
+            <Text style={styles.cardTitle} accessibilityRole="header">{job.title}</Text>
+            <StatusLabel label={job.status.replaceAll("_", " ")} />
+          </View>
+          <Text style={styles.dataMeta}>{job.category} · {job.locationText}</Text>
+          <Text style={styles.dataMeta}>Posted {formatDate(job.createdAt)}</Text>
+          <AppButton label="Open jobs" variant="ghost" onPress={() => onNavigate("jobs-discover")} testID={`home-open-job-${job.id}`} />
+        </CardSurface>
+      ))}
 
-        {loading ? <Text style={styles.cardBodyMuted}>Refreshing your feed...</Text> : null}
-        {!loading && filteredJobs.length === 0 ? (
-          <SectionCard
-            title="Nothing to show yet"
-            subtitle="As new jobs and trust activity come in, your personalized feed will appear here."
-            motion="rise"
-          >
-            <Text style={styles.cardBodyMuted}>Try switching filters or come back after your next connection or job post.</Text>
-          </SectionCard>
-        ) : null}
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={localStyles.statsRow}>
-        {filteredJobs.map((job) => (
-          <View
-            key={job.id}
-            style={[
-              localStyles.jobCard,
-              job.status !== "posted" && job.status !== "closed" ? localStyles.jobCardActive : null
-            ]}
-          >
-            <View style={localStyles.jobMetaRow}>
-              <Text style={localStyles.jobCategory}>{job.category}</Text>
-              <Text style={localStyles.jobStatus}>{job.status.replaceAll("_", " ")}</Text>
-            </View>
-            <Text style={localStyles.jobTitle}>{job.title}</Text>
-            <Text style={localStyles.jobBody}>{job.locationText}</Text>
-            <View style={localStyles.jobFooter}>
-              <Text style={localStyles.jobFooterText}>Posted {formatDate(job.createdAt)}</Text>
-              <Text style={localStyles.privacyNote}>Check profile before sharing contact details</Text>
-            </View>
-            {onOpenJobs ? (
-              <AppButton
-                label="Open jobs"
-                onPress={onOpenJobs}
-                variant="secondary"
-                testID={`home-open-job-${job.id}`}
-              />
-            ) : null}
+      <SectionCard title="Account activity" variant="summary">
+        {([
+          ["Jobs", dashboard?.metrics.totalJobs ?? 0],
+          ["Connections", dashboard?.metrics.totalConnections ?? 0],
+          ["Pending connections", dashboard?.metrics.pendingConnections ?? 0]
+        ] as const).map(([label, count]) => (
+          <View key={label} style={styles.summaryRow}>
+            <Text style={styles.cardBodyMuted}>{label}</Text>
+            <Text style={styles.dataTitle}>{count}</Text>
           </View>
         ))}
-        </ScrollView>
-      </View>
+        <AppButton label="Review connections" variant="ghost" onPress={() => onNavigate("people")} />
+      </SectionCard>
+      <SectionCard title="Contact sharing" subtitle="Choose who can see your contact details.">
+        <AppButton label="Manage contact sharing" variant="ghost" onPress={() => onNavigate("privacy")} />
+      </SectionCard>
     </ScrollView>
   );
 }

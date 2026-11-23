@@ -282,7 +282,7 @@ export function getProfileByUserId(
 
 export function listModerationQueue(
   accessToken: string,
-  options?: { status?: string; limit?: number }
+  options?: Parameters<typeof mediaClient.listModerationQueue>[1]
 ): Promise<ModerationQueueItem[]> {
   return mediaClient.listModerationQueue(accessToken, options);
 }

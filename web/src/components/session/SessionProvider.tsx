@@ -122,7 +122,7 @@ export function SessionProvider({
         }
       }
       clearSession();
-      setError("Session expired. Please sign in again.");
+      setError("Your session expired. Sign in again.");
     } finally {
       setLoading(false);
     }
@@ -180,12 +180,12 @@ export function SessionProvider({
           })
           .catch(() => {
             clearSession();
-            setError("Session expired. Please sign in again.");
+            setError("Your session expired. Sign in again.");
             setLoading(false);
           });
       } else {
         clearSession();
-        setError("Session expired. Please sign in again.");
+        setError("Your session expired. Sign in again.");
         setLoading(false);
       }
     };

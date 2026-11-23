@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatUiError } from "@illamhelp/shared-types";
+
+import { ActionControl } from "@illamhelp/ui-web";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PageShell } from "@/components/PageShell";
+import { BackToQueue, ReviewConfirmation, ReviewReceipt, useReviewWorkspace, type ReviewDecision } from "@/components/ui/ReviewWorkspace";
+import { ReviewMediaPreview } from "@/components/ui/ReviewMediaPreview";
 import { RequireAdminSession } from "@/components/session/RequireAdminSession";
 import { useSession } from "@/components/session/SessionProvider";
 import {
@@ -29,7 +35,7 @@ const STATUS_OPTS = [
   { value: "under_review", label: "Under review" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
-  { value: "", label: "All Records" }
+  { value: "", label: "All statuses" }
 ];
 
 type VerificationSortOrder = "oldest" | "newest";
@@ -39,7 +45,7 @@ function shortId(value: string): string {
 }
 
 function statusLabel(status: VerificationRecord["status"]): string {
-    return status.replaceAll("_", " ");
+    return STATUS_OPTS.find((option) => option.value === status)?.label ?? status;
 }
 
 function statusColor(status: VerificationRecord["status"]): string {
@@ -53,7 +59,7 @@ function documentTypeLabel(documentType: string): string {
     return documentType.replaceAll("_", " ");
 }
 
-export default function VerificationsPage(): React.JSX.Element {
+function VerificationsContent(): React.JSX.Element {
     const { accessToken } = useSession();
     const [items, setItems] = useState<VerificationRecord[]>([]);
     const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -64,13 +70,20 @@ export default function VerificationsPage(): React.JSX.Element {
     const [queueSortOrder, setQueueSortOrder] = useState<VerificationSortOrder>("oldest");
     const [reviewingId, setReviewingId] = useState<string | null>(null);
     const [reviewNotesById, setReviewNotesById] = useState<Record<string, string>>({});
-    const [previewByMediaId, setPreviewByMediaId] = useState<Record<string, ModerationDetails>>({});
+    const [preview, setPreview] = useState<ModerationDetails | null>(null);
+    const [previewError, setPreviewError] = useState<string | null>(null);
+    const previewRequest = useRef(0);
+    const queueRequest = useRef(0);
     const [previewLoadingId, setPreviewLoadingId] = useState<string | null>(null);
     const [actionLoading, setActionLoading] = useState(false);
-    const [successMessage, setSuccessMessage] = useState<string | null>(null);
+    const [receipt, setReceipt] = useState<VerificationRecord | null>(null);
+    const [decision, setDecision] = useState<ReviewDecision | null>(null);
+    const [decisionError, setDecisionError] = useState<string | null>(null);
+    const workspace = useReviewWorkspace("verification-queue-title", "verification-review-title");
 
     const loadVerifications = useCallback(async (): Promise<void> => {
         if (!accessToken) return;
+        const request = ++queueRequest.current;
         setLoading(true);
         setError(null);
         try {
@@ -78,17 +91,23 @@ export default function VerificationsPage(): React.JSX.Element {
                 { status: statusFilter || undefined, limit: 100 },
                 accessToken
             );
+            if (request !== queueRequest.current) return;
             setItems(result.items);
             setNextCursor(result.nextCursor);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load verifications");
+            if (request === queueRequest.current) {
+                setItems([]);
+                setNextCursor(null);
+                setError(formatUiError(err, "Couldn’t load verification requests. Refresh the queue and try again."));
+            }
         } finally {
-            setLoading(false);
+            if (request === queueRequest.current) setLoading(false);
         }
     }, [accessToken, statusFilter]);
 
     const loadMoreVerifications = async (): Promise<void> => {
         if (!accessToken || !nextCursor) return;
+        const request = ++queueRequest.current;
         setLoading(true);
         setError(null);
         try {
@@ -96,29 +115,38 @@ export default function VerificationsPage(): React.JSX.Element {
                 { status: statusFilter || undefined, limit: 100, cursor: nextCursor },
                 accessToken
             );
+            if (request !== queueRequest.current) return;
             setItems((previous) => [...previous, ...result.items]);
             setNextCursor(result.nextCursor);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load more verifications");
+            if (request === queueRequest.current) setError(formatUiError(err, "Couldn’t load more requests. Try again."));
         } finally {
-            setLoading(false);
+            if (request === queueRequest.current) setLoading(false);
         }
     };
 
+    function closePreview() {
+        previewRequest.current++;
+        setPreview(null);
+        setPreviewError(null);
+        setPreviewLoadingId(null);
+    }
+
     const onPreviewDocument = async (mediaId: string): Promise<void> => {
         if (!accessToken) return;
-        if (previewByMediaId[mediaId]) {
-            return;
-        }
+        const request = ++previewRequest.current;
         setPreviewLoadingId(mediaId);
-        setError(null);
+        setPreviewError(null);
         try {
             const details = await getModerationDetails(mediaId, accessToken);
-            setPreviewByMediaId((previous) => ({ ...previous, [mediaId]: details }));
+            if (request === previewRequest.current) setPreview(details);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to load document preview");
+            if (request === previewRequest.current) {
+                setPreview(null);
+                setPreviewError(formatUiError(err, "Couldn’t open this document. Select Preview document to try again."));
+            }
         } finally {
-            setPreviewLoadingId(null);
+            if (request === previewRequest.current) setPreviewLoadingId(null);
         }
     };
 
@@ -126,52 +154,39 @@ export default function VerificationsPage(): React.JSX.Element {
         void loadVerifications();
     }, [loadVerifications]);
 
-    useEffect(() => {
-        if (items.length === 0) {
-            setReviewingId(null);
-            return;
-        }
-        if (!reviewingId || !items.some((item) => item.id === reviewingId)) {
-            setReviewingId(items[0].id);
-        }
-    }, [items, reviewingId]);
-
     const onReview = async (
         requestId: string,
         notes: string,
-        decision: "approved" | "rejected"
+        nextDecision: ReviewDecision
     ): Promise<void> => {
-        if (!accessToken) return;
+        if (!accessToken || actionLoading) return;
         setActionLoading(true);
-        setError(null);
-        setSuccessMessage(null);
+        setDecisionError(null);
         try {
             const updated = await reviewVerification(
                 requestId,
-                { decision, notes: notes.trim() || undefined },
+                { decision: nextDecision, notes: notes.trim() || undefined },
                 accessToken
             );
-            setItems((prev) =>
-                prev.map((item) => (item.id === updated.id ? updated : item))
-            );
-            setReviewingId(updated.id);
-            setReviewNotesById((prev) => {
-                const next = { ...prev };
+            setReceipt(updated);
+            setItems((previous) => previous.flatMap((item) =>
+                item.id !== updated.id ? [item] : !statusFilter || updated.status === statusFilter ? [updated] : []
+            ));
+            setReviewNotesById((previous) => {
+                const next = { ...previous };
                 delete next[requestId];
                 return next;
             });
-            setSuccessMessage(`Verification ${updated.status} successfully.`);
+            closePreview();
+            setDecision(null);
         } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to review verification");
+            setDecisionError(formatUiError(err, "Couldn’t save the decision. Try again or cancel and refresh the queue."));
         } finally {
             setActionLoading(false);
         }
     };
 
-    const selectedRequest = useMemo(
-        () => items.find((item) => item.id === reviewingId) ?? null,
-        [items, reviewingId]
-    );
+    const selectedRequest = receipt ?? items.find((item) => item.id === reviewingId) ?? null;
     const visibleItems = useMemo(() => {
         const query = queueSearch.trim().toLowerCase();
         return items
@@ -205,25 +220,38 @@ export default function VerificationsPage(): React.JSX.Element {
     const selectedIsComplete = selectedRequest?.status === "approved" || selectedRequest?.status === "rejected";
     const rejectionNotesTooShort = selectedReviewNotes.trim().length < 8;
 
+    function selectFilter(value: string) {
+        if (value === statusFilter) return;
+        setStatusFilter(value);
+        setReviewingId(null);
+        setReceipt(null);
+        closePreview();
+        workspace.close();
+    }
+
+    function backToQueue() {
+        closePreview();
+        if (receipt && !items.some((item) => item.id === receipt.id)) setReviewingId(null);
+        setReceipt(null);
+        workspace.close();
+    }
+
     return (
-        <PageShell>
-          <RequireAdminSession>
-             <div className="stack admin-review-page">
+             <div className="stack admin-review-page" data-review-open={workspace.open}>
                <div className="admin-review-topbar">
                  <div className="admin-review-title-block">
-                    <span className="admin-review-kicker">Trust & Safety</span>
-                    <h1 className="display-title admin-review-title">Verification Processing</h1>
+                    <h1 className="display-title admin-review-title">Review verification requests</h1>
                  </div>
-                 <div className="admin-review-segmented" role="group" aria-label="Verification status">
+                 <div className="admin-review-segmented review-queue-filters" role="group" aria-label="Verification status">
                     {STATUS_OPTS.map((opt) => (
-                        <button
+                        <ActionControl
                           key={opt.value}
                           className={statusFilter === opt.value ? "active" : ""}
-                          onClick={() => setStatusFilter(opt.value)}
+                          onClick={() => selectFilter(opt.value)}
                           aria-pressed={statusFilter === opt.value}
                         >
                           {opt.label}
-                        </button>
+                        </ActionControl>
                     ))}
                  </div>
                </div>
@@ -231,13 +259,18 @@ export default function VerificationsPage(): React.JSX.Element {
                 <div className="admin-review-shell">
                         <div className="stack" style={{ gap: "var(--spacing-lg)" }}>
                             {error ? <Banner tone="error">{error}</Banner> : null}
-                            {successMessage ? <Banner tone="success">{successMessage}</Banner> : null}
 
-                            <div className="verification-workspace admin-review-layout">
-                                <Card className="verification-queue-panel admin-review-panel stack" style={{ padding: 0, overflow: "hidden" }}>
+
+                            <div className="admin-review-layout">
+                                <Card variant="summary" className="verification-queue-panel admin-review-panel stack" style={{ padding: 0, overflow: "hidden" }}>
                                     <div className="verification-panel-header admin-review-panel-header">
-                                      <h3>Current Queue</h3>
-                                      <span className="pill">{visibleItems.length} Shown</span>
+                                      <div>
+                                        <h2 id="verification-queue-title" tabIndex={-1}>Verification queue</h2>
+                                        <p className="muted-text">{visibleItems.length} {visibleItems.length === 1 ? "request" : "requests"} shown</p>
+                                      </div>
+                                      <Button type="button" variant="ghost" disabled={loading} onClick={() => void loadVerifications()}>
+                                        Refresh queue
+                                      </Button>
                                     </div>
                                     <div className="admin-review-queue-tools">
                                       <Field label="Find applicant">
@@ -245,7 +278,7 @@ export default function VerificationsPage(): React.JSX.Element {
                                           data-testid="verification-queue-search"
                                           value={queueSearch}
                                           onChange={(event) => setQueueSearch(event.target.value)}
-                                          placeholder="Member ID, request ID, status, document type"
+                                          placeholder="Member or request ID, document type"
                                         />
                                       </Field>
                                       <Field label="Order">
@@ -265,39 +298,37 @@ export default function VerificationsPage(): React.JSX.Element {
                                         <div style={{ padding: "var(--spacing-xl)" }}>
                                           <EmptyState
                                               title="No verification requests"
-                                              body="No requests match the current queue parameters. Clear search or choose another status."
+                                              body={queueSearch ? "Clear your search or choose another status." : "Choose another status or refresh the queue."}
                                           />
                                         </div>
                                     ) : (
-                                        <div className="verification-queue-list" role="list" aria-label="Verification requests">
+                                        <div className="verification-queue-list" role="region" aria-label="Verification requests">
                                           {visibleGroups.map((group) => (
                                             <div key={group.status} className="admin-review-list-group" role="group" aria-label={statusLabel(group.status)}>
                                               <div className="admin-review-group-label">{statusLabel(group.status)} · {group.items.length}</div>
                                               {group.items.map((item) => {
                                                 const selected = selectedRequest?.id === item.id;
-                                                const complete = item.status === "approved" || item.status === "rejected";
                                                 return (
-                                                  <button
+                                                  <ActionControl
                                                     key={item.id}
                                                     type="button"
                                                     className={`verification-queue-item ${selected ? "selected" : ""}`}
                                                     aria-pressed={selected}
                                                     data-testid={`verification-review-${item.id}`}
-                                                    onClick={() => {
+                                                    onClick={(event) => {
+                                                        if (reviewingId !== item.id || receipt) closePreview();
+                                                        setReceipt(null);
                                                         setReviewingId(item.id);
-                                                        setReviewNotesById((prev) => ({ ...prev, [item.id]: prev[item.id] ?? "" }));
+                                                        workspace.show(event.currentTarget);
                                                     }}
                                                   >
                                                     <span className="verification-queue-row">
-                                                      <strong>Member {shortId(item.userId)}</strong>
+                                                      <strong>{documentTypeLabel(item.documentType)}</strong>
                                                       <span className="pill" style={{ color: statusColor(item.status) }}>{statusLabel(item.status)}</span>
                                                     </span>
                                                     <span className="verification-queue-id">Member ID: {item.userId}</span>
-                                                    <span className="verification-queue-id">Request ID: {shortId(item.id)}</span>
-                                                    <span className="muted-text">Private verification · {item.documentMediaIds.length} document{item.documentMediaIds.length === 1 ? "" : "s"}</span>
-                                                    <span className="muted-text">{complete ? "Review decision history" : "Preview documents, then approve or reject"} · submitted {formatDate(item.createdAt).split(",")[0]}</span>
-                                                    {complete ? <span className="verification-completed-label">Decision recorded</span> : null}
-                                                  </button>
+                                                    <span className="muted-text">{item.documentMediaIds.length} private {item.documentMediaIds.length === 1 ? "document" : "documents"} · {formatDate(item.createdAt).split(",")[0]}</span>
+                                                  </ActionControl>
                                                 );
                                               })}
                                             </div>
@@ -313,38 +344,25 @@ export default function VerificationsPage(): React.JSX.Element {
                                     )}
                                 </Card>
 
-                                <Card className="verification-review-panel admin-review-panel admin-review-detail-panel stack" data-testid="verification-review-panel">
+                                <Card as="section" id="verification-review" aria-labelledby="verification-review-title" variant="review" className="verification-review-panel admin-review-panel admin-review-detail-panel stack" data-testid="verification-review-panel">
+                                  <BackToQueue onClick={backToQueue} />
+                                  <div className="admin-review-detail-header">
+                                    <h2 id="verification-review-title" tabIndex={-1}>{selectedRequest ? documentTypeLabel(selectedRequest.documentType) : "Verification details"}</h2>
+                                    {selectedRequest ? <span className="pill" style={{ color: statusColor(selectedRequest.status) }}>{statusLabel(selectedRequest.status)}</span> : null}
+                                  </div>
+                                  {receipt ? <ReviewReceipt>Verification {receipt.status} successfully.</ReviewReceipt> : null}
                                   {selectedRequest ? (
                                     <>
-                                      <div className="verification-review-header">
-                                        <div>
-                                          <div className="pill" style={{ color: statusColor(selectedRequest.status), marginBottom: "8px" }}>
-                                            {statusLabel(selectedRequest.status)}
-                                          </div>
-                                          <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.2rem" }}>Member {shortId(selectedRequest.userId)}</h3>
-                                        </div>
-                                        {selectedIsComplete ? <span className="verification-completed-label">Completed</span> : null}
-                                      </div>
-
                                       <div className="verification-facts" aria-label="Verification request details">
                                         <div>
                                           <span className="muted-text">Applicant</span>
                                           <strong>Member {shortId(selectedRequest.userId)}</strong>
-                                          <span className="verification-queue-id">Member ID: {selectedRequest.userId}</span>
+                                          <span className="verification-queue-id">{selectedRequest.userId}</span>
                                         </div>
                                         <div>
-                                          <span className="muted-text">Privacy state</span>
-                                          <strong>Private verification</strong>
-                                          <span>{selectedRequest.documentMediaIds.length} document{selectedRequest.documentMediaIds.length === 1 ? "" : "s"}</span>
-                                        </div>
-                                        <div>
-                                          <span className="muted-text">Next safe action</span>
-                                          <strong>{selectedIsComplete ? "Review decision history" : "Preview, then decide"}</strong>
-                                          <span>{documentTypeLabel(selectedRequest.documentType)}</span>
-                                        </div>
-                                        <div>
-                                          <span className="muted-text">Submitted</span>
+                                          <span className="muted-text">Request</span>
                                           <strong>{formatDate(selectedRequest.createdAt)}</strong>
+                                          <span className="verification-queue-id">{selectedRequest.id}</span>
                                         </div>
                                         {selectedRequest.reviewedAt ? (
                                           <div>
@@ -355,43 +373,39 @@ export default function VerificationsPage(): React.JSX.Element {
                                       </div>
 
                                       {selectedRequest.notes ? (
-                                        <Banner tone="info">{selectedRequest.notes}</Banner>
+                                        <Banner tone="info"><strong>Applicant note</strong><br />{selectedRequest.notes}</Banner>
                                       ) : null}
 
                                       <div className="stack">
                                         <div>
-                                          <h4>Private documents</h4>
-                                          <p className="muted-text">Document previews are fetched only for this selected verification request.</p>
+                                          <h3>Private documents</h3>
+                                          <p className="muted-text">Use these files only to review this request. They stay private after approval.</p>
                                         </div>
+                                        {previewError ? <Banner tone="error">{previewError}</Banner> : null}
                                         {selectedRequest.documentMediaIds.length === 0 ? (
                                           <Banner tone="error">No private documents are attached to this verification request.</Banner>
                                         ) : (
                                           <div className="verification-evidence-grid">
-                                            {selectedRequest.documentMediaIds.map((mediaId) => {
-                                              const details = previewByMediaId[mediaId];
+                                            {selectedRequest.documentMediaIds.map((mediaId, index) => {
+                                              const details = preview?.media.id === mediaId ? preview : null;
                                               return (
                                                 <div key={mediaId} className="verification-document-preview">
-                                                  <div className="muted-text" style={{ fontSize: "0.8rem", wordBreak: "break-all" }}>Private document ID: {mediaId}</div>
-                                                  {details ? (
+                                                  <strong>Document {index + 1}</strong>
+                                                  <span className="verification-queue-id">{mediaId}</span>
+                                                  {details && previewLoadingId !== mediaId ? (
                                                     <div data-testid={`verification-document-preview-${mediaId}`}>
-                                                      {details.media.kind === "image" ? (
-                                                        // eslint-disable-next-line @next/next/no-img-element
-                                                        <img src={details.media.previewUrl} alt="Private verification document preview" />
-                                                      ) : (
-                                                        <video controls preload="metadata">
-                                                          <source src={details.media.previewUrl} type={details.media.contentType} />
-                                                        </video>
-                                                      )}
+                                                      <ReviewMediaPreview media={details.media} alt="Private verification document preview" />
                                                     </div>
                                                   ) : null}
                                                   <Button
                                                     type="button"
                                                     variant="ghost"
-                                                    disabled={previewLoadingId === mediaId}
+                                                    disabled={previewLoadingId !== null}
                                                     onClick={() => void onPreviewDocument(mediaId)}
                                                   >
-                                                    {previewLoadingId === mediaId ? "Loading..." : details ? "Preview loaded" : "Preview document"}
+                                                    {previewLoadingId === mediaId ? "Loading preview…" : details ? "Refresh preview" : "Preview document"}
                                                   </Button>
+                                                  {details ? <Button type="button" variant="ghost" onClick={closePreview}>Close preview</Button> : null}
                                                 </div>
                                               );
                                             })}
@@ -399,64 +413,47 @@ export default function VerificationsPage(): React.JSX.Element {
                                         )}
                                       </div>
 
-                                      <div className="verification-checklist" aria-label="Verification review safeguards">
-                                        <span>Private document purpose only</span>
-                                        <span>Document preview opened in review context</span>
-                                        <span>Rejected requests require decision notes</span>
-                                      </div>
-
-                                      <Field
-                                        label="Decision notes"
-                                        hint={selectedIsComplete ? "This request already has a recorded decision." : "Required for rejection. Keep it specific enough for audit and applicant support."}
+                                      {selectedIsComplete ? (
+                                        <div className="admin-review-form stack">
+                                          <h3>Recorded decision</h3>
+                                          <p>{selectedRequest.reviewerNotes || "No decision note was recorded."}</p>
+                                        </div>
+                                      ) : (
+                                        <div className="admin-review-form stack">
+                                          <h3>Record a decision</h3>
+                                          <Field label="Decision notes" hint="To reject, write at least 8 characters explaining what the applicant needs to fix. The applicant can read the note.">
+                                            <TextArea
+                                              value={selectedReviewNotes}
+                                              disabled={actionLoading}
+                                              onChange={(event) => setReviewNotesById((previous) => ({ ...previous, [selectedRequest.id]: event.target.value }))}
+                                              placeholder="Add a decision note"
+                                            />
+                                          </Field>
+                                          <div className="verification-decision-actions">
+                                            <Button type="button" data-testid={`verification-approve-${selectedRequest.id}`} disabled={actionLoading || !selectedHasDocuments} onClick={() => { setDecisionError(null); setDecision("approved"); }}>
+                                              Approve verification
+                                            </Button>
+                                            <Button type="button" variant="secondary" data-testid={`verification-reject-${selectedRequest.id}`} disabled={actionLoading || !selectedHasDocuments || rejectionNotesTooShort} onClick={() => { setDecisionError(null); setDecision("rejected"); }}>
+                                              Reject verification
+                                            </Button>
+                                          </div>
+                                          {!selectedHasDocuments ? <p className="field-error">A private document is required before you can record a decision.</p> : null}
+                                        </div>
+                                      )}
+                                      {receipt ? <Button type="button" variant="secondary" className="review-receipt-back" onClick={backToQueue}>Return to queue</Button> : null}
+                                      <ReviewConfirmation
+                                        decision={decision}
+                                        subject="verification"
+                                        busy={actionLoading}
+                                        onClose={() => setDecision(null)}
+                                        onConfirm={() => { if (decision) void onReview(selectedRequest.id, selectedReviewNotes, decision); }}
                                       >
-                                        <TextArea
-                                          value={selectedReviewNotes}
-                                          disabled={selectedIsComplete || actionLoading}
-                                          onChange={(e) => setReviewNotesById((prev) => ({ ...prev, [selectedRequest.id]: e.target.value }))}
-                                          placeholder="Decision rationale..."
-                                          style={{ minHeight: "110px" }}
-                                        />
-                                      </Field>
-
-                                      {selectedRequest.reviewerNotes ? (
-                                        <Banner tone="info">Recorded review note: {selectedRequest.reviewerNotes}</Banner>
-                                      ) : null}
-
-                                      <div className="verification-decision-actions">
-                                        <Button
-                                          data-testid={`verification-approve-${selectedRequest.id}`}
-                                          disabled={actionLoading || selectedIsComplete || !selectedHasDocuments}
-                                          onClick={() => void onReview(selectedRequest.id, selectedReviewNotes, "approved")}
-                                        >
-                                          {actionLoading ? "Saving..." : "Approve verification"}
-                                        </Button>
-                                        <Button
-                                          variant="secondary"
-                                          data-testid={`verification-reject-${selectedRequest.id}`}
-                                          disabled={actionLoading || selectedIsComplete || !selectedHasDocuments || rejectionNotesTooShort}
-                                          onClick={() => void onReview(selectedRequest.id, selectedReviewNotes, "rejected")}
-                                          style={{ color: "var(--error-text)" }}
-                                        >
-                                          Reject verification
-                                        </Button>
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          disabled={selectedIsComplete || selectedReviewNotes.length === 0}
-                                          onClick={() => {
-                                            if (!selectedRequest) return;
-                                            setReviewNotesById((prev) => {
-                                              const next = { ...prev };
-                                              delete next[selectedRequest.id];
-                                              return next;
-                                            });
-                                          }}
-                                        >
-                                          Clear notes
-                                        </Button>
-                                      </div>
-                                      {!selectedHasDocuments ? <p className="field-error">A request without private documents cannot be approved or rejected from this screen.</p> : null}
-                                      {!selectedIsComplete && rejectionNotesTooShort ? <p className="field-hint">Add at least 8 characters before rejecting this request.</p> : null}
+                                        <p>{decision === "rejected"
+                                          ? "The applicant will see your reason and can submit a new request."
+                                          : "This marks the member as verified. Their documents stay private."}</p>
+                                        {selectedReviewNotes.trim() ? <p className="review-confirm-note">{selectedReviewNotes.trim()}</p> : null}
+                                        {decisionError ? <Banner tone="error">{decisionError}</Banner> : null}
+                                      </ReviewConfirmation>
                                     </>
                                   ) : (
                                     <EmptyState
@@ -469,7 +466,15 @@ export default function VerificationsPage(): React.JSX.Element {
                         </div>
                 </div>
             </div>
-          </RequireAdminSession>
+    );
+}
+
+export default function VerificationsPage(): React.JSX.Element {
+    return (
+        <PageShell>
+            <RequireAdminSession>
+                <VerificationsContent />
+            </RequireAdminSession>
         </PageShell>
     );
 }

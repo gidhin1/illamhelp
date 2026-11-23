@@ -1,11 +1,14 @@
-import { useMemo, useState } from "react";
-import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
+import type { JSX } from "react";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Checkbox } from "react-native-paper";
+import { House, LockKeyhole } from "lucide-react-native";
+import { useMemo, useRef, useState } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { LegalHelpContent, type LegalHelpTab } from "./LegalHelpScreen";
 
-import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard, AuthMode, MotionView } from "../components";
-import { useAppTheme } from "../theme-context";
+
+import { AppButton, Banner, InputField, SectionCard, AuthMode } from "../components";
+import { useAppTheme, useAppStyles } from "../theme-context";
 
 export interface LoginFormState {
   username: string;
@@ -23,207 +26,67 @@ export interface RegisterFormState {
 
 function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
   return StyleSheet.create({
-    authFrame: {
-      gap: 16,
-      backgroundColor: colors.brand,
-      borderColor: "rgba(255,255,255,0.18)",
-      shadowColor: colors.shadow,
-      shadowOpacity: 0.14,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 5 },
-      elevation: 4
+    welcome: {
+      gap: 8,
+      paddingBottom: 4
+    },
+    brand: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8
     },
     logoMark: {
-      width: 60,
-      height: 60,
-      borderRadius: 12,
+      width: 32,
+      height: 32,
+      borderRadius: 8,
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.42)"
+      backgroundColor: colors.surfaceAlt
     },
-    logoText: {
-      color: colors.brand,
-      fontSize: 30,
+    brandName: {
+      flexShrink: 1,
+      color: colors.brandText,
+      fontSize: 15,
       fontWeight: "700"
     },
     display: {
-      color: colors.onStrong,
-      fontSize: 36,
-      lineHeight: 42,
+      color: colors.ink,
+      fontSize: 28,
+      lineHeight: 34,
       fontWeight: "800",
-      letterSpacing: -0.45,
-      maxWidth: 330
+      letterSpacing: -0.55
+    },
+    displayAccent: {
+      color: colors.brandText
     },
     body: {
-      color: "rgba(255,255,255,0.88)",
-      fontSize: 16,
-      lineHeight: 25,
-      maxWidth: 330
+      color: colors.muted,
+      fontSize: 15,
+      lineHeight: 21
     },
-    heroPill: {
-      alignSelf: "flex-start",
-      borderRadius: 999,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      backgroundColor: "rgba(255,255,255,0.14)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.28)",
-      color: colors.onStrong,
-      overflow: "hidden",
-      fontSize: 13,
-      fontWeight: "700"
-    },
-    trustRail: {
-      gap: 8
-    },
-    studioPanel: {
-      gap: 10,
-      borderRadius: 14,
-      padding: 10,
-      backgroundColor: "rgba(255,255,255,0.94)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.46)"
-    },
-    studioHeader: {
+    privacy: {
       flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 10
-    },
-    studioStatus: {
-      flexDirection: "row",
-      alignItems: "center",
+      alignItems: "flex-start",
       gap: 8,
-      borderRadius: 999,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      backgroundColor: "rgba(34,197,94,0.14)",
-      borderWidth: 1,
-      borderColor: "rgba(21,128,61,0.22)"
+      paddingHorizontal: 4
     },
-    studioStatusText: {
-      color: "#15803D",
-      fontSize: 12,
-      fontWeight: "800",
-      lineHeight: 17
-    },
-    studioTime: {
-      color: "#6B6580",
-      fontSize: 12,
-      fontWeight: "700",
-      lineHeight: 16
-    },
-    studioPersonCard: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      borderRadius: 12,
-      padding: 12,
-      backgroundColor: "#FFFFFF",
-      borderWidth: 1,
-      borderColor: "rgba(106,90,205,0.18)"
-    },
-    studioAvatar: {
-      width: 44,
-      height: 44,
-      borderRadius: 12,
-      backgroundColor: "#211845",
-      alignItems: "center",
-      justifyContent: "center"
-    },
-    studioAvatarText: {
-      color: "#FFFFFF",
-      fontSize: 18,
-      fontWeight: "800"
-    },
-    studioCardCopy: {
+    privacyText: {
       flex: 1,
-      gap: 2
-    },
-    studioLabel: {
-      color: colors.brandText,
-      fontSize: 11,
-      fontWeight: "800",
-      lineHeight: 14
-    },
-    studioTitle: {
-      color: "#1A1625",
-      fontSize: 16,
-      fontWeight: "800",
-      lineHeight: 20
-    },
-    studioText: {
-      color: "#6B6580",
-      fontSize: 13,
-      lineHeight: 18
-    },
-    studioTrack: {
-      flexDirection: "row",
-      gap: 8,
-      paddingHorizontal: 6
-    },
-    studioTrackSegment: {
-      flex: 1,
-      height: 4,
-      borderRadius: 999,
-      backgroundColor: "rgba(106,90,205,0.18)"
-    },
-    studioTrackSegmentActive: {
-      backgroundColor: colors.brand
-    },
-    studioMediaThumb: {
-      width: 96,
-      minHeight: 86,
-      borderRadius: 12,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.brand,
-      padding: 8
-    },
-    studioPlay: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: "rgba(255,255,255,0.92)"
-    },
-    studioPlayText: {
-      color: colors.brand,
-      fontSize: 16,
-      fontWeight: "800"
-    },
-    trustSignal: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      minHeight: 44,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      backgroundColor: "rgba(255,255,255,0.12)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.24)"
-    },
-    signalDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      backgroundColor: colors.onStrong
-    },
-    trustSignalText: {
-      flex: 1,
-      color: colors.onStrong,
+      color: colors.muted,
       fontSize: 14,
-      fontWeight: "700",
-      lineHeight: 19
+      lineHeight: 20
     },
     legal: {
       color: colors.muted,
       fontSize: 13,
       lineHeight: 20
+    },
+    legalAgreement: {
+      textAlign: "left",
+      marginLeft: 8
+    },
+    legalCheckbox: {
+      paddingHorizontal: 0
     },
     legalAcceptance: {
       flexDirection: "row",
@@ -235,34 +98,10 @@ function createLocalStyles(colors: ReturnType<typeof useAppTheme>["colors"]) {
       borderColor: colors.line,
       backgroundColor: colors.surfaceAlt
     },
-    checkbox: {
-      width: 22,
-      height: 22,
-      borderRadius: 6,
-      borderWidth: 1,
-      borderColor: colors.line,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.surface
-    },
-    checkboxActive: {
-      borderColor: colors.brand,
-      backgroundColor: colors.brand
-    },
-    checkboxMark: {
-      color: colors.onStrong,
-      fontSize: 14,
-      fontWeight: "900"
-    },
     legalLinkRow: {
       flexDirection: "row",
       flexWrap: "wrap",
       gap: 8
-    },
-    legalLink: {
-      color: colors.brandText,
-      fontSize: 13,
-      fontWeight: "800"
     },
     modalBackdrop: {
       flex: 1,
@@ -317,89 +156,33 @@ export function AuthScreen({
   onRegister: () => Promise<void>;
 }): JSX.Element {
   const theme = useAppTheme();
+  const styles = useAppStyles();
   const localStyles = useMemo(() => createLocalStyles(theme.colors), [theme.colors]);
+  const legalScroll = useRef<ScrollView>(null);
   const [legalModalTab, setLegalModalTab] = useState<LegalHelpTab | null>(null);
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar style={theme.mode === "dark" ? "light" : "dark"} />
       <ScrollView
         contentContainerStyle={styles.authContainer}
         testID="auth-scroll"
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
       >
-        <MotionView style={[styles.authHero, localStyles.authFrame]} variant="rise">
-          <View style={localStyles.logoMark}>
-            <Text style={localStyles.logoText}>I</Text>
-          </View>
-          <Text style={localStyles.heroPill}>Trust signal studio for household work</Text>
-          <Text style={localStyles.display}>Know the person before work reaches home.</Text>
-          <Text style={localStyles.body}>
-            IllamHelp keeps identity, privacy state, and the next safe action visible before contact details move.
-          </Text>
-          <MotionView
-            style={localStyles.studioPanel}
-            variant="rise"
-            delay={120}
-            accessibilityLabel="IllamHelp trust workflow preview"
-          >
-            <View style={localStyles.studioHeader}>
-              <View style={localStyles.studioStatus}>
-                <View style={localStyles.signalDot} />
-                <Text style={localStyles.studioStatusText}>Review Arun's profile</Text>
-              </View>
-              <Text style={localStyles.studioTime}>Kochi, 8:40 AM</Text>
+        <View style={localStyles.welcome}>
+          <View style={localStyles.brand}>
+            <View style={localStyles.logoMark} accessible={false} importantForAccessibility="no">
+              <House size={17} color={theme.colors.brandText} />
             </View>
-            <MotionView style={localStyles.studioPersonCard} variant="slide" delay={180}>
-              <View style={localStyles.studioAvatar}>
-                <Text style={localStyles.studioAvatarText}>A</Text>
-              </View>
-              <View style={localStyles.studioCardCopy}>
-                <Text style={localStyles.studioLabel}>Applicant</Text>
-                <Text style={localStyles.studioTitle}>Arun M.</Text>
-                <Text style={localStyles.studioText}>Plumber, Kakkanad</Text>
-              </View>
-              <Text style={localStyles.studioLabel}>Checked</Text>
-            </MotionView>
-            <MotionView
-              style={localStyles.studioTrack}
-              variant="fade"
-              delay={240}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <View style={[localStyles.studioTrackSegment, localStyles.studioTrackSegmentActive]} />
-              <View style={[localStyles.studioTrackSegment, localStyles.studioTrackSegmentActive]} />
-              <View style={localStyles.studioTrackSegment} />
-            </MotionView>
-            <MotionView style={localStyles.studioPersonCard} variant="slide" delay={300}>
-              <View style={localStyles.studioMediaThumb}>
-                <View style={localStyles.studioPlay}>
-                  <Text style={localStyles.studioPlayText}>▶</Text>
-                </View>
-              </View>
-              <View style={localStyles.studioCardCopy}>
-                <Text style={localStyles.studioLabel}>Approved media</Text>
-                <Text style={localStyles.studioTitle}>Work sample video</Text>
-                <Text style={localStyles.studioText}>Visible only where profile rules allow.</Text>
-              </View>
-            </MotionView>
-          </MotionView>
-          <MotionView
-            style={localStyles.trustRail}
-            variant="rise"
-            delay={380}
-            accessibilityLabel="IllamHelp safety highlights"
-          >
-            {["Human identity first", "Privacy state visible", "Next safe action named"].map((label) => (
-              <View key={label} style={localStyles.trustSignal}>
-                <View style={localStyles.signalDot} />
-                <Text style={localStyles.trustSignalText}>{label}</Text>
-              </View>
-            ))}
-          </MotionView>
-        </MotionView>
+            <Text style={localStyles.brandName}>IllamHelp</Text>
+          </View>
+          <Text style={localStyles.display} accessibilityRole="header">
+            Find help at home.{"\n"}
+            <Text style={localStyles.displayAccent}>Find work nearby.</Text>
+          </Text>
+          <Text style={localStyles.body}>Post a household job or apply for work in Kerala and Tamil Nadu.</Text>
+        </View>
 
         <View style={styles.modeSwitch}>
           <Pressable
@@ -419,7 +202,7 @@ export function AuthScreen({
             onPress={() => setMode("register")}
             testID="auth-mode-register"
             accessibilityRole="tab"
-            accessibilityLabel="Register"
+            accessibilityLabel="Create account"
             accessibilityState={{ selected: mode === "register" }}
           >
             <Text
@@ -428,7 +211,7 @@ export function AuthScreen({
                 mode === "register" ? styles.modeButtonLabelSelected : null
               ]}
             >
-              Register
+              Create account
             </Text>
           </Pressable>
         </View>
@@ -437,12 +220,13 @@ export function AuthScreen({
 
         {mode === "login" ? (
           <SectionCard
+            key="login"
             title="Sign in"
-            subtitle="Use your username/email and password."
+            subtitle="Sign in with your username or email and password."
             motion="rise"
           >
             <InputField
-              label="Username / Email"
+              label="Username or email"
               value={loginForm.username}
               onChangeText={(value) => setLoginForm({ ...loginForm, username: value })}
               placeholder="anita_worker_01"
@@ -471,8 +255,9 @@ export function AuthScreen({
           </SectionCard>
         ) : (
           <SectionCard
+            key="register"
             title="Create account"
-            subtitle="Create your account and start posting work or offering services."
+            subtitle="Post jobs or offer your services."
             motion="rise"
           >
             <InputField
@@ -501,7 +286,7 @@ export function AuthScreen({
               testID="auth-register-email"
             />
             <InputField
-              label="User ID"
+              label="Member ID"
               value={registerForm.username}
               onChangeText={(value) => setRegisterForm({ ...registerForm, username: value })}
               placeholder="anita_worker_01"
@@ -528,52 +313,26 @@ export function AuthScreen({
               textContentType="newPassword"
               testID="auth-register-password"
             />
-            <Pressable
-              onPress={() => setRegisterForm({ ...registerForm, legalAccepted: !registerForm.legalAccepted })}
-              style={({ pressed }) => [
-                localStyles.legalAcceptance,
-                pressed ? styles.buttonPressed : null
-              ]}
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: registerForm.legalAccepted }}
-              accessibilityLabel="Accept current Terms and Privacy Policy"
-              testID="auth-register-legal-acceptance"
-            >
-              <View style={[localStyles.checkbox, registerForm.legalAccepted ? localStyles.checkboxActive : null]}>
-                {registerForm.legalAccepted ? <Text style={localStyles.checkboxMark}>✓</Text> : null}
-              </View>
+            <View style={localStyles.legalAcceptance}>
               <View style={{ flex: 1, gap: 8 }}>
-                <Text style={localStyles.legal}>
-                  I agree to the current Terms and Conditions and Privacy Policy.
-                </Text>
+                <Checkbox.Item
+                  mode="android"
+                  label="I agree to the current Terms and Conditions and Privacy Policy."
+                  status={registerForm.legalAccepted ? "checked" : "unchecked"}
+                  onPress={() => setRegisterForm({ ...registerForm, legalAccepted: !registerForm.legalAccepted })}
+                  accessibilityLabel="Accept current Terms and Privacy Policy"
+                  testID="auth-register-legal-acceptance"
+                  position="leading"
+                  style={localStyles.legalCheckbox}
+                  labelStyle={[localStyles.legal, localStyles.legalAgreement]}
+                />
                 <View style={localStyles.legalLinkRow}>
-                  <Pressable
-                    onPress={() => setLegalModalTab("terms")}
-                    accessibilityRole="button"
-                    accessibilityLabel="Open Terms and Conditions"
-                    testID="auth-open-terms"
-                  >
-                    <Text style={localStyles.legalLink}>Terms</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setLegalModalTab("privacy")}
-                    accessibilityRole="button"
-                    accessibilityLabel="Open Privacy Policy"
-                    testID="auth-open-privacy-policy"
-                  >
-                    <Text style={localStyles.legalLink}>Privacy Policy</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setLegalModalTab("faq")}
-                    accessibilityRole="button"
-                    accessibilityLabel="Open FAQ"
-                    testID="auth-open-faq"
-                  >
-                    <Text style={localStyles.legalLink}>FAQ</Text>
-                  </Pressable>
+                  <AppButton label="Terms" variant="ghost" onPress={() => setLegalModalTab("terms")} accessibilityLabel="Open Terms and Conditions" testID="auth-open-terms" />
+                  <AppButton label="Privacy Policy" variant="ghost" onPress={() => setLegalModalTab("privacy")} accessibilityLabel="Open Privacy Policy" testID="auth-open-privacy-policy" />
+                  <AppButton label="FAQ" variant="ghost" onPress={() => setLegalModalTab("faq")} accessibilityLabel="Open FAQ" testID="auth-open-faq" />
                 </View>
               </View>
-            </Pressable>
+            </View>
             <AppButton
               label={busy ? "Creating..." : "Create account"}
               onPress={() => {
@@ -585,26 +344,31 @@ export function AuthScreen({
           </SectionCard>
         )}
 
-        <Text style={localStyles.legal}>
-          By continuing, you agree to a trust-first experience where contact details stay protected until you explicitly approve sharing.
-        </Text>
+        <View style={localStyles.privacy}>
+          <LockKeyhole size={16} color={theme.colors.brandText} accessible={false} importantForAccessibility="no" />
+          <Text style={localStyles.privacyText}>
+            Your contact details stay private until you choose to share them with a connection.
+          </Text>
+        </View>
         <Modal
           visible={legalModalTab !== null}
           transparent
           animationType="slide"
           onRequestClose={() => setLegalModalTab(null)}
         >
-          <View style={localStyles.modalBackdrop}>
+          <SafeAreaView style={localStyles.modalBackdrop}>
             <View style={localStyles.modalPanel}>
               <View style={localStyles.modalHeader}>
-                <Text style={localStyles.modalTitle}>IllamHelp legal</Text>
+                <Text style={localStyles.modalTitle}>Registration help</Text>
                 <AppButton label="Close" variant="ghost" onPress={() => setLegalModalTab(null)} />
               </View>
-              <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
-                <LegalHelpContent initialTab={legalModalTab ?? "help"} compact />
+              <ScrollView ref={legalScroll} contentContainerStyle={{ paddingBottom: 24 }}
+                keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
+                {legalModalTab ? <LegalHelpContent key={legalModalTab} initialTab={legalModalTab} compact
+                  onScrollTo={(y) => legalScroll.current?.scrollTo({ y, animated: false })} /> : null}
               </ScrollView>
             </View>
-          </View>
+          </SafeAreaView>
         </Modal>
       </ScrollView>
     </SafeAreaView>

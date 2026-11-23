@@ -1,5 +1,7 @@
 "use client";
 
+import { formatUiError } from "@illamhelp/shared-types";
+
 import { FormEvent, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { Search } from "lucide-react";
@@ -40,7 +42,7 @@ function AuditContent(): React.JSX.Element {
       setTimeline(result);
     } catch (requestError) {
       setTimeline(null);
-      setError(requestError instanceof Error ? requestError.message : "Failed to load timeline");
+      setError(formatUiError(requestError, "Couldn’t load member activity. Check the ID and try again."));
     } finally {
       setLoading(false);
     }
@@ -140,14 +142,14 @@ function AuditContent(): React.JSX.Element {
       <div className="top-header">
         <div>
            <div className="pill" style={{ marginBottom: "8px", background: "none", border: "none", padding: 0 }}>Privacy Oversight</div>
-           <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Consent & Audit Timeline</h1>
+           <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Contact sharing and account activity</h1>
         </div>
       </div>
 
       <div style={{ padding: "var(--spacing-xl)" }} className="stack">
-        <Card className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
+        <Card variant="summary" className="stack" style={{ background: "var(--surface)", border: "1px solid var(--line)" }}>
           <form className="grid" style={{ gridTemplateColumns: "1fr auto", alignItems: "end", gap: "10px" }} onSubmit={onSearch}>
-            <Field label="Member to investigate" hint="Use the public member ID shown in profile, consent, or verification records.">
+            <Field label="Member ID" hint="Use the public member ID shown in profile, consent, or verification records.">
               <TextInput
                 data-testid="timeline-member-id"
                 value={memberId}
@@ -168,17 +170,18 @@ function AuditContent(): React.JSX.Element {
 
         {!timeline && !loading ? (
           <EmptyState
-            title="Investigate Activity"
-            body="Enter a member ID to review contact-sharing approvals, consent requests, and related account activity."
+            headingLevel={2}
+            title="Search member activity"
+            body="Enter a member ID to see their contact requests, sharing history, and recorded actions."
           />
         ) : null}
 
         {timeline && (
           <div className="stack" style={{ gap: "var(--spacing-2xl)", marginTop: "var(--spacing-lg)" }}>
-            <Card className="stack" data-testid="timeline-member-summary" style={{ borderColor: "color-mix(in srgb, var(--brand) 36%, var(--line))" }}>
+            <Card variant="summary" className="stack" data-testid="timeline-member-summary" style={{ borderColor: "color-mix(in srgb, var(--brand) 36%, var(--line))" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
                  <div className="stack" style={{ gap: "4px" }}>
-                    <h3 style={{ fontFamily: "var(--font-display)", fontSize: "1.4rem" }}>{timeline.member.publicUserId}</h3>
+                    <h2 style={{ fontFamily: "var(--font-display)", fontSize: "1.4rem" }}>{timeline.member.publicUserId}</h2>
                     <div className="muted-text">Role: <span style={{ color: "var(--ink)", fontWeight: 600, textTransform: "capitalize" }}>{timeline.member.role}</span></div>
                  </div>
                  <div className="muted-text" style={{ fontSize: "0.9rem" }}>
@@ -188,19 +191,19 @@ function AuditContent(): React.JSX.Element {
             </Card>
 
             <div className="grid two" style={{ alignItems: "start" }}>
-              <Card className="stack" data-testid="timeline-access-requests" style={{ overflow: "hidden" }}>
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Consent Network Requests</h3>
-                <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Requests made by or targeting this member.</p>
+              <Card variant="summary" className="stack" data-testid="timeline-access-requests" style={{ overflow: "hidden" }}>
+                <h2 style={{ fontFamily: "var(--font-display)" }}>Contact detail requests</h2>
+                <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Requests this member sent or received.</p>
                 {timeline.accessRequests.length === 0 ? (
-                  <EmptyState title="No consent requests" body="No request history found." />
+                  <EmptyState title="No contact detail requests" body="No request history found." />
                 ) : (
-                  <DataTable ariaLabel="Consent network requests" columns={accessColumns} data={timeline.accessRequests} />
+                  <DataTable ariaLabel="Contact detail requests" columns={accessColumns} data={timeline.accessRequests} />
                 )}
               </Card>
 
-              <Card className="stack" data-testid="timeline-consent-grants" style={{ overflow: "hidden" }}>
-                <h3 style={{ fontFamily: "var(--font-display)" }}>Contact Sharing History</h3>
-                <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Approvals showing who could view contact details and when.</p>
+              <Card variant="summary" className="stack" data-testid="timeline-consent-grants" style={{ overflow: "hidden" }}>
+                <h2 style={{ fontFamily: "var(--font-display)" }}>Contact sharing history</h2>
+                <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>See who received access to contact details and when.</p>
                 {timeline.consentGrants.length === 0 ? (
                   <EmptyState title="No sharing approvals" body="No contact-sharing history found." />
                 ) : (
@@ -209,13 +212,13 @@ function AuditContent(): React.JSX.Element {
               </Card>
             </div>
 
-            <Card className="stack" data-testid="timeline-audit-events" style={{ overflow: "hidden" }}>
-              <h3 style={{ fontFamily: "var(--font-display)" }}>Core Audit Events</h3>
-               <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Immutable timeline of system actions concerning this member.</p>
+            <Card variant="summary" className="stack" data-testid="timeline-audit-events" style={{ overflow: "hidden" }}>
+              <h2 style={{ fontFamily: "var(--font-display)" }}>Recorded account actions</h2>
+               <p className="muted-text" style={{ fontSize: "0.9rem", marginBottom: "8px" }}>Actions recorded for this member in the audit log.</p>
               {timeline.auditEvents.length === 0 ? (
-                <EmptyState title="No audit events" body="No audit records were found." />
+                <EmptyState title="No audit events" body="No audit records for this member." />
               ) : (
-                <DataTable ariaLabel="Core audit events" columns={auditColumns} data={timeline.auditEvents} />
+                <DataTable ariaLabel="Recorded account actions" columns={auditColumns} data={timeline.auditEvents} />
               )}
             </Card>
           </div>

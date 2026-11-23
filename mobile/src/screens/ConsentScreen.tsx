@@ -1,3 +1,5 @@
+import type { JSX } from "react";
+import { contactShareStatus, validateStopSharingReason } from "@illamhelp/shared-types";
 
 import {
   AccessRequestRecord, AuthenticatedUser, canViewConsent, ConnectionRecord,
@@ -13,9 +15,8 @@ import {
 import { CONSENT_FIELD_LABELS } from "../constants";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
-import {} from "../theme";
-import { styles } from "../styles";
-import { AppButton, Banner, InputField, SectionCard, SkeletonCard } from "../components";
+import { useAppStyles } from "../theme-context";
+import { AppButton, Banner, CardSurface, InputField, SectionCard, SkeletonCard } from "../components";
 
 type ConsentView = "sharing" | "requests" | "ask" | "history";
 
@@ -35,13 +36,14 @@ export function ConsentScreen({
   user: AuthenticatedUser;
   onSessionInvalid: () => void;
 }): JSX.Element {
+  const styles = useAppStyles();
   const [requests, setRequests] = useState<AccessRequestRecord[]>([]);
   const [grants, setGrants] = useState<ConsentGrantRecord[]>([]);
   const [requestsCursor, setRequestsCursor] = useState<string | null>(null);
   const [grantsCursor, setGrantsCursor] = useState<string | null>(null);
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
   const [profilesByUserId, setProfilesByUserId] = useState<Record<string, ProfileRecord>>({});
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -57,6 +59,13 @@ export function ConsentScreen({
 
   const [revokeGrantId, setRevokeGrantId] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [canViewConnectionId, setCanViewConnectionId] = useState("");
   const [canViewField, setCanViewField] = useState<ConsentField>("phone");
@@ -136,18 +145,18 @@ export function ConsentScreen({
     [requests, currentUserId]
   );
   const activeOwnedGrants = useMemo(
-    () => grants.filter((grant) => grant.status === "active" && grant.ownerUserId === currentUserId),
-    [grants, currentUserId]
+    () => grants.filter((grant) => contactShareStatus(grant, now) === "active" && grant.ownerUserId === currentUserId),
+    [grants, currentUserId, now]
   );
   const activeSharedWithMe = useMemo(
-    () => grants.filter((grant) => grant.status === "active" && grant.granteeUserId === currentUserId),
-    [grants, currentUserId]
+    () => grants.filter((grant) => contactShareStatus(grant, now) === "active" && grant.granteeUserId === currentUserId),
+    [grants, currentUserId, now]
   );
   const privacyViews = useMemo(
     () => [
-      { key: "sharing" as const, label: "Seeing my details", count: activeOwnedGrants.length },
+      { key: "sharing" as const, label: "Shared by you", count: activeOwnedGrants.length },
       { key: "requests" as const, label: "Requests", count: pendingIncomingRequests.length },
-      { key: "ask" as const, label: "Ask", count: activeSharedWithMe.length },
+      { key: "ask" as const, label: "Request details", count: activeSharedWithMe.length },
       { key: "history" as const, label: "History", count: requests.length + grants.length }
     ],
     [activeOwnedGrants.length, activeSharedWithMe.length, grants.length, pendingIncomingRequests.length, requests.length]
@@ -167,7 +176,7 @@ export function ConsentScreen({
       setGrantsCursor(grantPage.nextCursor);
       setConnections(connectionRows);
     } catch (requestError) {
-      const message = asError(requestError, "Unable to load consent data");
+      const message = asError(requestError, "Couldn’t load contact sharing. Refresh and try again.");
       setError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
@@ -185,10 +194,20 @@ export function ConsentScreen({
   };
 
   const loadMoreGrants = async (): Promise<void> => {
-    if (!grantsCursor) return;
-    const page = await listConsentGrantsPage(accessToken, grantsCursor);
-    setGrants((previous) => [...previous, ...page.items]);
-    setGrantsCursor(page.nextCursor);
+    if (!grantsCursor || loading || submitting) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const page = await listConsentGrantsPage(accessToken, grantsCursor);
+      setGrants((previous) => [...previous, ...page.items]);
+      setGrantsCursor(page.nextCursor);
+    } catch (requestError) {
+      const message = asError(requestError, "Couldn’t load more shares. Try again.");
+      setError(message);
+      if (shouldForceSignOut(message)) onSessionInvalid();
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -209,15 +228,16 @@ export function ConsentScreen({
     );
   };
 
-  const runAction = async (action: () => Promise<void>): Promise<void> => {
+  const runAction = async (action: () => Promise<void>, showError = setError): Promise<void> => {
+    if (submitting) return;
     setSubmitting(true);
     setError(null);
     setSuccess(null);
     try {
       await action();
     } catch (requestError) {
-      const message = asError(requestError, "Consent action failed");
-      setError(message);
+      const message = asError(requestError, "Couldn’t update contact sharing. Check your selections and try again.");
+      showError(message);
       if (shouldForceSignOut(message)) {
         onSessionInvalid();
       }
@@ -246,7 +266,7 @@ export function ConsentScreen({
       setRequests((previous) => [created, ...previous]);
       setRequestConnectionId("");
       setRequestPurpose("");
-      setSuccess("Access request created.");
+      setSuccess("Contact request sent.");
     });
   };
 
@@ -264,7 +284,9 @@ export function ConsentScreen({
         purpose: grantPurpose.trim()
       };
       if (grantExpiresAt.trim()) {
-        payload.expiresAt = toOptionalIsoString(grantExpiresAt);
+        const expiry = toOptionalIsoString(grantExpiresAt);
+        if (!expiry || Date.parse(expiry) <= Date.now()) throw new Error("Choose a future end date and time, or leave it blank.");
+        payload.expiresAt = expiry;
       }
       const grant = await grantConsent(grantRequestId.trim(), payload, accessToken);
       setGrants((previous) => [grant, ...previous]);
@@ -280,23 +302,21 @@ export function ConsentScreen({
     });
   };
 
-  const onRevoke = async (): Promise<void> => {
+  const onRevoke = async (grant: ConsentGrantRecord): Promise<void> => {
+    const validationError = validateStopSharingReason(revokeReason);
+    setRevokeError(validationError);
+    if (validationError) return;
+    if (contactShareStatus(grant, Date.now()) !== "active") {
+      setNow(Date.now());
+      return;
+    }
     await runAction(async () => {
-      if (!revokeGrantId.trim()) {
-        throw new Error("Choose an active share first.");
-      }
-      const updated = await revokeConsent(
-        revokeGrantId.trim(),
-        { reason: revokeReason.trim() },
-        accessToken
-      );
-      setGrants((previous) =>
-        previous.map((item) => (item.id === updated.id ? updated : item))
-      );
+      const updated = await revokeConsent(grant.id, { reason: revokeReason.trim() }, accessToken);
+      setGrants((previous) => previous.map((item) => item.id === updated.id ? updated : item));
       setRevokeGrantId("");
       setRevokeReason("");
       setSuccess("Contact sharing stopped.");
-    });
+    }, setRevokeError);
   };
 
   const onCanView = async (): Promise<void> => {
@@ -324,12 +344,13 @@ export function ConsentScreen({
     <ScrollView
       contentContainerStyle={styles.screenScroll}
       testID="consent-scroll"
+      automaticallyAdjustKeyboardInsets
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
     >
       <View style={styles.screenHeader}>
         <Text style={styles.pill}>Privacy</Text>
-        <Text style={styles.screenTitle}>Share contact details safely</Text>
+        <Text style={styles.screenTitle} accessibilityRole="header">Contact sharing</Text>
         <Text style={styles.screenSubtitle}>
           You decide who sees your details and for how long.
         </Text>
@@ -346,6 +367,7 @@ export function ConsentScreen({
               key={view.key}
               style={[styles.privacyTaskTab, selected ? styles.privacyTaskTabSelected : null]}
               onPress={() => setActiveView(view.key)}
+              disabled={submitting}
               accessibilityRole="tab"
               accessibilityLabel={`${view.label}, ${view.count}`}
               accessibilityState={{ selected }}
@@ -363,110 +385,82 @@ export function ConsentScreen({
       </View>
 
       {activeView === "sharing" ? (
-      <SectionCard
-        title="People seeing your details"
-        subtitle="Stop sharing as soon as the job or visit is complete."
-      >
-        {activeOwnedGrants.length === 0 ? (
-          <Text style={styles.cardBodyMuted}>No one can see your contact details right now.</Text>
+      <View style={styles.stackSmall}>
+        <Text style={styles.cardTitle} accessibilityRole="header">People who can see your details</Text>
+        <Text style={styles.cardBodyMuted}>Stop sharing as soon as the job or visit is complete.</Text>
+        {loading ? <SkeletonCard /> : null}
+        {!loading && !error && activeOwnedGrants.length === 0 ? (
+          <Text style={styles.cardBodyMuted}>
+            {grantsCursor ? "No active shares in these results. Load more shares to check the rest." : "No active contact shares."}
+          </Text>
         ) : null}
         {activeOwnedGrants.map((grant) => (
-          <Pressable
-            key={grant.id}
-            style={[
-              styles.dataRow,
-              revokeGrantId === grant.id ? styles.dataRowSelected : null
-            ]}
-            onPress={() => setRevokeGrantId(grant.id)}
-            testID={`consent-revoke-grant-${grant.id}`}
-            accessibilityRole="radio"
-            accessibilityLabel={`Stop sharing with ${personName(grant.granteeUserId)}`}
-            accessibilityState={{ selected: revokeGrantId === grant.id }}
-          >
+          <CardSurface key={grant.id} variant="review">
             <Text style={styles.dataTitle}>{personName(grant.granteeUserId)}</Text>
             <Text style={styles.dataMeta}>{personMeta(grant.granteeUserId)}</Text>
-            <Text style={styles.dataMeta}>Member ID: {grant.granteeUserId}</Text>
             <Text style={styles.dataMeta}>Can see: {fieldsText(grant.grantedFields)}</Text>
-          </Pressable>
+            <Text style={styles.dataMeta}>{grant.expiresAt ? `Ends ${formatDate(grant.expiresAt)}` : "Ends when you stop sharing"}</Text>
+            {revokeGrantId === grant.id ? (
+              <View style={styles.stackSmall}>
+                <Text style={styles.cardBody}>They’ll lose access to the details in this share.</Text>
+                <InputField label="Reason for stopping" value={revokeReason} onChangeText={(reason) => {
+                  setRevokeReason(reason);
+                  setRevokeError(null);
+                }} testID="consent-revoke-reason" />
+                <Text style={styles.cardBodyMuted}>Enter at least 3 characters.</Text>
+                {revokeError ? <Banner tone="error" message={revokeError} testID="consent-revoke-error" /> : null}
+                <AppButton label={submitting ? "Stopping sharing..." : "Stop sharing"} onPress={() => void onRevoke(grant)} disabled={submitting} testID="consent-revoke-submit" />
+                <AppButton label="Keep sharing" variant="ghost" disabled={submitting} onPress={() => setRevokeGrantId("")} testID="consent-revoke-cancel" />
+              </View>
+            ) : (
+              <AppButton label="Review and stop sharing" variant="secondary" disabled={submitting} onPress={() => {
+                setRevokeGrantId(grant.id);
+                setRevokeReason("");
+                setRevokeError(null);
+              }} testID={`consent-revoke-grant-${grant.id}`} />
+            )}
+          </CardSurface>
         ))}
-        {activeOwnedGrants.length > 0 ? (
-          <>
-            <InputField
-              label="Reason for stopping"
-              value={revokeReason}
-              onChangeText={setRevokeReason}
-              placeholder="Service completed"
-              testID="consent-revoke-reason"
-            />
-            <AppButton
-              label={submitting ? "Stopping sharing..." : "Stop sharing details"}
-              onPress={() => {
-                void onRevoke();
-              }}
-              variant="secondary"
-              disabled={submitting || revokeGrantId.length === 0}
-              testID="consent-revoke-submit"
-            />
-          </>
-        ) : null}
-      </SectionCard>
+        {grantsCursor ? <AppButton label="Load more shares" variant="secondary" disabled={loading || submitting} onPress={() => void loadMoreGrants()} /> : null}
+      </View>
       ) : null}
 
       {activeView === "requests" ? (
-      <SectionCard
-        title="Requests waiting for you"
-        subtitle="Approve only the contact details needed for the job or visit."
-      >
-        <View style={styles.roleRow}>
+      <View style={styles.stackSmall}>
+        <Text style={styles.cardTitle} accessibilityRole="header">Requests to see your details</Text>
+        <Text style={styles.cardBodyMuted}>Approve only the contact details needed for the job or visit.</Text>
+        <View style={styles.stackSmall}>
           {pendingIncomingRequests.length === 0 ? (
             <Text style={styles.cardBodyMuted}>No pending requests for you.</Text>
           ) : null}
           {pendingIncomingRequests.map((request) => (
+            <CardSurface key={request.id} variant="review" style={grantRequestId === request.id ? styles.reviewCardSelected : undefined}>
             <Pressable
-              key={request.id}
-              style={[
-                styles.roleChip,
-                grantRequestId === request.id ? styles.roleChipSelected : null
-              ]}
+              style={styles.reviewChoice}
               onPress={() => setGrantRequestId(request.id)}
               testID={`consent-grant-request-${request.id}`}
               accessibilityRole="radio"
-              accessibilityLabel={`Approve request from ${personName(request.requesterUserId)}`}
+              accessibilityLabel={`Approve request from ${personName(request.requesterUserId)}. Asking for: ${fieldsText(request.requestedFields)}. Reason: ${request.purpose}`}
               accessibilityState={{ selected: grantRequestId === request.id }}
             >
-              <Text
-                style={[
-                  styles.roleChipLabel,
-                  grantRequestId === request.id ? styles.roleChipLabelSelected : null
-                ]}
-              >
-                {personName(request.requesterUserId)}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-        {pendingIncomingRequests.map((request) => (
-          grantRequestId === request.id ? (
-            <View key={`request-detail-${request.id}`} style={styles.dataRow}>
               <Text style={styles.dataTitle}>{personName(request.requesterUserId)}</Text>
-              <Text style={styles.dataMeta}>{personMeta(request.requesterUserId)}</Text>
-              <Text style={styles.dataMeta}>Member ID: {request.requesterUserId}</Text>
               <Text style={styles.dataMeta}>Asking for: {fieldsText(request.requestedFields)}</Text>
               <Text style={styles.dataMeta}>Reason: {request.purpose}</Text>
-            </View>
-          ) : null
-        ))}
+            </Pressable>
+            </CardSurface>
+          ))}
+        </View>
         {pendingIncomingRequests.length > 0 ? (
           <>
             <InputField
-              label="Why you are approving"
+              label="Why are you sharing?"
               value={grantPurpose}
               onChangeText={setGrantPurpose}
               placeholder="Approved for one-time call"
               testID="consent-grant-purpose"
             />
             <InputField
-              label="Access ends after (optional)"
+              label="Access end date and time (optional)"
               value={grantExpiresAt}
               onChangeText={setGrantExpiresAt}
               placeholder="Example: 2026-12-31 23:59"
@@ -506,14 +500,14 @@ export function ConsentScreen({
             />
           </>
         ) : null}
-      </SectionCard>
+      </View>
       ) : null}
 
       {activeView === "ask" ? (
       <>
       <SectionCard
         title="Request contact details"
-        subtitle="Ask for the smallest set of details needed for a job or visit."
+        subtitle="Request only the details you need for the job or visit."
       >
         <Text style={styles.fieldLabel}>Choose person</Text>
         <View style={styles.roleRow}>
@@ -548,7 +542,7 @@ export function ConsentScreen({
           label="Why you need this"
           value={requestPurpose}
           onChangeText={setRequestPurpose}
-          placeholder="Need address to arrive"
+          placeholder="e.g. Address for the visit"
           testID="consent-request-purpose"
         />
         <View style={styles.roleRow}>
@@ -603,7 +597,7 @@ export function ConsentScreen({
 
       {activeView === "history" ? (
       <>
-      <SectionCard title="Check sharing status">
+      <SectionCard title="Check if a detail is shared">
         <Text style={styles.fieldLabel}>Connected person</Text>
         <View style={styles.roleRow}>
           {connectionPeople.map((item) => (
@@ -653,7 +647,7 @@ export function ConsentScreen({
           ))}
         </View>
         <AppButton
-          label={submitting ? "Checking sharing..." : "Check sharing"}
+          label={submitting ? "Checking sharing..." : "Check access"}
           onPress={() => {
             void onCanView();
           }}
@@ -665,15 +659,15 @@ export function ConsentScreen({
             tone={canViewResult ? "success" : "info"}
             message={
               canViewResult
-                ? "This contact detail is available to you."
-                : "This contact detail is not available right now."
+                ? "This person has shared this detail with you."
+                : "This detail isn’t shared with you."
             }
             testID={canViewResult ? "consent-can-view-allowed-banner" : "consent-can-view-denied-banner"}
           />
         ) : null}
       </SectionCard>
 
-      <SectionCard title="Recent privacy records">
+      <SectionCard title="Recent requests and sharing">
         {loading ? <SkeletonCard /> : null}
         {!loading && requests.length === 0 && grants.length === 0 ? (
           <Text style={styles.cardBodyMuted}>No contact sharing records yet.</Text>
@@ -708,7 +702,7 @@ export function ConsentScreen({
         ) : null}
         {grants.map((grant) => (
           <View key={grant.id} style={styles.dataRow}>
-            <Text style={styles.dataTitle}>Shared details · {grant.status}</Text>
+            <Text style={styles.dataTitle}>Shared details · {contactShareStatus(grant, now)}</Text>
             <Text style={styles.dataMeta}>
               {personName(grant.ownerUserId)} shared with {personName(grant.granteeUserId)}
             </Text>
@@ -732,7 +726,7 @@ export function ConsentScreen({
           />
         ) : null}
         <AppButton
-          label={loading ? "Refreshing..." : "Refresh sharing data"}
+          label={loading ? "Refreshing..." : "Refresh contact sharing"}
           onPress={() => {
             void load();
           }}

@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { AnalyticsConsentBanner } from "@/components/analytics/AnalyticsConsentBanner";
 import { AnalyticsProvider } from "@/components/analytics/AnalyticsProvider";
 import { SessionProvider } from "@/components/session/SessionProvider";
-import { ThemeProvider } from "@/components/ThemeProvider";
+import { ThemeInit, ThemeSync } from "@/components/ThemeProvider";
 
 import "./globals.css";
 
@@ -30,8 +30,10 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
   const ga4MeasurementId = process.env.NEXT_PUBLIC_GA4_MEASUREMENT_ID;
 
   return (
-    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
+    <html suppressHydrationWarning lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
       <body>
+        <ThemeInit />
+        <ThemeSync />
         {gtmId || ga4MeasurementId ? (
           <>
             <Script id="gtm-consent-default" strategy="beforeInteractive">
@@ -97,12 +99,10 @@ export default function RootLayout({ children }: { children: ReactNode }): JSX.E
             ) : null}
           </>
         ) : null}
-        <ThemeProvider>
-          <SessionProvider>
-            <AnalyticsProvider>{children}</AnalyticsProvider>
-            <AnalyticsConsentBanner />
-          </SessionProvider>
-        </ThemeProvider>
+        <SessionProvider>
+          <AnalyticsProvider>{children}</AnalyticsProvider>
+          <AnalyticsConsentBanner />
+        </SessionProvider>
       </body>
     </html>
   );

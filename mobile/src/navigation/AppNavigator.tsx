@@ -1,10 +1,10 @@
+import type { JSX } from "react";
 import React, { useEffect, useMemo, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { View } from "react-native";
 
 import type { ThemePreference } from "@illamhelp/shared-types";
 
 import { AuthenticatedUser } from "../api";
-import { useAppStyles } from "../theme-context";
 import { MobileShell } from "./MobileShell";
 import type { MobileRouteKey } from "./registry";
 import { HomeScreen } from "../screens/HomeScreen";
@@ -16,41 +16,8 @@ import { VerificationScreen } from "../screens/VerificationScreen";
 import { ProfileScreen } from "../screens/ProfileScreen";
 import { PublicProfileScreen } from "../screens/PublicProfileScreen";
 import { LegalHelpScreen } from "../screens/LegalHelpScreen";
-import { AppButton, SectionCard } from "../components";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { identifyAnalyticsUser, trackPageView } from "../analytics";
-
-function GuidanceScreen({
-  title,
-  kicker,
-  body,
-  rows,
-  primaryAction,
-  onPrimaryAction
-}: {
-  title: string;
-  kicker: string;
-  body: string;
-  rows: Array<{ title: string; body: string }>;
-  primaryAction: string;
-  onPrimaryAction: () => void;
-}): JSX.Element {
-  const styles = useAppStyles();
-  return (
-    <ScrollView contentContainerStyle={styles.screenScroll}>
-      <View style={styles.screenHeader}>
-        <Text style={styles.pill}>{kicker}</Text>
-        <Text style={styles.screenTitle}>{title}</Text>
-        <Text style={styles.screenSubtitle}>{body}</Text>
-      </View>
-      {rows.map((row) => (
-        <SectionCard key={row.title} title={row.title}>
-          <Text style={styles.cardBodyMuted}>{row.body}</Text>
-        </SectionCard>
-      ))}
-      <AppButton label={primaryAction} onPress={onPrimaryAction} testID={`guidance-${kicker.toLowerCase()}-primary`} />
-    </ScrollView>
-  );
-}
 
 export function AppNavigator({
   accessToken,
@@ -109,35 +76,37 @@ export function AppNavigator({
   );
 
   const renderRoute = (): React.ReactNode => {
-    if (selectedProfileUserId) {
-      return (
-        <PublicProfileScreen
-          accessToken={accessToken}
-          user={user}
-          targetUserId={selectedProfileUserId}
-          onBack={() => setSelectedProfileUserId(null)}
-          onSessionInvalid={signOut}
-        />
-      );
-    }
-
     switch (currentRoute) {
       case "home":
         return (
           <HomeScreen
             accessToken={accessToken}
             onSessionInvalid={signOut}
-            onOpenJobs={() => navigateTo("jobs-discover")}
+            onNavigate={navigateTo}
           />
         );
       case "people":
         return (
-          <ConnectionsScreen
-            accessToken={accessToken}
-            user={user}
-            onSessionInvalid={signOut}
-            onDiscoverProfile={(userId) => setSelectedProfileUserId(userId)}
-          />
+          <>
+            <View style={selectedProfileUserId ? { display: "none" } : { flex: 1 }}>
+              <ConnectionsScreen
+                accessToken={accessToken}
+                user={user}
+                active={!selectedProfileUserId}
+                onSessionInvalid={signOut}
+                onDiscoverProfile={setSelectedProfileUserId}
+              />
+            </View>
+            {selectedProfileUserId ? (
+              <PublicProfileScreen
+                accessToken={accessToken}
+                user={user}
+                targetUserId={selectedProfileUserId}
+                onBack={() => setSelectedProfileUserId(null)}
+                onSessionInvalid={signOut}
+              />
+            ) : null}
+          </>
         );
       case "profile":
         return (
@@ -146,6 +115,8 @@ export function AppNavigator({
             user={user}
             onSessionInvalid={signOut}
             onSignOut={signOut}
+            onManageSharing={() => navigateTo("privacy")}
+            onOpenVerification={() => navigateTo("verify")}
           />
         );
       case "verify":
@@ -183,38 +154,17 @@ export function AppNavigator({
             accessToken={accessToken}
             onSessionInvalid={signOut}
             onUnreadCountChange={setUnreadAlertsCount}
+            onOpen={navigateTo}
           />
         );
       case "privacy":
         return <ConsentScreen accessToken={accessToken} user={user} onSessionInvalid={signOut} />;
       case "settings":
-        return (
-          <GuidanceScreen
-            kicker="Settings"
-            title="Account preferences"
-            body="Keep identity, privacy, and notifications easy to review from one place."
-            rows={[
-              {
-                title: "Human identity",
-                body: "Profile details and public media live in Profile, where you can update service details and contact fields."
-              },
-              {
-                title: "Privacy state",
-                body: "Contact sharing is controlled from Privacy. You can review active shares and stop them when needed."
-              },
-              {
-                title: "Next safe action",
-                body: "Use Alerts for pending requests and verification updates before changing account-level settings."
-              }
-            ]}
-            primaryAction="Open privacy controls"
-            onPrimaryAction={() => navigateTo("privacy")}
-          />
-        );
+        return <SettingsScreen onOpen={navigateTo} />;
       case "help":
-        return <LegalHelpScreen />;
+        return <LegalHelpScreen onOpen={navigateTo} />;
       default:
-        return <HomeScreen accessToken={accessToken} onSessionInvalid={signOut} />;
+        return <HomeScreen accessToken={accessToken} onSessionInvalid={signOut} onNavigate={navigateTo} />;
     }
   };
 

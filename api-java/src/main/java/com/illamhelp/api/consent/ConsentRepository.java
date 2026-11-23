@@ -124,7 +124,8 @@ public interface ConsentRepository extends JpaRepository<ConsentGrantEntity, UUI
       @Param("reason") String reason);
 
   @Query(value = """
-      SELECT g.status::text AS "grantStatus", g.granted_fields AS "grantedFields", g.expires_at::text AS "expiresAt",
+      SELECT g.status::text AS "grantStatus", g.granted_fields AS "grantedFields",
+             to_char(g.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "expiresAt",
              c.status::text AS "relationshipStatus"
       FROM pii_consent_grants g JOIN connections c ON c.id = g.connection_id
       WHERE g.owner_user_id = cast(:ownerUserId as uuid) AND g.grantee_user_id = cast(:viewerUserId as uuid)

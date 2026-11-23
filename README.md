@@ -129,6 +129,14 @@ Run `make k8s-port-forward` in a separate terminal before opening these URLs. Se
 | `make k8s-logs` | Follow logs from application release containers |
 | `make k8s-down` | Uninstall both Helm releases and delete the kind cluster and its data |
 
+## Local PR checks
+
+Run `make ci-local` to execute the GitHub Actions workflow with a local
+pull-request event. Use `make ci-local ACT_JOB=quality` to run a specific job.
+On Apple Silicon, the runner uses Linux ARM64 by default. Set
+`ACT_CONTAINER_ARCHITECTURE=linux/amd64` to try x86-64 emulation.
+The image publishing step runs only on GitHub push events.
+
 ## Cleanup Safety
 
 The following commands remove local data:
@@ -144,8 +152,7 @@ The following commands remove local data:
 - `docs/ARCHITECTURE.md` — System architecture and domain modules
 - `docs/PROJECT_SCOPE.md` — Business goals, user types, MVP scope
 - `docs/PROJECT_RULES.md` — Engineering, security, and operations rules
-- `docs/TECH_STACK_2026.md` — Recommended stack and version posture
-- `docs/UI_STANDARD.md` — Shared UI standards and design tokens
+- `docs/UI_STANDARD.md` — Shared UI standards, design tokens, and release checks
 - `docs/MAC_SETUP.md` — macOS setup and diagnostics
 
 Each subfolder contains its own `README.md` with deeper setup, environment overrides, and testing instructions.

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatUiError } from "@illamhelp/shared-types";
+
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
@@ -44,7 +46,7 @@ function DashboardContent(): React.JSX.Element {
       } catch (requestError) {
         if (!cancelled) {
           setQueue([]);
-          setError(requestError instanceof Error ? requestError.message : "Failed to load moderation queue");
+          setError(formatUiError(requestError, "Couldn’t load uploads. Refresh the queue to try again."));
         }
       }
     })();
@@ -70,9 +72,9 @@ function DashboardContent(): React.JSX.Element {
     <div className="stack" style={{ gap: 0 }}>
       {/* Sticky Header */}
       <div className="top-header">
-        <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Operations Dashboard</h1>
+        <h1 className="display-title" style={{ fontSize: "1.5rem" }}>Review work</h1>
         <div className="section-actions">
-           <Link className="button secondary" href="/moderation">Go to Moderation</Link>
+           <Link className="button secondary" href="/moderation">Review uploads</Link>
         </div>
       </div>
 
@@ -81,12 +83,12 @@ function DashboardContent(): React.JSX.Element {
 
         <div className="stack" style={{ gap: "var(--spacing-2xl)" }}>
           <div className="admin-workbench-grid">
-            <Card className="stack admin-workbench-primary">
+            <Card variant="review" className="stack admin-workbench-primary">
               <div className="admin-workbench-header">
                 <div>
-                  <span className="pill">Next safe action</span>
-                  <h2>Review the oldest pending media first.</h2>
-                  <p className="muted-text">Work from the queue instead of chasing dashboard numbers.</p>
+                  <span className="pill">Uploads to review</span>
+                  <h2>Review the oldest uploads first.</h2>
+                  <p className="muted-text">Open the queue to review uploads and record decisions.</p>
                 </div>
                 <Link className="button" href="/moderation">Open moderation queue</Link>
               </div>
@@ -106,13 +108,13 @@ function DashboardContent(): React.JSX.Element {
               ) : (
                 <EmptyState
                   title="No pending media reviews"
-                  body="Automated checks will add uploads here when they need a staff decision."
+                  body="Uploads appear here when automated checks send them for review."
                 />
               )}
             </Card>
 
-            <Card className="stack admin-workbench-side">
-              <h3>Queue health</h3>
+            <Card variant="summary" className="stack admin-workbench-side">
+              <h3>Media queue</h3>
               <div className="admin-queue-health">
                 <div>
                   <strong>{kpis.total}</strong>
@@ -131,15 +133,17 @@ function DashboardContent(): React.JSX.Element {
                   <span>Rejected</span>
                 </div>
               </div>
+              <div><Link href="/moderation" className="button ghost">View media queue</Link></div>
+              <div><Link href="/verifications" className="button ghost">Review verification requests</Link></div>
             </Card>
           </div>
 
           <div className="grid two" style={{ alignItems: "start" }} aria-label="Operations actions">
-            <Card className="stack">
+            <Card variant="action" className="stack">
               <div>
                  <h3 style={{ fontFamily: "var(--font-display)" }}>Pending review queue</h3>
                  <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                   {kpis.pending > 0 ? `${kpis.pending} item${kpis.pending === 1 ? "" : "s"} need a human decision.` : "No human media decisions are waiting right now."}
+                   {kpis.pending > 0 ? `${kpis.pending} item${kpis.pending === 1 ? "" : "s"} need a human decision.` : "No uploads are waiting for a staff decision."}
                  </p>
               </div>
               <div className="admin-pending-list">
@@ -153,21 +157,21 @@ function DashboardContent(): React.JSX.Element {
               <Link href="/moderation" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Review pending media</Link>
             </Card>
 
-            <Card className="stack">
+            <Card variant="action" className="stack">
               <div>
-                 <h3 style={{ fontFamily: "var(--font-display)" }}>Consent and audit search</h3>
+                 <h3 style={{ fontFamily: "var(--font-display)" }}>Search contact sharing and account activity</h3>
               </div>
               <p className="muted-text" style={{ fontSize: "0.95rem" }}>
-                Look up a member to review privacy access, sharing approvals, and recorded actions.
+                Search by member ID to review contact sharing and account activity.
               </p>
-              <Link href="/audit" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Search timeline</Link>
+              <Link href="/audit" className="button secondary" style={{ marginTop: 8, width: "100%" }}>Search member activity</Link>
             </Card>
           </div>
 
           {queue.length === 0 && !error ? (
             <EmptyState
-              title="All caught up"
-              body="The moderation queue is currently empty. New uploads will appear here after automated technical rules processing."
+              title="No uploads to review"
+              body="Uploads appear here after automated checks."
             />
           ) : null}
         </div>

@@ -67,16 +67,20 @@ export function hasStoredAnalyticsConsent(): boolean {
   return storage()?.getItem(STORAGE_KEY) != null || memoryConsent.updatedAt.length > 0;
 }
 
-export function setAnalyticsConsent(choice: Omit<AnalyticsConsentChoice, "updatedAt">): AnalyticsConsentChoice {
-  memoryConsent = {
-    ...choice,
-    updatedAt: new Date().toISOString()
-  };
-  storage()?.setItem(STORAGE_KEY, JSON.stringify(memoryConsent));
-  (globalThis as MemoryGlobal).illamhelpNativeAnalytics?.setConsent?.({
+export function restoreAnalyticsConsent(choice: AnalyticsConsentChoice): void {
+  memoryConsent = choice;
+  const bridge = (globalThis as MemoryGlobal).illamhelpNativeAnalytics;
+  bridge?.setConsent?.({
     analytics: choice.analytics === "granted",
     ads: choice.ads === "granted"
   });
+  if (choice.analytics === "granted" && analyticsUserId) bridge?.setUserId?.(analyticsUserId);
+}
+
+export function setAnalyticsConsent(choice: Omit<AnalyticsConsentChoice, "updatedAt">): AnalyticsConsentChoice {
+  const updated = { ...choice, updatedAt: new Date().toISOString() };
+  storage()?.setItem(STORAGE_KEY, JSON.stringify(updated));
+  restoreAnalyticsConsent(updated);
   if (choice.analytics === "granted") {
     trackEvent("legal_consent_updated", {
       surface: "mobile",

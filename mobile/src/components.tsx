@@ -1,6 +1,8 @@
+import type { JSX } from "react";
 import React, { useEffect, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { AccessibilityInfo, Pressable, Text, useWindowDimensions, View } from "react-native";
 import type { PressableProps, StyleProp, TextInputProps, ViewProps, ViewStyle } from "react-native";
+import { ActivityIndicator, Button as PaperButton, TextInput as PaperTextInput, Surface, Chip, TouchableRipple } from "react-native-paper";
 import Animated, {
   Easing,
   interpolate,
@@ -153,6 +155,9 @@ export function MotionPressable({
 
 export function AppButton({
   label,
+  accessibilityLabel,
+  expanded,
+  selected,
   onPress,
   variant = "primary",
   disabled,
@@ -161,6 +166,9 @@ export function AppButton({
   style
 }: {
   label: string;
+  accessibilityLabel?: string;
+  expanded?: boolean;
+  selected?: boolean;
   onPress: () => void;
   variant?: ButtonVariant;
   disabled?: boolean;
@@ -168,30 +176,64 @@ export function AppButton({
   testID?: string;
   style?: ViewStyle;
 }): JSX.Element {
-  const styles = useAppStyles();
   const theme = useAppTheme();
-  const buttonStyles = [
-    styles.button,
-    variant === "secondary" ? styles.buttonSecondary : null,
-    variant === "ghost" ? styles.buttonGhost : null,
-    disabled || loading ? styles.buttonDisabled : null,
-    style
-  ];
-  const textStyles = [styles.buttonLabel, variant === "ghost" ? styles.buttonLabelGhost : null];
+  const { fontScale } = useWindowDimensions();
+  const inactive = !!disabled || !!loading;
+  const state = { disabled: inactive, busy: !!loading, expanded, selected };
+
+  if (fontScale > 1.2) {
+    const filled = variant === "primary";
+    const color = inactive ? theme.colors.muted : filled ? theme.colors.onStrong : theme.colors.brandText;
+    return (
+      <TouchableRipple
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label}
+        accessibilityState={state}
+        disabled={inactive}
+        onPress={onPress}
+        testID={testID}
+        style={[{
+          minHeight: 44,
+          maxWidth: "100%",
+          borderRadius: theme.radii.pill,
+          borderWidth: variant === "secondary" ? 1 : 0,
+          borderColor: theme.colors.line,
+          backgroundColor: filled ? (inactive ? theme.colors.surfaceAlt : theme.colors.brand) : undefined,
+          justifyContent: "center"
+        }, style]}
+      >
+        <View style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          paddingHorizontal: 14,
+          paddingVertical: 9
+        }}>
+          {loading ? <ActivityIndicator size={16} color={color} /> : null}
+          <Text style={{ color, fontSize: theme.typography.sm, fontWeight: "600", textAlign: "center", flexShrink: 1 }}>
+            {label}
+          </Text>
+        </View>
+      </TouchableRipple>
+    );
+  }
 
   return (
-    <MotionPressable
-      style={() => buttonStyles}
-      disabled={disabled || loading}
+    <PaperButton
+      mode={variant === "primary" ? "contained" : variant === "secondary" ? "outlined" : "text"}
+      buttonColor={variant === "primary" ? theme.colors.brand : undefined}
+      textColor={variant === "primary" ? theme.colors.onStrong : theme.colors.brandText}
+      style={[{ borderRadius: theme.radii.pill }, style]}
+      contentStyle={{ minHeight: 44 }}
+      disabled={inactive}
+      loading={loading}
       onPress={onPress}
       testID={testID}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled: !!disabled || !!loading, busy: !!loading }}
-    >
-      {loading ? <ActivityIndicator size="small" color={variant === "ghost" ? theme.colors.ink : theme.colors.onStrong} /> : null}
-      <Text style={textStyles}>{label}</Text>
-    </MotionPressable>
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={state}
+    >{label}</PaperButton>
   );
 }
 
@@ -200,11 +242,13 @@ export function InputField({
   value,
   onChangeText,
   placeholder,
-  secureTextEntry,
+  secureTextEntry = false,
   autoComplete,
   textContentType,
   autoCapitalize = "none",
   multiline = false,
+  returnKeyType,
+  onSubmitEditing,
   testID
 }: {
   label: string;
@@ -216,16 +260,28 @@ export function InputField({
   textContentType?: TextInputProps["textContentType"];
   autoCapitalize?: "none" | "sentences" | "words" | "characters";
   multiline?: boolean;
+  returnKeyType?: TextInputProps["returnKeyType"];
+  onSubmitEditing?: TextInputProps["onSubmitEditing"];
   testID?: string;
 }): JSX.Element {
   const styles = useAppStyles();
   const theme = useAppTheme();
+  const { fontScale } = useWindowDimensions();
+  const showExternalLabel = fontScale > 1.2;
+  const minHeight = Math.max(multiline ? 96 : 44, showExternalLabel ? Math.ceil(theme.typography.md * fontScale * 1.4 + 24) : 0);
 
   return (
     <View style={styles.formField}>
-      <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        style={[styles.input, multiline ? styles.inputMultiline : null]}
+      {showExternalLabel ? (
+        <Text importantForAccessibility="no" accessibilityElementsHidden style={{ color: theme.colors.ink, fontSize: theme.typography.sm, fontWeight: "600" }}>
+          {label}
+        </Text>
+      ) : null}
+      <PaperTextInput
+        mode="outlined"
+        label={showExternalLabel ? undefined : label}
+        style={{ backgroundColor: theme.colors.surface }}
+        contentStyle={{ minHeight }}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -237,9 +293,36 @@ export function InputField({
         accessibilityLabel={label}
         autoCapitalize={autoCapitalize}
         multiline={multiline}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmitEditing}
         testID={testID}
       />
     </View>
+  );
+}
+
+type CardVariant = "record" | "summary" | "action" | "review";
+
+export function CardSurface({
+  children,
+  variant = "action",
+  style,
+  testID
+}: {
+  children: React.ReactNode;
+  variant?: CardVariant;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+}): JSX.Element {
+  const styles = useAppStyles();
+  return (
+    <Surface
+      elevation={0}
+      style={[styles.card, variant === "summary" ? styles.summaryCard : null, style]}
+      testID={testID}
+    >
+      {children}
+    </Surface>
   );
 }
 
@@ -248,21 +331,25 @@ export function SectionCard({
   subtitle,
   children,
   testID,
-  motion = "none"
+  motion = "none",
+  variant = "action"
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   testID?: string;
   motion?: MotionVariant;
+  variant?: CardVariant;
 }): JSX.Element {
   const styles = useAppStyles();
 
   return (
-    <MotionView style={styles.card} testID={testID} variant={motion}>
-      <Text style={styles.cardTitle}>{title}</Text>
-      {subtitle ? <Text style={styles.cardBodyMuted}>{subtitle}</Text> : null}
-      <View style={styles.stackSmall}>{children}</View>
+    <MotionView testID={testID} variant={motion}>
+      <CardSurface variant={variant}>
+        <Text accessibilityRole="header" style={styles.cardTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.cardBodyMuted}>{subtitle}</Text> : null}
+        <View style={styles.stackSmall}>{children}</View>
+      </CardSurface>
     </MotionView>
   );
 }
@@ -276,34 +363,9 @@ export function StatusLabel({
   tone?: "info" | "success" | "warning" | "error" | "neutral";
   testID?: string;
 }): JSX.Element {
-  const styles = useAppStyles();
-
-  return (
-    <View
-      style={[
-        styles.statusLabel,
-        tone === "success" ? styles.statusLabelSuccess : null,
-        tone === "warning" ? styles.statusLabelWarning : null,
-        tone === "error" ? styles.statusLabelError : null,
-        tone === "info" ? styles.statusLabelInfo : null
-      ]}
-      testID={testID}
-      accessible
-      accessibilityLabel={label}
-    >
-      <Text
-        style={[
-          styles.statusLabelText,
-          tone === "success" ? styles.statusLabelTextSuccess : null,
-          tone === "warning" ? styles.statusLabelTextWarning : null,
-          tone === "error" ? styles.statusLabelTextError : null,
-          tone === "info" ? styles.statusLabelTextInfo : null
-        ]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
+  const theme = useAppTheme();
+  const color = tone === "neutral" ? theme.colors.muted : tone === "info" ? theme.colors.brandText : theme.colors[`${tone}Text`];
+  return <Chip accessibilityRole="text" testID={testID} mode="outlined" accessibilityLabel={label} textStyle={{ color, fontSize: theme.typography.xs }} style={{ alignSelf: 'flex-start', backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.line }}>{label}</Chip>;
 }
 
 export function SkeletonRow({ testID }: { testID?: string }): JSX.Element {
@@ -319,10 +381,10 @@ export function SkeletonRow({ testID }: { testID?: string }): JSX.Element {
 export function SkeletonCard({ testID }: { testID?: string }): JSX.Element {
   const styles = useAppStyles();
   return (
-    <View style={styles.card} testID={testID} accessible={false}>
+    <Surface elevation={0} style={styles.card} testID={testID} accessible={false}>
       <SkeletonRow />
       <SkeletonRow />
-    </View>
+    </Surface>
   );
 }
 
@@ -370,6 +432,7 @@ export function Banner({
       accessibilityRole={tone === "error" ? "alert" : undefined}
       accessibilityLiveRegion={tone === "error" ? "assertive" : "polite"}
     >
+      <Surface elevation={0} style={{ backgroundColor: "transparent" }}>
       <Text
         style={[
           styles.bannerText,
@@ -380,6 +443,7 @@ export function Banner({
       >
         {message}
       </Text>
+      </Surface>
     </MotionView>
   );
 }

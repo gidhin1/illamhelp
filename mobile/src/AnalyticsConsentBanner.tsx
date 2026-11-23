@@ -1,30 +1,24 @@
-import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { JSX } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AppButton } from "./components";
+import { StyleSheet, Text, View } from "react-native";
 
-import {
-  hasStoredAnalyticsConsent,
-  setAnalyticsConsent
-} from "./analytics";
+import { saveAnalyticsPreference, useAnalyticsPreference } from "./analytics-preference";
 import { useAppTheme } from "./theme-context";
 
 export function AnalyticsConsentBanner(): JSX.Element | null {
   const { colors } = useAppTheme();
-  const [visible, setVisible] = useState(false);
+  const insets = useSafeAreaInsets();
+  const { choice, ready, saving, error } = useAnalyticsPreference();
 
-  useEffect(() => {
-    setVisible(!hasStoredAnalyticsConsent());
-  }, []);
-
-  if (!visible) {
-    return null;
-  }
+  if (!ready || choice.updatedAt) return null;
 
   const styles = StyleSheet.create({
     banner: {
       position: "absolute",
       left: 14,
       right: 14,
-      bottom: 14,
+      bottom: 14 + insets.bottom,
       gap: 10,
       padding: 14,
       borderRadius: 16,
@@ -52,52 +46,19 @@ export function AnalyticsConsentBanner(): JSX.Element | null {
       flexWrap: "wrap",
       gap: 8
     },
-    button: {
-      minHeight: 42,
-      borderRadius: 999,
-      paddingHorizontal: 14,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.brand
-    },
-    secondary: {
-      backgroundColor: colors.surfaceAlt,
-      borderWidth: 1,
-      borderColor: colors.line
-    },
-    buttonText: {
-      color: colors.onStrong,
-      fontSize: 13,
-      fontWeight: "800"
-    },
-    secondaryText: {
-      color: colors.ink
-    }
-  });
 
-  const choose = (analytics: "granted" | "denied"): void => {
-    setAnalyticsConsent({ analytics, ads: "denied" });
-    setVisible(false);
-  };
+  });
 
   return (
     <View style={styles.banner} accessibilityLabel="Analytics privacy choice">
-      <Text style={styles.title}>Help improve IllamHelp?</Text>
+      <Text style={styles.title}>Share app usage data?</Text>
       <Text style={styles.body}>
-        Analytics are off until you say yes. We never send names, phone numbers, media links, addresses,
-        or verification document details.
+        Analytics are off by default. If you allow them, we measure app use without sending names, phone numbers, addresses, media links, or verification document details.
       </Text>
+      {error ? <Text style={styles.body} accessibilityRole="alert">{error}</Text> : null}
       <View style={styles.actions}>
-        <Pressable style={styles.button} onPress={() => choose("granted")} accessibilityRole="button">
-          <Text style={styles.buttonText}>Accept analytics</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.button, styles.secondary]}
-          onPress={() => choose("denied")}
-          accessibilityRole="button"
-        >
-          <Text style={[styles.buttonText, styles.secondaryText]}>Reject</Text>
-        </Pressable>
+        <AppButton label="Allow analytics" disabled={saving} onPress={() => void saveAnalyticsPreference(true)} />
+        <AppButton label="Decline analytics" variant="secondary" disabled={saving} onPress={() => void saveAnalyticsPreference(false)} />
       </View>
     </View>
   );

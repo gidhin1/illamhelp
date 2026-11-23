@@ -1,12 +1,14 @@
 "use client";
 
+import { formatUiError } from "@illamhelp/shared-types";
+
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { PageShell } from "@/components/PageShell";
 import { useSession } from "@/components/session/SessionProvider";
-import { Banner, Button, Card, Field, SectionHeader, TextInput } from "@/components/ui/primitives";
+import { SectionHeader } from "@illamhelp/ui-web/section-header";
 import { login } from "@/lib/api";
 
 export default function LoginPage(): JSX.Element {
@@ -27,7 +29,7 @@ export default function LoginPage(): JSX.Element {
       await applyAuthSession(session);
       router.push("/jobs");
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to login");
+      setError(formatUiError(requestError, "Couldn’t sign in. Try again."));
     } finally {
       setLoading(false);
     }
@@ -40,22 +42,24 @@ export default function LoginPage(): JSX.Element {
           <SectionHeader
             eyebrow="Authentication"
             title="Sign in"
-            subtitle="Use username/email and password from your registered account."
+            subtitle="Sign in with your username or email and password."
           />
-          <Card className="stack">
-            {error ? <Banner tone="error">{error}</Banner> : null}
+          <div className="card stack login-card">
+            {error ? <div className="banner error" role="alert">{error}</div> : null}
             <form className="stack" onSubmit={onSubmit}>
-              <Field label="Username or Email">
-                <TextInput
+              <label className="field">
+                <span className="field-label">Username or email</span>
+                <input
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   placeholder="Enter your username or email"
                   required
                   autoComplete="username"
                 />
-              </Field>
-              <Field label="Password">
-                <TextInput
+              </label>
+              <label className="field">
+                <span className="field-label">Password</span>
+                <input
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="Enter your password"
@@ -63,22 +67,20 @@ export default function LoginPage(): JSX.Element {
                   required
                   autoComplete="current-password"
                 />
-              </Field>
+              </label>
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <Button type="submit" disabled={loading}>
+                <button className="button" type="submit" disabled={loading}>
                   {loading ? "Signing in..." : "Sign in"}
-                </Button>
-                <Link href="/auth/register">
-                  <Button variant="ghost" type="button">Create account</Button>
-                </Link>
+                </button>
+                <Link prefetch={false} href="/auth/register" className="button ghost">Create account</Link>
               </div>
             </form>
-          </Card>
+          </div>
           <div className="legal-link-row auth-legal-row">
-            <Link href="/privacy-policy">Privacy Policy</Link>
-            <Link href="/terms">Terms</Link>
-            <Link href="/faq">FAQ</Link>
-            <Link href="/help">Help</Link>
+            <Link prefetch={false} href="/privacy-policy">Privacy Policy</Link>
+            <Link prefetch={false} href="/terms">Terms</Link>
+            <Link prefetch={false} href="/faq">FAQ</Link>
+            <Link prefetch={false} href="/help">Help</Link>
           </div>
         </div>
       </section>

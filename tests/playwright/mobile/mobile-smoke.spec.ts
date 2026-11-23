@@ -6,15 +6,16 @@ function uniqueUserId(): string {
 
 async function openRegister(page: Page): Promise<void> {
   await page.goto("/");
-  await expect(page.getByText("Trusted help for everyday life.")).toBeVisible();
-  await page.getByRole("tab", { name: "Register" }).click();
+  await expect(page.getByRole("heading", { name: /Find help at home\.\s*Find work nearby\./ })).toBeVisible();
+  await page.getByRole("button", { name: "Decline analytics" }).click();
+  await page.getByRole("tab", { name: "Create account" }).click();
   await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
 }
 
 async function fillRegister(page: Page, userId: string): Promise<void> {
   await page.getByLabel("First name").fill("Mobile");
   await page.getByLabel("Email").fill(`${userId}@example.com`);
-  await page.getByLabel("User ID").fill(userId);
+  await page.getByLabel("Member ID").fill(userId);
   await page.getByLabel("Password").fill("StrongPass#2026");
 }
 
@@ -23,7 +24,7 @@ async function registerAccount(page: Page): Promise<void> {
   await fillRegister(page, uniqueUserId());
   await page.getByTestId("auth-register-legal-acceptance").click();
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByText("Your next steps")).toBeVisible();
+  await expect(page.getByText("Your jobs and updates")).toBeVisible();
 }
 
 async function openPostedJobs(page: Page): Promise<void> {
@@ -38,8 +39,8 @@ test("mobile registration validates a short user id in the UI", async ({ page })
   await fillRegister(page, "ab");
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page.getByRole("alert")).toContainText("User ID must be at least 3 characters.");
-  await expect(page.getByLabel("User ID")).toHaveValue("ab");
+  await expect(page.getByRole("alert")).toContainText("Enter a member ID with at least 3 characters.");
+  await expect(page.getByLabel("Member ID")).toHaveValue("ab");
 });
 
 test("mobile registration opens authenticated navigation and supports sign out", async ({ page }) => {
@@ -76,7 +77,7 @@ test("mobile posted jobs validates the draft then creates a connections-only job
   await page.getByRole("button", { name: "Post job" }).click();
 
   await expect(page.getByText("Job posted.")).toBeVisible();
-  await expect(page.getByText(jobTitle)).toBeVisible();
+  await expect(page.getByText(jobTitle, { exact: true }).last()).toBeVisible();
   await expect(page.getByText("Visibility: Connections only")).toBeVisible();
 });
 
@@ -84,9 +85,10 @@ test("mobile profile edits contact and service details through visible controls"
   await registerAccount(page);
   await page.getByRole("button", { name: "Open profile" }).click();
 
+  await page.getByRole("button", { name: "Edit profile", exact: true }).click();
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
-  await page.getByLabel("Services offered (comma separated)").fill("plumber, cleaner");
+  await page.getByLabel("Services you offer (separated by commas)").fill("plumber, cleaner");
   await page.getByLabel("Phone", { exact: true }).fill("+919812345678");
   await page.getByRole("button", { name: "Save profile" }).click();
 
@@ -95,17 +97,31 @@ test("mobile profile edits contact and service details through visible controls"
   await expect(page.getByText("plumber")).toBeVisible();
 });
 
-test("mobile verification form validates missing media IDs", async ({ page }) => {
+test("mobile verification requires an uploaded private document before submission", async ({ page }) => {
   await registerAccount(page);
   await page.getByRole("button", { name: "Open navigation menu" }).click();
   await page.getByTestId("drawer-nav-verify").click();
 
-  await expect(page.getByText("Get verified")).toBeVisible();
-  await expect(page.getByText("No verification request yet.")).toBeVisible();
-  await page.getByTestId("verification-submit").click();
-  await expect(page.getByTestId("verification-error-banner")).toContainText(
-    "Upload at least one private document before submitting verification."
-  );
+  await expect(page.getByRole("heading", { name: "Verify your profile" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add private document" })).toBeEnabled();
+  await expect(page.getByText("Upload a private document to enable submission.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Submit verification request" })).toBeDisabled();
+});
+
+test("mobile registration keeps draft and consent when closing a policy", async ({ page }) => {
+  await openRegister(page);
+  await page.getByLabel("First name").fill("Registration draft");
+  for (const [control, heading] of [
+    ["auth-open-terms", "Terms and Conditions"],
+    ["auth-open-privacy-policy", "Privacy Policy"],
+    ["auth-open-faq", "Frequently asked questions"]
+  ]) {
+    await page.getByTestId(control).click();
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    await expect(page.getByLabel("First name")).toHaveValue("Registration draft");
+    await expect(page.getByTestId("auth-register-legal-acceptance")).not.toBeChecked();
+  }
 });
 
 test("mobile navigation drawer opens and closes from explicit controls", async ({ page }) => {
@@ -127,7 +143,8 @@ test("mobile header profile shortcut opens profile screen", async ({ page }) => 
   await registerAccount(page);
   await page.getByRole("button", { name: "Open profile" }).click();
 
-  await expect(page.getByText("Your account")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Save profile" })).toBeVisible();
+  await expect(page.getByText("Your profile", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Edit profile", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save profile" })).toHaveCount(0);
   await expect(page.getByTestId("profile-signout")).toBeVisible();
 });

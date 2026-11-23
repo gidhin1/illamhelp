@@ -236,3 +236,16 @@ Before shipping web or mobile UI, verify:
 - Existing `lg` and `xl` radii are not used on repeated cards or controls.
 - Brand gradients are not used for product controls.
 - Icons come from approved icon libraries, not emoji or Unicode symbols.
+
+## Release validation
+
+- Run the member, admin, and Expo Web flow suites against local services. Use production web and admin builds for the separate Chromium, WebKit, and Firefox viewport suite. Check light and dark, populated and empty states, and a phone-width layout with enlarged text. [Playwright instructions](../tests/playwright/README.md)
+- Exercise native release builds on Android and iPhone. Check staging HTTPS sign-in with the release API and media origins, session expiry recovery, media upload and playback, and permission-denial recovery. Check final screens and form entry on physical devices. Keep Android's 16 KB packaging and runtime checks in the release process. [Native build instructions](../mobile/README.md)
+- For web changes that affect login or shared assets, keep the median initial JavaScript for production `/auth/login` at or below **632,005 decoded bytes**. In five fresh Chromium contexts, sum `PerformanceResourceTiming.decodedBodySize` for the Next.js JavaScript files referenced in the initial HTML. Use a desktop viewport and wait for the sign-in form and its initial resources before recording the result.
+- For staff routes, check ordinary-member access denial, private evidence previews, cancellation and confirmation of review decisions, and the audit events those decisions create. Confirm reviewers return to the same queue filters.
+
+### Outstanding verification
+
+- Staging HTTPS and physical-device validation remain open. Repeat the Firefox release smoke for the updated staff review queues in an environment that can run Firefox headlessly.
+- Screen-reader follow-up and Android clipping when changing the live font scale to 200% are deferred.
+- The admin Dashboard and Audit redesigns remain open.

@@ -38,7 +38,9 @@ tests {
         event.metadata.verificationRequestId === verificationRequestId &&
         ["verification_request_submitted", "verification_request_approved"].includes(event.eventType)
     );
-    expect(related.length).to.be.greaterThan(0);
+    const eventTypes = related.map((event) => event.eventType);
+    expect(eventTypes).to.include("verification_request_submitted");
+    expect(eventTypes).to.include("verification_request_approved");
   });
 }
 

@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { loadEnvConfig } from "@next/env";
+import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -8,6 +8,11 @@ import { pickBaseUrl, pickServerTarget } from "./server-targets";
 const initialRepoRoot = existsSync(resolve(process.cwd(), "web", "package.json"))
   ? process.cwd()
   : resolve(process.cwd(), "..", "..");
+const webRequire = createRequire(resolve(initialRepoRoot, "web", "package.json"));
+const nextRequire = createRequire(webRequire.resolve("next/package.json"));
+const { loadEnvConfig } = nextRequire("@next/env") as {
+  loadEnvConfig: (dir: string) => void;
+};
 loadEnvConfig(resolve(initialRepoRoot, "web"));
 
 const apiTarget = pickServerTarget(process.env.PW_API_BASE_ORIGIN, "http://localhost:4000", "http://localhost:4010");

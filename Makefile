@@ -7,6 +7,8 @@ WEB_PORT ?= 3001
 ACT_ARTIFACTS_DIR ?= .act-artifacts
 ACT_EVENT_FILE ?= $(ACT_ARTIFACTS_DIR)/event.json
 ACT_CONTAINER_ARCHITECTURE ?=
+ACT_RUNNER_IMAGE ?= ghcr.io/catthehacker/ubuntu:act-24.04
+ACT_JOB ?=
 EXPO_HOST_MODE ?= localhost
 COMPOSE := docker compose --project-name $(COMPOSE_PROJECT) --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
 MAVEN := mvn -f api-java/pom.xml
@@ -233,7 +235,6 @@ ci-local:
 		echo "'act' is required. Install it first (https://github.com/nektos/act)."; \
 		exit 1; \
 	}
-	@docker ps -aq --filter "name=act-" | xargs -r docker rm -f >/dev/null 2>&1 || true
 	@mkdir -p "$(ACT_ARTIFACTS_DIR)"
 	@TOKEN="$${ACT_GITHUB_TOKEN:-$${GITHUB_TOKEN:-$$(gh auth token 2>/dev/null || true)}}"; \
 	OWNER="$${ACT_GITHUB_OWNER:-$${GITHUB_REPOSITORY_OWNER:-$${USER:-local}}}"; \
@@ -242,26 +243,15 @@ ci-local:
 		echo "Set GITHUB_TOKEN or ACT_GITHUB_TOKEN, or login with 'gh auth login'."; \
 		exit 1; \
 	fi; \
-	printf '%s\n' '{' \
-	'  "ref": "refs/heads/local-ci",' \
-	'  "before": "0000000000000000000000000000000000000000",' \
-	'  "after": "local-ci",' \
-	'  "repository": {' \
-	'    "name": "illamhelp",' \
-	"    \"full_name\": \"$$OWNER/illamhelp\"," \
-	"    \"owner\": { \"login\": \"$$OWNER\", \"type\": \"User\" }" \
-	'  },' \
-	"  \"sender\": { \"login\": \"$$OWNER\", \"type\": \"User\" }," \
-	'  "commits": [],' \
-	'  "head_commit": { "id": "local-ci" }' \
-	'}' > "$(ACT_EVENT_FILE)"; \
-	ARCH_ARGS=(); \
+	ACT_OWNER="$$OWNER" node -e 'const owner = process.env.ACT_OWNER; const branch = "local-ci"; console.log(JSON.stringify({number: 1, action: "synchronize", repository: {name: "illamhelp", full_name: owner + "/illamhelp", owner: {login: owner}}, pull_request: {head: {ref: branch}, base: {ref: "main"}}}));' > "$(ACT_EVENT_FILE)"; \
+	ARGS=(); \
 	if [[ -n "$(ACT_CONTAINER_ARCHITECTURE)" ]]; then \
-		ARCH_ARGS=(--container-architecture "$(ACT_CONTAINER_ARCHITECTURE)"); \
+		ARGS+=(--container-architecture "$(ACT_CONTAINER_ARCHITECTURE)"); \
 	elif [[ "$$(uname -s)" == "Darwin" && "$$(uname -m)" == "arm64" ]]; then \
-		ARCH_ARGS=(--container-architecture "linux/amd64"); \
+		ARGS+=(--container-architecture "linux/arm64"); \
 	fi; \
-	act push -W .github/workflows/ci.yml --artifact-server-path "$(ACT_ARTIFACTS_DIR)" -e "$(ACT_EVENT_FILE)" -s GITHUB_TOKEN="$$TOKEN" "$${ARCH_ARGS[@]}" --rm
+	if [[ -n "$(ACT_JOB)" ]]; then ARGS+=(-j "$(ACT_JOB)"); fi; \
+	GITHUB_TOKEN="$$TOKEN" act pull_request -W .github/workflows/ci.yml -P "ubuntu-latest=$(ACT_RUNNER_IMAGE)" --artifact-server-path "$(ACT_ARTIFACTS_DIR)" -e "$(ACT_EVENT_FILE)" --env-file /dev/null --secret-file /dev/null --var-file /dev/null -s GITHUB_TOKEN "$${ARGS[@]}" --rm
 	@echo "Local CI artifacts saved in: $(ACT_ARTIFACTS_DIR)"
 
 k8s-create:
@@ -332,7 +322,7 @@ k8s-port-forward:
 	@K8S_NAMESPACE="$(K8S_NAMESPACE)" K8S_APP_RELEASE="$(K8S_APP_RELEASE)" bash scripts/k8s-port-forward.sh
 
 k8s-smoke:
-	kubectl run illamhelp-smoke --namespace "$(K8S_NAMESPACE)" --image=curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13 --restart=Never --rm -i -- \
+	kubectl run illamhelp-smoke --namespace "$(K8S_NAMESPACE)" --image=curlimages/curl@sha256:3fb7e13e5d179a845c97d78204f3f1064d1907037f26a3ebf91710571151fd93 --restart=Never --rm -i -- \
 		sh -ec 'curl -fsS http://$(K8S_APP_RELEASE)-api:4000/api/v1/health; curl -fsS -o /dev/null http://$(K8S_APP_RELEASE)-web:3000/; curl -fsS -o /dev/null http://$(K8S_APP_RELEASE)-admin:3003/'
 
 k8s-down:

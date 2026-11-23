@@ -264,22 +264,11 @@ function defaultApiBaseUrl(): string {
 }
 
 export const API_BASE_URL =
-  (
-    globalThis as unknown as {
-      process?: {
-        env?: Record<string, string | undefined>;
-      };
-    }
-  ).process?.env?.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? defaultApiBaseUrl();
+  process.env.EXPO_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? defaultApiBaseUrl();
 
 const mediaClient = createMediaClient({
-  baseUrl: (
-    globalThis as unknown as {
-      process?: {
-        env?: Record<string, string | undefined>;
-      };
-    }
-  ).process?.env?.EXPO_PUBLIC_MEDIA_GRPC_WEB_URL?.replace(/\/$/, "") ?? "http://localhost:9091"
+  baseUrl: process.env.EXPO_PUBLIC_MEDIA_GRPC_WEB_URL?.replace(/\/$/, "") ??
+    (Platform.OS === "android" ? "http://10.0.2.2:9091" : "http://localhost:9091")
 });
 
 const API_TIMEOUT_MS = Number(
@@ -315,6 +304,13 @@ function normalizeListPayload<T>(payload: T[] | PaginatedListResponse<T> | undef
   return payload?.items ?? [];
 }
 
+export class ApiRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -339,7 +335,7 @@ async function apiRequest<T>(
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
       headers,
-      signal: abortController?.signal
+      signal: abortController?.signal as RequestInit["signal"]
     });
   } catch (error) {
     if (timeoutId) {
@@ -365,7 +361,10 @@ async function apiRequest<T>(
     } catch {
       payload = undefined;
     }
-    throw new Error(asErrorMessage(payload, `Request failed with ${response.status} (${path})`));
+    throw new ApiRequestError(
+      asErrorMessage(payload, `Request failed with ${response.status} (${path})`),
+      response.status
+    );
   }
 
   if (response.status === 204) {
@@ -418,6 +417,13 @@ export function login(payload: {
 
 export function authMe(accessToken: string): Promise<AuthenticatedUser> {
   return apiRequest<AuthenticatedUser>("/auth/me", {}, accessToken);
+}
+
+export function refreshSession(refreshToken: string): Promise<AuthSessionResponse> {
+  return apiRequest<AuthSessionResponse>("/auth/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refreshToken })
+  });
 }
 
 export function listJobs(accessToken: string): Promise<JobRecord[]> {
@@ -873,6 +879,10 @@ export function canViewConsent(
   );
 }
 
+export function listOwnJobMedia(jobId: string, accessToken: string): Promise<MediaAssetRecord[]> {
+  return mediaClient.listOwnJobMedia(jobId, accessToken);
+}
+
 export function listMyMedia(accessToken: string): Promise<MediaAssetRecord[]> {
   return listMyMediaPage(accessToken).then((payload) => normalizeListPayload(payload));
 }
@@ -1045,7 +1055,12 @@ export function formatDate(iso: string | null): string {
   if (!iso) {
     return "-";
   }
-  const parsed = new Date(iso);
+  const normalized = iso.replace(
+    /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.(\d+))?([+-]\d{2})(?::?(\d{2}))?$/,
+    (_, date, time, fraction = "", offsetHours, offsetMinutes = "00") =>
+      `${date}T${time}.${fraction.padEnd(3, "0").slice(0, 3)}${offsetHours}:${offsetMinutes}`
+  );
+  const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) {
     return iso;
   }

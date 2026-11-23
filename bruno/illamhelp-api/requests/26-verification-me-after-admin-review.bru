@@ -27,6 +27,7 @@ tests {
     expect(res.body.id).to.equal(verificationRequestId);
     expect(res.body.status).to.equal("approved");
     expect(res.body.reviewedAt).to.be.a("string");
+    expect(res.body.reviewerNotes).to.equal("Approved by Bruno E2E admin flow");
   });
 }
 

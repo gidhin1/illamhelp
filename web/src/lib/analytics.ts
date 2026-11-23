@@ -7,6 +7,20 @@ import type {
 } from "@illamhelp/shared-types";
 
 export const ANALYTICS_CONSENT_STORAGE_KEY = "illamhelp.analyticsConsent.v1";
+const consentEvent = "illamhelp:analytics-consent";
+
+export function subscribeAnalyticsConsent(listener: () => void): () => void {
+  const onStorage = (event: StorageEvent): void => {
+    if (event.key === ANALYTICS_CONSENT_STORAGE_KEY || event.key === null) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(consentEvent, listener);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(consentEvent, listener);
+  };
+}
+
 const UTM_STORAGE_KEY = "illamhelp.firstTouchUtm.v1";
 
 type DataLayerEvent = Record<string, unknown>;
@@ -99,6 +113,7 @@ export function writeAnalyticsConsent(choice: Omit<AnalyticsConsentChoice, "upda
   };
   if (typeof window !== "undefined") {
     window.localStorage.setItem(ANALYTICS_CONSENT_STORAGE_KEY, JSON.stringify(value));
+    window.dispatchEvent(new Event(consentEvent));
   }
   return value;
 }

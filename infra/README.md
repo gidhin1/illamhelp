@@ -8,7 +8,7 @@ Docker services provisioned via `infra/docker-compose.yml`.
 |---------|------|---------|
 | PostgreSQL | 5432 | Primary database |
 | Redis | 6379 | Caching and sessions |
-| MinIO | 9000 (API), 9001 (Console) | Object storage |
+| Silo | 9000 (API), 9001 (Console) | MinIO-compatible object storage |
 | NATS | 4222 | Event streaming (JetStream) |
 | Keycloak | 8080 | Identity and access management |
 | OPA | 8181 | Policy enforcement (consent decisions) |
@@ -75,6 +75,7 @@ make api-dev
 
 ## macOS Notes
 
+- Compose uses a pinned Silo image for the S3 server and its bucket initializer. If another service occupies port 9000, set `MINIO_HOST_PORT` to a free port and point `MINIO_ENDPOINT` at that port when using Compose storage.
 - Docker Desktop (or Colima) with ≥6 GB memory for full stack
 - OpenSearch memory tuned via `OPENSEARCH_JAVA_OPTS` in `.env`
 - ClamAV runs `linux/amd64` on Apple Silicon via `CLAMAV_PLATFORM` env

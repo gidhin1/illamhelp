@@ -31,6 +31,10 @@ static_resources:
                           - exact: http://127.0.0.1:3100
                           - exact: http://localhost:3103
                           - exact: http://127.0.0.1:3103
+                          - exact: http://localhost:3200
+                          - exact: http://127.0.0.1:3200
+                          - exact: http://localhost:3203
+                          - exact: http://127.0.0.1:3203
                         allow_methods: POST, OPTIONS
                         allow_headers: authorization,content-type,x-grpc-web,x-user-agent,grpc-timeout
                         expose_headers: grpc-status,grpc-message

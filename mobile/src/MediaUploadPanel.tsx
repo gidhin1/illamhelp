@@ -1,3 +1,4 @@
+import type { JSX } from "react";
 import { Image, ScrollView, Text, View } from "react-native";
 
 import type { MediaAssetRecord, PublicMediaAssetRecord } from "./api";
@@ -49,6 +50,7 @@ export function MediaUploadPanel({
   uploadLabel,
   pickedFiles,
   pendingItems,
+  rejectedItems = [],
   uploading,
   error,
   success,
@@ -66,6 +68,7 @@ export function MediaUploadPanel({
   uploadLabel: string;
   pickedFiles: PickedMediaFile[];
   pendingItems: OwnerMedia[];
+  rejectedItems?: OwnerMedia[];
   uploading: boolean;
   error: string | null;
   success: string | null;
@@ -113,7 +116,7 @@ export function MediaUploadPanel({
             <Text style={styles.dataTitle}>
               {pickedCount} selected {pickedCount === 1 ? "file" : "files"}
             </Text>
-            <Text style={styles.dataMeta}>{photoCount} photos · {videoCount} videos · automatic ordering</Text>
+            <Text style={styles.dataMeta}>{photoCount} photos · {videoCount} videos</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaSelectionRail}>
             {pickedFiles.map((file, index) => (
@@ -162,7 +165,9 @@ export function MediaUploadPanel({
           </View>
         </View>
       ) : (
-        <Text style={styles.cardBodyMuted}>Take media now or choose several photos and videos from this device.</Text>
+        <Text style={styles.cardBodyMuted}>
+          {onCameraPick ? "Take a photo or video, or choose files from this device." : "Choose a file from this device."}
+        </Text>
       )}
       {pendingItems.length > 0 ? (
         <View style={styles.stackSmall} testID={`${testID}-pending`}>
@@ -174,6 +179,18 @@ export function MediaUploadPanel({
               <Text style={styles.dataMeta}>{stateLabel(asset.state)}</Text>
             </View>
           ))}
+        </View>
+      ) : null}
+      {rejectedItems.length > 0 ? (
+        <View style={styles.stackSmall} testID={`${testID}-rejected`}>
+          <Text style={styles.fieldLabel}>Needs a replacement</Text>
+          {rejectedItems.map((asset) => (
+            <View key={asset.id} style={styles.mediaPendingRow}>
+              <Text style={styles.dataTitle}>{asset.kind === "image" ? "Photo" : "Video"} was not approved</Text>
+              <Text style={styles.dataMeta}>{new Date(asset.createdAt).toLocaleDateString()}</Text>
+            </View>
+          ))}
+          <Text style={styles.cardBodyMuted}>Choose a different photo or video to send for review.</Text>
         </View>
       ) : null}
     </View>

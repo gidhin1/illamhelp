@@ -6,5 +6,9 @@
   "exports": {
     "./tokens.json": "./tokens.json",
     "./web.css": "./web.css"
+  },
+  "scripts": {
+    "generate": "node generate-css.mjs",
+    "test": "node generate-css.mjs --check"
   }
 }

@@ -142,6 +142,8 @@ message ListModerationQueueRequest {
   string stage = 1;
   string status = 2;
   int32 limit = 3;
+  string query = 4;
+  bool newest_first = 5;
 }
 
 message ModerationQueueItem {

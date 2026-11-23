@@ -9,6 +9,7 @@ import {
   identifyAnalyticsUser,
   readAnalyticsConsent,
   setAnalyticsConsent,
+  subscribeAnalyticsConsent,
   trackEvent,
   trackPageView
 } from "./analytics";
@@ -37,10 +38,14 @@ function installWindow(url = "http://localhost:3000/"): {
   const dataLayer: Record<string, unknown>[] = [];
   const gtag = vi.fn();
   const storage = new MemoryStorage();
+  const events = new EventTarget();
   vi.stubGlobal("window", {
     location: new URL(url),
     localStorage: storage,
     dataLayer,
+    dispatchEvent: events.dispatchEvent.bind(events),
+    addEventListener: events.addEventListener.bind(events),
+    removeEventListener: events.removeEventListener.bind(events),
     gtag
   });
   return { dataLayer, gtag, storage };
@@ -167,6 +172,27 @@ describe("web analytics", () => {
     );
     expect(storage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toContain("\"analytics\":\"granted\"");
     expect(JSON.stringify(dataLayer)).not.toMatch(/email|phone|address|documentMediaIds|mediaUrl|downloadUrl/i);
+  });
+
+  it("notifies the page when consent changes and stops tracking after opt-out", () => {
+    const { dataLayer, gtag, storage } = installWindow();
+    vi.stubEnv("NEXT_PUBLIC_GA4_MEASUREMENT_ID", "G-TEST");
+    const changes = vi.fn();
+    const unsubscribe = subscribeAnalyticsConsent(changes);
+
+    setAnalyticsConsent({ analytics: "granted", ads: "denied" });
+    trackPageView("/jobs");
+    setAnalyticsConsent({ analytics: "denied", ads: "denied" });
+    trackPageView("/profile");
+
+    expect(changes).toHaveBeenCalledTimes(2);
+    unsubscribe();
+    expect(readAnalyticsConsent()).toMatchObject({ analytics: "denied", ads: "denied" });
+    expect(storage.getItem(ANALYTICS_CONSENT_STORAGE_KEY)).toContain('"analytics":"denied"');
+    expect(dataLayer.filter(({ event }) => event === "page_viewed")).toHaveLength(1);
+    expect(gtag).toHaveBeenCalledWith("consent", "update", {
+      analytics_storage: "denied", ad_storage: "denied"
+    });
   });
 
   it("still sends directly to GA4 when a GTM container is configured but a measurement ID is present", () => {

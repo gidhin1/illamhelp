@@ -1,6 +1,7 @@
 import { expect, Locator, Page, test } from "@playwright/test";
 
 import {
+  openSignedOutMemberHome,
   cardByHeading,
   E2eUser,
   makeUser,
@@ -60,14 +61,14 @@ async function reviewVerificationByUi(
       throw new Error("Admin page was closed before verification request appeared.");
     }
 
-    const errorBanner = page.locator(".banner.error").first();
+    const errorBanner = page.getByRole("main").getByRole("alert").first();
     if (await errorBanner.isVisible().catch(() => false)) {
       const errorText = (await errorBanner.innerText().catch(() => "Verification review failed")).trim();
       throw new Error(`Verification review failed: ${errorText}`);
     }
 
     const candidate = page
-      .getByRole("list", { name: "Verification requests" })
+      .getByRole("region", { name: "Verification requests" })
       .getByRole("button")
       .filter({ hasText: memberUserId })
       .first();
@@ -76,16 +77,21 @@ async function reviewVerificationByUi(
     }
 
     await page.getByRole("button", { name: /^Pending$/i }).first().click().catch(() => undefined);
-    await page.getByRole("button", { name: /^All Records$/i }).first().click().catch(() => undefined);
+    await page.getByRole("button", { name: /^All statuses$/i }).first().click().catch(() => undefined);
     return undefined;
   }, timeoutMs);
 
   await queueItem.click();
-  await expect(page.getByTestId("verification-review-panel").getByText(memberUserId).first()).toBeVisible();
-  await page.getByLabel("Decision notes").fill(reviewNote);
-  await page
-    .getByRole("button", { name: decision === "approved" ? /^Approve verification$/i : /^Reject verification$/i })
-    .click();
+  const review = page.getByTestId("verification-review-panel");
+  await expect(review.getByText(memberUserId).first()).toBeVisible();
+  await review.getByRole("button", { name: "Preview document", exact: true }).click();
+  await expect(review.getByRole("img", { name: "Private verification document preview" }))
+    .toHaveJSProperty("naturalWidth", 1);
+  await review.getByLabel("Decision notes").fill(reviewNote);
+  await review.getByRole("button", { name: decision === "approved" ? "Approve verification" : "Reject verification" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText(reviewNote, { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: decision === "approved" ? "Confirm approval" : "Confirm rejection" }).click();
   await expect(
     page
       .getByText(
@@ -174,23 +180,8 @@ async function signOutIfVisible(page: Page): Promise<void> {
 }
 
 async function resetBrowserSession(page: Page): Promise<void> {
-  await gotoHome(page);
-  await signOutIfVisible(page);
-
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.sessionStorage.clear();
-    window.localStorage.setItem(
-      "illamhelp.analyticsConsent.v1",
-      JSON.stringify({ analytics: "granted", ads: "denied", updatedAt: new Date().toISOString() })
-    );
-    document.cookie = "illamhelp_access_token=; Path=/; Max-Age=0; SameSite=Lax";
-  });
-
-  await page.context().clearCookies();
-  await gotoHome(page);
+  await openSignedOutMemberHome(page, "/");
 }
-
 async function waitForAuthResponse(
   page: Page,
   path: string,
@@ -251,7 +242,7 @@ async function waitForAuthRateLimitBackoff(page: Page, attempt: number): Promise
 async function waitForAuthRedirectOrError(page: Page, expectedUrl: RegExp): Promise<void> {
   const timeoutMs = 10_000;
   const started = Date.now();
-  const errorBanner = page.locator(".banner.error").first();
+  const errorBanner = page.getByRole("main").getByRole("alert").first();
 
   while (Date.now() - started < timeoutMs) {
     if (expectedUrl.test(page.url())) {
@@ -284,7 +275,7 @@ async function openAuthEntry(page: Page, mode: "register" | "login"): Promise<vo
     .getByRole("link", { name: /sign in/i })
     .first();
   await signInLink.click();
-  await expect(page.getByLabel("Username or Email")).toBeVisible();
+  await expect(page.getByLabel("Username or email")).toBeVisible();
 }
 
 async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse> {
@@ -294,7 +285,7 @@ async function registerByUi(page: Page, user: E2eUser): Promise<AuthSessionRespo
     await page.getByLabel("First name").fill(user.firstName);
     await page.getByLabel("Last name").fill(user.lastName);
     await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("User ID").fill(user.username);
+    await page.getByLabel("Member ID").fill(user.username);
     await page.getByLabel("Phone (optional)").fill("+919876543210");
     await page.getByLabel("Password").fill(user.password);
     await page.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
@@ -322,7 +313,7 @@ async function loginByUi(page: Page, user: E2eUser): Promise<AuthSessionResponse
   for (let attempt = 1; attempt <= 8; attempt += 1) {
     await resetBrowserSession(page);
     await openAuthEntry(page, "login");
-    await page.getByLabel("Username or Email").fill(user.username);
+    await page.getByLabel("Username or email").fill(user.username);
     await page.getByLabel("Password").fill(user.password);
 
     const submitButton = page.locator("form button[type='submit']").first();
@@ -359,7 +350,9 @@ async function createJobByUi(
     visibility?: "public" | "connections_only";
   }
 ): Promise<void> {
-  await openJobsSection(page, "posted");
+  if (new URL(page.url()).pathname !== "/jobs/posted") {
+    await openJobsSection(page, "posted");
+  }
   await page.getByLabel("Category").fill(payload.category);
   await page.getByLabel("Location").fill(payload.locationText);
   await page.getByLabel("Title").fill(payload.title);
@@ -381,11 +374,8 @@ async function sendConnectionRequestByUi(page: Page, targetUserId: string): Prom
 
   const matchCard = page.getByRole("article").filter({ hasText: targetUserId }).first();
 
-  if (await matchCard.isVisible().catch(() => false)) {
-    await matchCard.getByRole("button", { name: /^(Send request|Connect)$/i }).click();
-  } else {
-    await page.getByRole("button", { name: "Send request" }).last().click();
-  }
+  await expect(matchCard).toBeVisible();
+  await matchCard.getByRole("button", { name: "Send request", exact: true }).click();
 
   await waitForSuccessMessage(page, "Connection request sent.");
 }
@@ -434,13 +424,14 @@ async function requestConsentAccessByUi(
   purpose: string
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
-  await page.getByRole("button", { name: /Ask/i }).click();
-  const requestPanel = await cardByHeading(page, "Need someone else’s details?");
+  await page.getByRole("navigation", { name: "Contact sharing tasks" })
+    .getByRole("button", { name: /^Request details\b/ }).click();
+  const requestPanel = await cardByHeading(page, "Request contact details");
   const select = requestPanel.getByLabel("Who");
   await selectOptionContaining(select, ownerUserId);
   await requestPanel.getByLabel("Why").fill(purpose);
   await requestPanel.getByRole("button", { name: "Request contact details" }).click();
-  await waitForSuccessMessage(page, "Access request submitted.");
+  await waitForSuccessMessage(page, "Contact request sent.");
 }
 
 async function grantConsentByUi(
@@ -450,10 +441,15 @@ async function grantConsentByUi(
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
   await page.getByRole("button", { name: /Requests/i }).click();
-  const grantPanel = await cardByHeading(page, "Requests waiting for you");
-  const select = grantPanel.getByLabel("Approve request from");
+  const grantPanel = await cardByHeading(page, "Requests to see your details");
+  const select = grantPanel.getByLabel("Choose a request to approve");
   await selectOptionContaining(select, requesterUserId);
-  await grantPanel.getByLabel("Reason you are approving").fill(purpose);
+  await grantPanel.getByLabel("Why are you sharing?").fill(purpose);
+  const endsTomorrow = await page.evaluate(() => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    return new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60 * 1000).toISOString().slice(0, 16);
+  });
+  await grantPanel.getByLabel("Access end date and time (optional)").fill(endsTomorrow);
   await grantPanel.getByRole("button", { name: "Share selected details" }).click();
   await waitForSuccessMessage(page, "Contact details shared.");
 }
@@ -463,14 +459,20 @@ async function revokeConsentByUi(
   granteeUserId: string,
   reason: string
 ): Promise<void> {
-  await clickMainNav(page, "Privacy");
-  await page.getByRole("button", { name: /Seeing my details/i }).click();
-  const revokePanel = await cardByHeading(page, "People seeing your details");
-  const select = revokePanel.getByLabel("Stop sharing with");
-  await selectOptionContaining(select, granteeUserId);
-  await revokePanel.getByLabel("Reason for stopping").fill(reason);
-  await revokePanel.getByRole("button", { name: "Stop sharing details" }).click();
+  await clickMainNav(page, "Profile");
+  await page.getByRole("link", { name: "Manage contact sharing" }).click();
+  const target = page.getByRole("article").filter({ hasText: granteeUserId });
+  await expect(target.getByText("Can see: Phone number")).toBeVisible();
+  await target.getByRole("button", { name: "Review and stop sharing" }).click();
+  await target.getByRole("button", { name: "Keep sharing" }).click();
+  await expect(target.getByLabel("Reason for stopping")).toHaveCount(0);
+  await target.getByRole("button", { name: "Review and stop sharing" }).click();
+  await target.getByRole("button", { name: "Stop sharing", exact: true }).click();
+  await expect(target.getByText("Enter a reason with at least 3 characters.")).toBeVisible();
+  await target.getByLabel("Reason for stopping").fill(reason);
+  await target.getByRole("button", { name: "Stop sharing", exact: true }).click();
   await waitForSuccessMessage(page, "Contact sharing stopped.");
+  await expect(target).toHaveCount(0);
 }
 
 async function assertConsentVisibility(
@@ -480,19 +482,19 @@ async function assertConsentVisibility(
 ): Promise<void> {
   await clickMainNav(page, "Privacy");
   await page.getByRole("button", { name: /History/i }).click();
-  const checkPanel = await cardByHeading(page, "Check sharing status");
+  const checkPanel = await cardByHeading(page, "Check if a detail is shared");
   const select = checkPanel.getByLabel("Connected person");
   await selectOptionContaining(select, ownerUserId);
   await checkPanel.getByLabel("Contact detail").selectOption("phone");
-  await checkPanel.getByRole("button", { name: "Check sharing" }).click();
+  await checkPanel.getByRole("button", { name: "Check access" }).click();
   await waitForSuccessMessage(page, "Sharing check completed.");
 
   if (expected === "allowed") {
-    await expect(page.getByText("This contact detail is available to you.").first()).toBeVisible();
+    await expect(page.getByText("This person has shared this detail with you.").first()).toBeVisible();
     return;
   }
 
-  await expect(page.getByText("This contact detail is hidden right now.").first()).toBeVisible();
+  await expect(page.getByText("This detail isn’t shared with you.").first()).toBeVisible();
 }
 
 async function openPostedJobDetail(page: Page, title: string): Promise<void> {
@@ -530,10 +532,10 @@ async function loginToAdminPortalByUi(page: Page, user: AdminPortalUser): Promis
     }
 
     const readyLocators = [
-      page.getByRole("heading", { name: /Operations Dashboard/i }).first(),
-      page.getByRole("heading", { name: /Moderation Queue/i }).first(),
-      page.getByRole("heading", { name: /Verification Processing/i }).first(),
-      page.getByRole("button", { name: /Run Machine Checks/i }).first(),
+      page.getByRole("heading", { name: /Review work/i }).first(),
+      page.getByRole("heading", { name: /Review photos and videos/i }).first(),
+      page.getByRole("heading", { name: /Review verification requests/i }).first(),
+      page.getByRole("button", { name: /Run automated checks/i }).first(),
       page.getByRole("button", { name: /sign out/i }).first()
     ];
 
@@ -581,7 +583,7 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ browse
     const providerJobCard = jobCard(providerPage, jobTitle);
     await expect(providerJobCard).toBeVisible();
     await providerJobCard.getByRole("button", { name: "Apply for job" }).click();
-    await providerPage.getByLabel("Message to seeker").fill("I can help with this repair and arrive at the agreed time.");
+    await providerPage.getByLabel("Message to the job poster").fill("I can help with this repair and arrive at the agreed time.");
     await providerPage.getByRole("button", { name: "Submit application" }).click();
     await waitForSuccessMessage(providerPage, "Application submitted.");
 
@@ -592,14 +594,13 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ browse
     await waitForSuccessMessage(seekerPage, "Connection accepted.");
 
     await openPostedJobDetail(seekerPage, jobTitle);
-    const providerApplicantCard = seekerPage
-      .locator(".card")
-      .filter({ hasText: providerUserId })
-      .filter({ hasText: "applied" })
-      .first();
-    await expect(providerApplicantCard).toBeVisible();
-    await providerApplicantCard.getByRole("button", { name: "Approve applicant" }).click();
-    await waitForSuccessMessage(seekerPage, "Applicant approved. Booking lifecycle is now active.");
+    await expect(seekerPage.getByRole("main").getByText(providerUserId, { exact: false }).first()).toBeVisible();
+    await seekerPage.getByRole("button", { name: "Review assignment", exact: true }).click();
+    await seekerPage.getByRole("button", { name: "Keep reviewing", exact: true }).click();
+    await expect(seekerPage.getByRole("button", { name: "Assign job", exact: true })).toHaveCount(0);
+    await seekerPage.getByRole("button", { name: "Review assignment", exact: true }).click();
+    await seekerPage.getByRole("button", { name: "Assign job", exact: true }).click();
+    await waitForSuccessMessage(seekerPage, "Job assigned.");
 
     await requestConsentAccessByUi(providerPage, seekerUserId, requestPurpose);
     await grantConsentByUi(seekerPage, providerUserId, grantPurpose);
@@ -609,6 +610,7 @@ test("web UI full flow: auth -> jobs -> connections -> consent", async ({ browse
 
     const providerConnectionRow = await findConnectionRow(providerPage, seekerUserId);
     await providerConnectionRow.getByRole("button", { name: "Block" }).click();
+    await providerConnectionRow.getByRole("button", { name: "Block person", exact: true }).click();
     await waitForSuccessMessage(providerPage, "Person blocked.");
     await expect(personCard(providerPage, seekerUserId)).toHaveCount(0);
   } finally {
@@ -653,8 +655,13 @@ test("web E2E connection lifecycle: decline -> re-request -> accept -> block", a
   await waitForSuccessMessage(page, "Connection accepted.");
 
   const acceptedRow = await findConnectionRow(page, requesterUserId);
-  await expect(acceptedRow.getByText("accepted").first()).toBeVisible();
+  await expect(acceptedRow.getByText("Connected", { exact: true })).toBeVisible();
   await acceptedRow.getByRole("button", { name: "Block" }).click();
+  await expect(acceptedRow.getByText("This ends the connection and any contact sharing between you.")).toBeVisible();
+  await acceptedRow.getByRole("button", { name: "Keep connection" }).click();
+  await expect(acceptedRow.getByText("Connected", { exact: true })).toBeVisible();
+  await acceptedRow.getByRole("button", { name: "Block" }).click();
+  await acceptedRow.getByRole("button", { name: "Block person", exact: true }).click();
   await waitForSuccessMessage(page, "Person blocked.");
   await expect(personCard(page, requesterUserId)).toHaveCount(0);
 });
@@ -698,7 +705,7 @@ test("web E2E jobs visibility: connections_only blocks non-connections", async (
     await waitForSuccessMessage(seekerPage, "Connection accepted.");
 
     await openJobsSection(providerPage, "discover");
-    await providerPage.getByRole("button", { name: "Refresh list" }).click();
+    await providerPage.getByRole("button", { name: "Refresh jobs" }).click();
 
     const connectedJobRow = await poll(async () => {
       const card = jobCard(providerPage, title);
@@ -706,7 +713,7 @@ test("web E2E jobs visibility: connections_only blocks non-connections", async (
     }, 10_000);
     await expect(connectedJobRow).toBeVisible();
     await connectedJobRow.getByRole("button", { name: "Apply for job" }).click();
-    await providerPage.getByLabel("Message to seeker").fill("I can complete this service through your trusted network.");
+    await providerPage.getByLabel("Message to the job poster").fill("I can complete this service through your trusted network.");
     await providerPage.getByRole("button", { name: "Submit application" }).click();
     await waitForSuccessMessage(providerPage, "Application submitted.");
   } finally {
@@ -725,6 +732,10 @@ test("web E2E booking lifecycle: apply -> accept -> in_progress -> completed -> 
   const jobTitle = `Booking E2E ${shortId}`;
 
   await registerByUi(page, seeker);
+  await page.goto("/");
+  await page.getByRole("main").getByRole("link", { name: "Post a job", exact: true }).click();
+  await expect(page).toHaveURL(/\/jobs\/posted#post-new-job$/);
+  await expect(page.getByRole("heading", { name: "Post a new job" })).toBeInViewport();
   await createJobByUi(page, {
     category: "electrician",
     locationText: "Kakkanad, Kochi",
@@ -739,15 +750,16 @@ test("web E2E booking lifecycle: apply -> accept -> in_progress -> completed -> 
   const publicJobCard = jobCard(page, jobTitle);
   await expect(publicJobCard).toBeVisible();
   await publicJobCard.getByRole("button", { name: "Apply for job" }).click();
-  await page.getByLabel("Message to seeker").fill("I can inspect and resolve this issue safely and promptly.");
+  await page.getByLabel("Message to the job poster").fill("I can inspect and resolve this issue safely and promptly.");
   await page.getByRole("button", { name: "Submit application" }).click();
   await waitForSuccessMessage(page, "Application submitted.");
 
   await signOutIfVisible(page);
   await loginByUi(page, seeker);
   await openPostedJobDetail(page, jobTitle);
-  await page.getByRole("button", { name: "Approve applicant" }).first().click();
-  await waitForSuccessMessage(page, "Applicant approved. Booking lifecycle is now active.");
+  await page.getByRole("button", { name: "Review assignment", exact: true }).first().click();
+  await page.getByRole("button", { name: "Assign job", exact: true }).click();
+  await waitForSuccessMessage(page, "Job assigned.");
 
   await signOutIfVisible(page);
   await loginByUi(page, provider);
@@ -758,16 +770,16 @@ test("web E2E booking lifecycle: apply -> accept -> in_progress -> completed -> 
   await signOutIfVisible(page);
   await loginByUi(page, seeker);
   await openPostedJobDetail(page, jobTitle);
-  await page.getByRole("button", { name: "Mark completed" }).click();
-  await waitForSuccessMessage(page, "Job marked completed.");
-  await page.getByRole("button", { name: "Mark payment done" }).click();
-  await waitForSuccessMessage(page, "Payment marked done.");
+  await page.getByRole("button", { name: "Mark work complete" }).click();
+  await waitForSuccessMessage(page, "Work marked complete.");
+  await page.getByRole("button", { name: "Mark as paid" }).click();
+  await waitForSuccessMessage(page, "Payment marked as paid.");
 
   await signOutIfVisible(page);
   await loginByUi(page, provider);
   await openAssignedJobDetail(page, jobTitle);
-  await page.getByRole("button", { name: "Mark payment received" }).click();
-  await waitForSuccessMessage(page, "Payment marked received.");
+  await page.getByRole("button", { name: "Confirm payment received" }).click();
+  await waitForSuccessMessage(page, "Payment marked as received.");
 
   await signOutIfVisible(page);
   await loginByUi(page, seeker);
@@ -797,17 +809,19 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
   try {
     await loginToAdminPortalByUi(adminPage, adminUser);
     await clickAdminNav(adminPage, "Verifications");
-    await expect(adminPage.getByRole("heading", { name: /Verification Processing/i }).first()).toBeVisible({
+    await expect(adminPage.getByRole("heading", { name: /Review verification requests/i }).first()).toBeVisible({
       timeout: 10_000
     });
-    await adminPage.getByRole("button", { name: /^All Records$/i }).first().click();
+    await adminPage.getByRole("button", { name: /^All statuses$/i }).first().click();
 
     const memberSession = await registerByUi(memberPage, member);
     const memberUserId = memberSession.userId;
 
     await clickMainNav(memberPage, "Verify");
+    const submitVerification = memberPage.getByRole("button", { name: "Submit verification request" });
+    await expect(submitVerification).toBeDisabled();
     await memberPage
-      .locator("input[type='file']")
+      .getByLabel("Choose private verification document")
       .setInputFiles({
         name: "verification-document.png",
         mimeType: "image/png",
@@ -816,15 +830,18 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
           "base64"
         )
       });
-    await memberPage.getByRole("button", { name: "Upload Document" }).click();
-    await waitForSuccessMessage(memberPage, "Document uploaded privately for verification.");
+    await memberPage.getByRole("button", { name: "Upload private document" }).click();
+    await expect(memberPage.getByText("1 private document ready to submit.", { exact: true })).toBeVisible();
+    await memberPage.reload();
+    await expect(memberPage.getByText("1 private document ready to submit.", { exact: true })).toBeVisible();
+    await expect(submitVerification).toBeEnabled();
     await memberPage
-      .getByLabel("Notes for Reviewer (optional)")
+      .getByLabel("Notes for the reviewer (optional)")
       .fill(submissionNote);
-    await memberPage.getByRole("button", { name: "Submit Verification" }).click();
+    await memberPage.getByRole("button", { name: "Submit verification request" }).click();
     await waitForSuccessMessage(
       memberPage,
-      "Verification request submitted. We'll review your documents shortly."
+      "Request sent. Check this page for the review result."
     );
     await expect(memberPage.getByText("Pending review").first()).toBeVisible();
 
@@ -839,7 +856,7 @@ test("web E2E verification lifecycle: submit -> admin review -> user notificatio
     await loginByUi(memberPage, member);
 
     await clickMainNav(memberPage, "Alerts");
-    await expect(memberPage.getByText(/Verification approved/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(memberPage.getByText(/Your profile is verified/i).first()).toBeVisible({ timeout: 10_000 });
 
     await clickMainNav(memberPage, "Verify");
     await expect(memberPage.getByText("Approved").first()).toBeVisible();
@@ -871,18 +888,25 @@ test("web E2E application lifecycle: apply -> withdraw -> apply again", async ({
   const targetJobCard = jobCard(page, jobTitle);
   await expect(targetJobCard).toBeVisible();
 
-  await targetJobCard.getByRole("button", { name: "Apply for job" }).click();
-  await page.getByLabel("Message to seeker").fill("I can visit this afternoon and complete the plumbing work.");
+  await targetJobCard.getByRole("link", { name: "View details", exact: true }).click();
+  await expect(page.getByRole("heading", { name: jobTitle, level: 1 })).toBeVisible();
+  const message = page.getByLabel("Message to the job poster (optional)", { exact: true });
+  await message.fill("abc");
   await page.getByRole("button", { name: "Submit application" }).click();
-  await waitForSuccessMessage(page, "Application submitted.");
+  await expect(page.getByText("Enter at least 4 characters, or leave the message blank.")).toBeVisible();
+  await expect(message).toHaveValue("abc");
+  await message.fill("");
+  await page.getByRole("button", { name: "Submit application" }).click();
+  await expect(page.getByRole("heading", { name: "Your application", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "Back to jobs" }).click();
   await expect(targetJobCard.getByRole("button", { name: "Withdraw application" })).toBeVisible();
 
   await targetJobCard.getByRole("button", { name: "Withdraw application" }).click();
-  await waitForSuccessMessage(page, "Pending application removed.");
+  await waitForSuccessMessage(page, "Application withdrawn.");
   await expect(targetJobCard.getByRole("button", { name: "Apply for job" })).toBeVisible();
 
   await targetJobCard.getByRole("button", { name: "Apply for job" }).click();
-  await page.getByLabel("Message to seeker").fill("I remain available and can complete this job safely.");
+  await page.getByLabel("Message to the job poster").fill("I remain available and can complete this job safely.");
   await page.getByRole("button", { name: "Submit application" }).click();
   await waitForSuccessMessage(page, "Application submitted.");
 });
@@ -905,6 +929,12 @@ test("web E2E owner can cancel a posted job before assignment", async ({ page })
   await expect(postedCard).toBeVisible();
   await postedCard.getByRole("button", { name: "Manage job" }).click();
   await expect(page.getByRole("heading", { name: jobTitle }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Review cancellation" }).click();
+  await expect(page.getByText("Cancel this booking? Work on this booking will end.")).toBeVisible();
+  await page.getByRole("button", { name: "Keep booking" }).click();
+  await expect(page.getByText("Open for applications", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Cancel booking" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Review cancellation" }).click();
   await page.getByLabel("Cancel reason (optional)").fill("Schedule changed before an assignment was made.");
   await page.getByRole("button", { name: "Cancel booking" }).click();
   await waitForSuccessMessage(page, "Booking cancelled.");

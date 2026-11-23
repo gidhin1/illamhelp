@@ -8,6 +8,7 @@ import com.illamhelp.api.notifications.NotificationService;
 import com.illamhelp.api.storage.StorageService;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
@@ -36,10 +37,14 @@ public class MediaModerationService {
     this.automatedWorker = automatedWorker;
   }
 
-  public List<ModerationQueueItem> listModerationQueue(String stage, String status, int limit) {
+  public List<ModerationQueueItem> listModerationQueue(String stage, String status, int limit, String query, boolean newestFirst) {
     validateFilter(stage, STAGES, "moderation stage");
     validateFilter(status, STATUSES, "moderation status");
-    return mediaAssetRepository.listModerationQueue(stage, status, Math.max(1, Math.min(limit, 100)))
+    String term = query.strip().toLowerCase(Locale.ROOT);
+    if (term.length() > 160) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Search must be 160 characters or fewer");
+    }
+    return mediaAssetRepository.listModerationQueue(stage, status, Math.max(1, Math.min(limit, 100)), term, newestFirst)
         .stream()
         .map(MediaModerationService::moderationQueueItem)
         .toList();
@@ -135,7 +140,7 @@ public class MediaModerationService {
     notificationService.create(reviewedAsset.ownerUserId(),
         "approved".equals(decision) ? "media_approved" : "media_rejected",
         "approved".equals(decision) ? "Media approved" : "Media rejected",
-        "approved".equals(decision) ? "Your media is now approved." : "Your media was rejected.",
+        "approved".equals(decision) ? "People with access can now see your photo or video." : "This photo or video stays hidden. Contact support from Help if you have questions.",
         Map.of("mediaId", mediaId));
     auditService.logEvent(moderatorUserId, reviewedAsset.ownerUserId(),
         "media_human_review_decided", null,

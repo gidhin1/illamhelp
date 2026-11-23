@@ -1,0 +1,28 @@
+{
+  "name": "@illamhelp/ui-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme.tsx",
+    "./section-header": "./src/SectionHeader.tsx",
+    "./dialog": "./src/Dialog.tsx",
+    "./data-table": "./src/DataTable.tsx"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@illamhelp/ui-tokens": "workspace:*",
+    "@mui/material": "^9.3.1",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@tanstack/react-table": "^8.21.3"
+  },
+  "scripts": {
+    "lint": "node ../../web/node_modules/eslint/bin/eslint.js src"
+  },
+  "sideEffects": false
+}

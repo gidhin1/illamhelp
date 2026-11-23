@@ -12,12 +12,17 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@emotion/cache": "^11.14.0",
+    "@emotion/react": "^11.14.0",
     "@illamhelp/media-client": "workspace:*",
+    "@illamhelp/shared-types": "workspace:*",
     "@illamhelp/ui-tokens": "workspace:*",
+    "@illamhelp/ui-web": "workspace:*",
+    "@mui/material-nextjs": "^9.3.1",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.22",
     "lucide-react": "^0.577.0",
-    "next": "^16.2.6",
+    "next": "^16.4.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -27,7 +32,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^9.20.0",
-    "eslint-config-next": "^16.2.6",
+    "eslint-config-next": "16.2.6",
     "typescript": "^5.8.2",
     "vite": "^7.2.7",
     "vitest": "^4.1.8"

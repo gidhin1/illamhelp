@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { expect, Page, test } from "@playwright/test";
 
-import { makeUser, parseMemberId, waitForSuccessMessage } from "../utils/flow-helpers";
+import { openSignedOutMemberHome, makeUser, parseMemberId, waitForSuccessMessage } from "../utils/flow-helpers";
 
 const serviceProofImage = path.join(
   process.cwd(),
@@ -92,26 +92,8 @@ async function assertAuthResponse(
 }
 
 async function resetBrowserSession(page: Page): Promise<void> {
-  await gotoHome(page);
-  const signOut = page.getByRole("button", { name: "Sign out" }).first();
-  if (await signOut.isVisible()) {
-    await signOut.click();
-  }
-
-  await page.evaluate(() => {
-    window.localStorage.clear();
-    window.sessionStorage.clear();
-    window.localStorage.setItem(
-      "illamhelp.analyticsConsent.v1",
-      JSON.stringify({ analytics: "granted", ads: "denied", updatedAt: new Date().toISOString() })
-    );
-    document.cookie = "illamhelp_access_token=; Path=/; Max-Age=0; SameSite=Lax";
-  });
-
-  await page.context().clearCookies();
-  await gotoHome(page);
+  await openSignedOutMemberHome(page, "/");
 }
-
 async function registerByUi(page: Page): Promise<void> {
   const user = makeUser("seeker");
   for (let attempt = 1; attempt <= 8; attempt += 1) {
@@ -120,7 +102,7 @@ async function registerByUi(page: Page): Promise<void> {
     await page.getByLabel("First name").fill(user.firstName);
     await page.getByLabel("Last name").fill(user.lastName);
     await page.getByLabel("Email").fill(user.email);
-    await page.getByLabel("User ID").fill(user.username);
+    await page.getByLabel("Member ID").fill(user.username);
     await page.getByLabel("Phone (optional)").fill("+919876543210");
     await page.getByLabel("Password").fill(user.password);
     await page.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
@@ -152,18 +134,19 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
   const memberId = parseMemberId(memberIdText, "profile media owner id");
   expect(memberId.length).toBeGreaterThan(2);
 
-  await expect(page.getByRole("heading", { name: "Your public trust page" })).toBeVisible();
-  await expect(page.getByText(/Verification documents never appear here/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+  await expect(page.getByText(/Verification documents stay private/i)).toBeVisible();
 
+  await page.getByRole("button", { name: "Edit profile", exact: true }).click();
   await page.getByLabel("City").fill("Kochi");
   await page.getByLabel("Area").fill("Kakkanad");
-  await page.getByLabel("Services offered").fill("plumber, electrician");
+  await page.getByLabel("Services you offer").fill("plumber, electrician");
   await page.getByTestId("profile-phone-input").fill("+919812345678");
   await page.getByRole("button", { name: "Save profile" }).click();
   await waitForSuccessMessage(page, "Profile updated.");
 
   await page
-    .getByLabel("Add profile media")
+    .getByLabel("Choose photos or videos")
     .setInputFiles([serviceProofImage, commonsValveImage, commonsPlumberImage, serviceProofVideo, sampleVideo]);
   await expect(page.getByTestId("profile-media-upload-selected")).toContainText("5 selected files");
   await expect(page.getByTestId("profile-media-upload-selected")).toContainText("3 photos");
@@ -178,6 +161,7 @@ test("web profile page updates profile and uploads media", async ({ page }) => {
   await expect(page.getByTestId("profile-media-upload-pending")).toContainText(/Photo|Video/);
   await expect(page.getByTestId("profile-media-upload-pending")).toContainText(/uploaded|scanning|ai reviewed|human review pending/i);
 
+  await page.getByText("Preview a member’s approved media", { exact: true }).click();
   await page.getByTestId("profile-public-owner-input").fill(memberId);
   await page.getByTestId("profile-public-load-button").click();
   await expect(page.getByText("Approved profile photos and videos will appear here.").first()).toBeVisible();

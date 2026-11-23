@@ -101,8 +101,8 @@ export async function readTextByTestId(page: Page, testId: string): Promise<stri
 }
 
 export async function cardByHeading(page: Page, heading: string): Promise<Locator> {
-  const card = page.locator(".card").filter({
-    has: page.getByRole("heading", { name: heading })
+  const card = page.locator(".card, .MuiPaper-root").filter({
+    has: page.getByRole("heading", { name: heading, exact: true })
   });
   await expect(card.first()).toBeVisible();
   return card.first();
@@ -114,4 +114,51 @@ export async function waitForSuccessMessage(page: Page, message: string): Promis
 
 export async function waitForSignInRequired(page: Page): Promise<void> {
   await expect(page.getByText("Sign in required")).toBeVisible({ timeout: 10_000 });
+}
+
+export async function registerAuditMember(page: Page, origin: string): Promise<E2eUser> {
+  const user = makeUser("both");
+  await page.goto(`${origin}/auth/register`);
+  const main = page.getByRole("main");
+  const firstName = main.getByLabel("First name", { exact: true });
+  await expect(firstName).toBeVisible();
+  await declineMemberAnalytics(page);
+  await firstName.fill(user.firstName);
+  await main.getByLabel("Last name", { exact: true }).fill(user.lastName);
+  await main.getByLabel("Email", { exact: true }).fill(user.email);
+  await main.getByLabel("Member ID", { exact: true }).fill(user.username);
+  await main.getByLabel("Password", { exact: true }).fill(user.password);
+  await main.getByLabel(/I agree to the current Terms and Conditions and Privacy Policy/i).check();
+  await main.getByRole("button", { name: "Create account", exact: true }).click();
+  await expect(page).toHaveURL(/\/jobs(?:\/discover)?$/);
+  return user;
+}
+
+const analyticsChoiceHandled = new WeakSet<ReturnType<Page["context"]>>();
+
+export async function openSignedOutMemberHome(page: Page, origin: string): Promise<void> {
+  await page.goto(origin);
+  const signOut = page.getByRole("button", { name: "Sign out", exact: true }).first();
+  const signIn = page.getByRole("link", { name: "Sign in", exact: true }).first();
+  await expect(signOut.or(signIn).first()).toBeVisible();
+  if (await signOut.isVisible()) {
+    await signOut.click();
+    await expect(signIn).toBeVisible();
+  }
+  if (analyticsChoiceHandled.has(page.context())) return;
+
+  await declineMemberAnalytics(page);
+  analyticsChoiceHandled.add(page.context());
+}
+
+
+export async function declineMemberAnalytics(page: Page): Promise<void> {
+  if (process.env.PW_E2E_ANALYTICS_CONSENT === "granted") return;
+  const decline = page.getByRole("button", { name: "Decline analytics", exact: true });
+  await expect(decline).toBeVisible();
+  // The same control can briefly remount as the landing session resolves.
+  await expect(async () => {
+    if (await decline.isVisible()) await decline.click({ timeout: 1500 });
+    await expect(decline).toBeHidden({ timeout: 750 });
+  }).toPass({ timeout: 5000 });
 }

@@ -1,45 +1,77 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-
 import type { ThemePreference } from "@illamhelp/shared-types";
+import { useEffect, useSyncExternalStore } from "react";
 
-interface ThemeContextValue {
-  preference: ThemePreference;
-  setPreference: (preference: ThemePreference) => void;
-}
+const storageKey = "illamhelp.theme.preference";
+const preferenceEvent = "illamhelp:theme-preference";
+let fallbackPreference: ThemePreference = "system";
 
-const ThemeContext = createContext<ThemeContextValue | null>(null);
-const STORAGE_KEY = "illamhelp.theme.preference";
-
-export function ThemeProvider({ children }: { children: React.ReactNode }): JSX.Element {
-  const [preference, setPreference] = useState<ThemePreference>(() => {
-    if (typeof window === "undefined") {
-      return "system";
-    }
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    return stored === "dark" || stored === "light" || stored === "system" ? stored : "system";
-  });
-
-  useEffect(() => {
-    const root = document.documentElement;
-    if (preference === "system") {
-      root.removeAttribute("data-theme");
-      window.localStorage.setItem(STORAGE_KEY, "system");
-      return;
-    }
-    root.setAttribute("data-theme", preference);
-    window.localStorage.setItem(STORAGE_KEY, preference);
-  }, [preference]);
-
-  const value = useMemo(() => ({ preference, setPreference }), [preference]);
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
-
-export function useThemePreference(): ThemeContextValue {
-  const context = useContext(ThemeContext);
-  if (!context) {
-    throw new Error("ThemeProvider must wrap the app before using theme preference.");
+function getPreference(): ThemePreference {
+  try {
+    const value = window.localStorage.getItem(storageKey);
+    if (value === "light" || value === "dark") return value;
+  } catch {
+    return fallbackPreference;
   }
-  return context;
+  return "system";
+}
+
+function subscribe(listener: () => void): () => void {
+  window.addEventListener("storage", listener);
+  window.addEventListener(preferenceEvent, listener);
+  return () => {
+    window.removeEventListener("storage", listener);
+    window.removeEventListener(preferenceEvent, listener);
+  };
+}
+
+function setPreference(preference: ThemePreference): void {
+  fallbackPreference = preference;
+  applyPreference(preference);
+  try {
+    window.localStorage.setItem(storageKey, preference);
+  } catch {
+    // The current document can still switch themes.
+  }
+  window.dispatchEvent(new Event(preferenceEvent));
+}
+
+function applyPreference(preference: ThemePreference): void {
+  const dark = preference === "dark" || (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+}
+
+function applyStoredTheme(): void {
+  applyPreference(getPreference());
+}
+
+export function useThemePreference() {
+  const preference = useSyncExternalStore(subscribe, getPreference, (): ThemePreference => "system");
+  return { preference, setPreference };
+}
+
+export function ThemeInit() {
+  const initialize = `(() => {
+    let preference;
+    try { preference = localStorage.getItem(${JSON.stringify(storageKey)}); } catch {}
+    const dark = preference === "dark" ||
+      (preference !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+  })();`;
+  return <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: initialize }} />;
+}
+
+export function ThemeSync() {
+  useEffect(() => {
+    const system = window.matchMedia("(prefers-color-scheme: dark)");
+    applyStoredTheme();
+    system.addEventListener("change", applyStoredTheme);
+    window.addEventListener("storage", applyStoredTheme);
+    return () => {
+      system.removeEventListener("change", applyStoredTheme);
+      window.removeEventListener("storage", applyStoredTheme);
+    };
+  }, []);
+  return null;
 }

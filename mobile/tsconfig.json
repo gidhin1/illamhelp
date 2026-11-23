@@ -2,11 +2,33 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "jsx": "react-native",
-    "lib": ["es2022"],
-    "types": ["react", "react-native"],
+    "lib": [
+      "es2022"
+    ],
+    "types": [
+      "react",
+      "react-native"
+    ],
     "resolveJsonModule": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "react": [
+        "./node_modules/@types/react"
+      ],
+      "react/jsx-runtime": [
+        "./node_modules/@types/react/jsx-runtime"
+      ],
+      "react/jsx-dev-runtime": [
+        "./node_modules/@types/react/jsx-dev-runtime"
+      ]
+    }
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }
