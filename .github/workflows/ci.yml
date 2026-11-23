@@ -235,9 +235,10 @@ jobs:
             --entrypoint /bin/bash "$APP_IMAGE" -euo pipefail -c '
               test -r "$MEDIA_VISUAL_MODEL_DIRECTORY/LICENSE"
               test ! -w "$MEDIA_VISUAL_MODEL_DIRECTORY/model.safetensors"
-              python -c "import sys; from PIL import Image; Image.new(\"RGB\", (224,224), \"white\").save(sys.stdout.buffer, \"PNG\")" |
-                time timeout 15s "$MEDIA_VISUAL_EXECUTABLE" |
-                python -c "import sys; score=float(sys.stdin.read()); assert 0 <= score <= 1; print(score)"
+              python -c "from PIL import Image; Image.new(\"RGB\", (224,224), \"white\").save(\"/tmp/visual-smoke.png\")"
+              TIMEFORMAT="visual inference wall time %3R s"
+              time timeout --kill-after=1s 15s "$MEDIA_VISUAL_EXECUTABLE" < /tmp/visual-smoke.png > /tmp/visual-smoke-score
+              python -c "from pathlib import Path; score=float(Path(\"/tmp/visual-smoke-score\").read_text()); assert 0 <= score <= 1; print(score)"
             '
       - name: Scan image
         uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc
