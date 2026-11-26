@@ -1,5 +1,6 @@
 package com.illamhelp.api.media;
 
+import com.illamhelp.api.auth.MemberOnboarding;
 import com.illamhelp.api.common.AuthenticatedUser;
 import com.illamhelp.api.proto.media.v1.CompleteUploadRequest;
 import com.illamhelp.api.proto.media.v1.CreateUploadTicketRequest;
@@ -18,14 +19,17 @@ import org.springframework.stereotype.Service;
 public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServiceGrpc.MediaServiceImplBase {
   private final MediaService mediaService;
 
-  public GrpcMediaService(MediaService mediaService) {
+  private final MemberOnboarding onboarding;
+
+  public GrpcMediaService(MediaService mediaService, MemberOnboarding onboarding) {
+    this.onboarding = onboarding;
     this.mediaService = mediaService;
   }
 
   @Override
   public void createUploadTicket(CreateUploadTicketRequest request, StreamObserver<UploadTicket> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       MediaService.UploadTicketResponse ticket = mediaService.uploadTicket(user.userId(),
           new MediaService.UploadTicketInput(
               GrpcMediaMappers.kind(request.getKind()),
@@ -52,7 +56,7 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
   @Override
   public void completeUpload(CompleteUploadRequest request, StreamObserver<com.illamhelp.api.proto.media.v1.MediaAsset> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       responseObserver.onNext(GrpcMediaMappers.mediaAsset(
           mediaService.complete(user.userId(), request.getMediaId(), request.getEtag())));
       responseObserver.onCompleted();
@@ -65,7 +69,7 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
   public void requestMediaReview(RequestMediaReviewRequest request,
       StreamObserver<com.illamhelp.api.proto.media.v1.MediaAsset> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       responseObserver.onNext(GrpcMediaMappers.mediaAsset(mediaService.requestReview(user.userId(), request.getMediaId())));
       responseObserver.onCompleted();
     } catch (Throwable throwable) {
@@ -76,7 +80,7 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
   @Override
   public void listMyMedia(ListMyMediaRequest request, StreamObserver<MediaPage> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       MediaService.MediaPage<MediaService.MediaAssetRecord> page =
           mediaService.listMine(user.userId(), request.getLimit() == 0 ? null : request.getLimit(), request.getCursor());
       responseObserver.onNext(MediaPage.newBuilder()
@@ -93,7 +97,7 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
   @Override
   public void listProfileMedia(ListProfileMediaRequest request, StreamObserver<DownloadableMediaPage> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       MediaService.MediaPage<MediaService.PublicMediaRecord> page =
           mediaService.listProfileMedia(user, request.getProfileUserId(), request.getLimit() == 0 ? null : request.getLimit(),
               request.getCursor());
@@ -107,7 +111,7 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
   @Override
   public void listJobMedia(ListJobMediaRequest request, StreamObserver<DownloadableMediaPage> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       MediaService.MediaPage<MediaService.PublicMediaRecord> page =
           mediaService.listJobMedia(user, request.getJobId(), request.getLimit() == 0 ? null : request.getLimit(),
               request.getCursor());
@@ -121,7 +125,7 @@ public class GrpcMediaService extends com.illamhelp.api.proto.media.v1.MediaServ
   @Override
   public void listVerificationDocuments(ListVerificationDocumentsRequest request, StreamObserver<MediaPage> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       MediaService.MediaPage<MediaService.MediaAssetRecord> page =
           mediaService.listVerificationDocuments(user.userId(), request.getLimit() == 0 ? null : request.getLimit(),
               request.getCursor());

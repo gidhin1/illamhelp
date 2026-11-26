@@ -1,3 +1,4 @@
+import { WEB_SESSION } from "./member-session";
 import { trackEvent, utmParams } from "./analytics";
 
 export type UserType = "seeker" | "provider" | "both";
@@ -254,11 +255,12 @@ async function apiRequest<T>(
   if (!headers.has("Content-Type") && options.body) {
     headers.set("Content-Type", "application/json");
   }
-  if (accessToken) {
+  const managed = accessToken === WEB_SESSION;
+  if (accessToken && !managed) {
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${managed ? "/api/member" : API_BASE_URL}${path}`, {
     ...options,
     headers
   });

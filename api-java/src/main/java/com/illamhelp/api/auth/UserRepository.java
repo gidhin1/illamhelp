@@ -13,6 +13,17 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
   @Modifying
   @Query(value = """
       INSERT INTO users (id, role, username)
+      VALUES (:userId, 'both', :username)
+      ON CONFLICT DO NOTHING
+      """, nativeQuery = true)
+  void createMemberIfAbsent(@Param("userId") UUID userId, @Param("username") String username);
+
+  @Query(value = "SELECT * FROM users WHERE id = :userId FOR UPDATE", nativeQuery = true)
+  Optional<UserEntity> lockMember(@Param("userId") UUID userId);
+
+  @Modifying
+  @Query(value = """
+      INSERT INTO users (id, role, username)
       VALUES (cast(:userId as uuid), cast(:role as user_role), :username)
       ON CONFLICT (id)
       DO UPDATE SET role = EXCLUDED.role,

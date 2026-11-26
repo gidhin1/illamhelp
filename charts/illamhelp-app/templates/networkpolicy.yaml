@@ -25,4 +25,7 @@ spec:
         - { protocol: TCP, port: {{ .Values.web.port }} }
         - { protocol: TCP, port: {{ .Values.admin.port }} }
         - { protocol: TCP, port: {{ .Values.envoy.port }} }
+        {{- if .Values.envoy.memberHttps.tlsSecretName }}
+        - { protocol: TCP, port: {{ .Values.envoy.memberHttps.port }} }
+        {{- end }}
 {{- end }}

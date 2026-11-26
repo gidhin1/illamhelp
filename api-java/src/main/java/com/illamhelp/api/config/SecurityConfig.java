@@ -1,5 +1,6 @@
 package com.illamhelp.api.config;
 
+import com.illamhelp.api.auth.MemberOnboarding;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +10,7 @@ import org.springframework.security.config.Customizer;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.GrantedAuthority;
@@ -27,7 +29,7 @@ public class SecurityConfig {
   }
 
   @Bean
-  SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+  SecurityFilterChain securityFilterChain(HttpSecurity http, MemberOnboarding onboarding) throws Exception {
     http
         .csrf(csrf -> csrf.disable())
         .cors(Customizer.withDefaults())
@@ -39,7 +41,11 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.POST, "/api/v1/auth/logout").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/v1/media/public/**").permitAll()
             .requestMatchers("/api/docs/**", "/v3/api-docs/**", "/swagger-ui/**", "/api/swagger-ui/**").permitAll()
-            .anyRequest().authenticated())
+            .requestMatchers(HttpMethod.GET, properties.apiPrefix() + "/auth/member-onboarding").authenticated()
+            .requestMatchers(HttpMethod.POST, properties.apiPrefix() + "/auth/member-onboarding").authenticated()
+            .anyRequest().access((authentication, context) -> new AuthorizationDecision(
+                authentication.get() instanceof JwtAuthenticationToken token
+                    && onboarding.allowsApiAccess(token.getToken()))))
         .oauth2ResourceServer(oauth2 -> oauth2.jwt(jwt ->
             jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())));
     return http.build();

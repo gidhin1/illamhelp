@@ -10,6 +10,12 @@ data:
   STRICT_ORIGIN_CHECK: {{ .Values.config.strictOriginCheck | quote }}
   TRUSTED_PROXY_CIDRS: {{ .Values.config.trustedProxyCidrs | quote }}
   KEYCLOAK_URL: {{ .Values.config.keycloakUrl | quote }}
+  {{- with .Values.config.keycloakIssuerUri }}
+  KEYCLOAK_ISSUER_URI: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.config.keycloakJwkSetUri }}
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI: {{ . | quote }}
+  {{- end }}
   KEYCLOAK_REALM: {{ .Values.config.keycloakRealm | quote }}
   KEYCLOAK_CLIENT_ID: {{ .Values.config.keycloakClientId | quote }}
   MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}

@@ -32,6 +32,8 @@ config:
   strictOriginCheck: "true"
   trustedProxyCidrs: ""
   keycloakUrl: "http://illamhelp-keycloak:8080"
+  keycloakIssuerUri: ""
+  keycloakJwkSetUri: ""
   keycloakRealm: illamhelp
   keycloakClientId: illamhelp-api
   minioEndpoint: "http://illamhelp-minio:9000"
@@ -66,6 +68,8 @@ api:
 
 # Customer web deployment settings.
 web:
+  # Optional existing Secret with WEB_AUTH_* environment variables.
+  memberAuthSecretName: ""
   replicas: 1
   port: 3000
   resources:
@@ -90,6 +94,11 @@ admin:
 
 # Browser gRPC-Web gateway settings.
 envoy:
+  # Private HTTPS entry point for local kind when no ingress controller is installed.
+  memberHttps:
+    tlsSecretName: ""
+    authority: localhost:3443
+    port: 9443
   replicas: 1
   port: 9091
   resources:
@@ -105,6 +114,9 @@ ingress:
   enabled: true
   className: ""
   annotations: {}
+  tls: []
+  keycloakHost: ""
+  keycloakServiceName: illamhelp-keycloak
 
 # NetworkPolicy is opt-in because local kind installations may use different ingress controllers.
 networkPolicy:

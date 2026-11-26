@@ -21,12 +21,7 @@ public class PolicyAcceptanceService {
   }
 
   public void validateRegistrationAcceptance(AuthController.RegisterRequest request) {
-    if (!LegalPolicyVersions.TERMS.equals(request.acceptedTermsVersion())) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "Accept the current Terms and Conditions to create an account");
-    }
-    if (!LegalPolicyVersions.PRIVACY_POLICY.equals(request.acceptedPrivacyPolicyVersion())) {
-      throw new ApiException(HttpStatus.BAD_REQUEST, "Accept the current Privacy Policy to create an account");
-    }
+    validatePolicyVersions(request.acceptedTermsVersion(), request.acceptedPrivacyPolicyVersion());
     if (acceptedAt(request) == null) {
       throw new ApiException(HttpStatus.BAD_REQUEST, "acceptedLegalAt must be a valid ISO timestamp");
     }
@@ -36,6 +31,41 @@ public class PolicyAcceptanceService {
     }
   }
 
+  public void validatePolicyVersions(String termsVersion, String privacyVersion) {
+    if (!LegalPolicyVersions.TERMS.equals(termsVersion)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Accept the current Terms and Conditions to create an account");
+    }
+    if (!LegalPolicyVersions.PRIVACY_POLICY.equals(privacyVersion)) {
+      throw new ApiException(HttpStatus.BAD_REQUEST, "Accept the current Privacy Policy to create an account");
+    }
+  }
+
+  public boolean hasCurrentAcceptance(UUID userId) {
+    return repository.existsByUserIdAndDocumentTypeAndVersion(userId, "terms", LegalPolicyVersions.TERMS)
+        && repository.existsByUserIdAndDocumentTypeAndVersion(userId, "privacy_policy", LegalPolicyVersions.PRIVACY_POLICY);
+  }
+
+  @Transactional
+  public void recordMissingAcceptance(UUID userId, String source) {
+    Instant acceptedAt = Instant.now();
+    recordMissingDocument(userId, "terms", LegalPolicyVersions.TERMS, acceptedAt, source);
+    recordMissingDocument(userId, "privacy_policy", LegalPolicyVersions.PRIVACY_POLICY, acceptedAt, source);
+  }
+
+  private void recordMissingDocument(UUID userId, String document, String version, Instant acceptedAt, String source) {
+    if (repository.existsByUserIdAndDocumentTypeAndVersion(userId, document, version)) {
+      return;
+    }
+    recordDocument(userId, document, version, acceptedAt, source);
+  }
+
+  private void recordDocument(UUID userId, String document, String version, Instant acceptedAt, String source) {
+    repository.save(new PolicyAcceptanceEntity(userId, document, version, acceptedAt, source, Map.of("source", source)));
+    String event = "privacy_policy".equals(document) ? "policy_privacy_accepted" : "policy_terms_accepted";
+    auditService.logEvent(userId.toString(), userId.toString(), event, "registration",
+        Map.of("version", version, "source", source));
+  }
+
   @Transactional
   public void recordRegistrationAcceptance(String userId, AuthController.RegisterRequest request) {
     Instant acceptedAt = acceptedAt(request);
@@ -43,15 +73,8 @@ public class PolicyAcceptanceService {
       throw new ApiException(HttpStatus.BAD_REQUEST, "acceptedLegalAt must be a valid ISO timestamp");
     }
     UUID userUuid = UUID.fromString(userId);
-    Map<String, Object> metadata = Map.of("source", request.acceptanceSource());
-    repository.save(new PolicyAcceptanceEntity(
-        userUuid, "terms", LegalPolicyVersions.TERMS, acceptedAt, request.acceptanceSource(), metadata));
-    repository.save(new PolicyAcceptanceEntity(
-        userUuid, "privacy_policy", LegalPolicyVersions.PRIVACY_POLICY, acceptedAt, request.acceptanceSource(), metadata));
-    auditService.logEvent(userId, userId, "policy_terms_accepted", "registration",
-        Map.of("version", LegalPolicyVersions.TERMS, "source", request.acceptanceSource()));
-    auditService.logEvent(userId, userId, "policy_privacy_accepted", "registration",
-        Map.of("version", LegalPolicyVersions.PRIVACY_POLICY, "source", request.acceptanceSource()));
+    recordDocument(userUuid, "terms", LegalPolicyVersions.TERMS, acceptedAt, request.acceptanceSource());
+    recordDocument(userUuid, "privacy_policy", LegalPolicyVersions.PRIVACY_POLICY, acceptedAt, request.acceptanceSource());
   }
 
   private Instant acceptedAt(AuthController.RegisterRequest request) {

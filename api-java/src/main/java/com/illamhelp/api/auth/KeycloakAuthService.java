@@ -40,10 +40,13 @@ public class KeycloakAuthService {
         "grant_type", "password",
         "username", username,
         "password", password));
-    String subject = decodePayload(token.get("access_token")).path("sub").asText();
-    List<String> roles = normalizeAppRoles(extractAppRoles(decodePayload(token.get("access_token"))));
-    authUserService.syncUserFromToken(subject, roles, username);
-    return session(token, subject, username, roles);
+    JsonNode payload = decodePayload(token.get("access_token"));
+    String subject = payload.path("sub").asText();
+    List<String> roles = normalizeAppRoles(extractAppRoles(payload));
+    String publicUsername = authUserService.getUsernameByUserId(subject)
+        .orElseGet(() -> payload.path("preferred_username").asText(username));
+    authUserService.syncUserFromToken(subject, roles, publicUsername);
+    return session(token, subject, publicUsername, roles);
   }
 
   @Transactional

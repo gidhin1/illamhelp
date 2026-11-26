@@ -11,6 +11,10 @@ spec:
   {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
   {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   rules:
     - host: {{ .Values.hosts.web }}
       http:
@@ -52,4 +56,18 @@ spec:
                 name: {{ include "illamhelp-app.fullname" . }}-envoy
                 port:
                   name: http
+    {{- if .Values.ingress.keycloakHost }}
+    - host: {{ .Values.ingress.keycloakHost }}
+      http:
+        paths:
+          {{- range list (printf "/realms/%s" .Values.config.keycloakRealm) "/resources" }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $.Values.ingress.keycloakServiceName }}
+                port:
+                  name: http
+          {{- end }}
+    {{- end }}
 {{- end }}

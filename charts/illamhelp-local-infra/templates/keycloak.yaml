@@ -7,6 +7,10 @@ metadata:
     app.kubernetes.io/component: keycloak
 spec:
   replicas: {{ .Values.keycloak.replicas }}
+  {{- if .Values.keycloak.persistence.enabled }}
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
@@ -20,13 +24,33 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         {{- include "illamhelp-local-infra.podSecurityContext" . | nindent 8 }}
+        {{- if .Values.keycloak.persistence.enabled }}
+        fsGroup: 1000
+        {{- end }}
+      {{- if .Values.keycloak.persistence.enabled }}
+      volumes:
+        - name: keycloak-data
+          persistentVolumeClaim:
+            claimName: {{ include "illamhelp-local-infra.fullname" . }}-keycloak-data
+      {{- end }}
       containers:
         - name: keycloak
           securityContext:
             allowPrivilegeEscalation: false
           image: {{ .Values.images.keycloak | quote }}
           args: ["start-dev", "--http-port=8080"]
+          {{- if .Values.keycloak.persistence.enabled }}
+          volumeMounts:
+            - name: keycloak-data
+              mountPath: /opt/keycloak/data
+          {{- end }}
           env:
+            {{- with .Values.keycloak.publicUrl }}
+            - name: KC_HOSTNAME
+              value: {{ . | quote }}
+            - name: KC_PROXY_HEADERS
+              value: xforwarded
+            {{- end }}
             - name: KC_BOOTSTRAP_ADMIN_USERNAME
               valueFrom:
                 secretKeyRef:
@@ -60,3 +84,16 @@ spec:
   ports:
     - name: http
       port: 8080
+
+{{- if .Values.keycloak.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "illamhelp-local-infra.fullname" . }}-keycloak-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.keycloak.persistence.size | quote }}
+{{- end }}

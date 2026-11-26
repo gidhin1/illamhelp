@@ -28,6 +28,10 @@ spec:
           envFrom:
             - secretRef:
                 name: {{ include "illamhelp-local-infra.secretName" . }}
+            {{- with .Values.keycloak.memberWebSecretName }}
+            - secretRef:
+                name: {{ . | quote }}
+            {{- end }}
           command: ["/bin/bash", "-c"]
           args:
             - |
@@ -40,3 +44,36 @@ spec:
               for role in both seeker provider admin support; do
                 /opt/keycloak/bin/kcadm.sh get clients/$CLIENT_ID/roles/$role -r illamhelp >/dev/null 2>&1 || /opt/keycloak/bin/kcadm.sh create clients/$CLIENT_ID/roles -r illamhelp -s name=$role
               done
+
+              if [[ -n "${WEB_AUTH_ORIGIN:-}" && -n "${WEB_AUTH_CLIENT_SECRET:-}" ]]; then
+                kc=/opt/keycloak/bin/kcadm.sh
+                web_client_id=$("$kc" get clients -r illamhelp -q clientId=illamhelp-member-web --fields id                   --format csv --noquotes | tail -n 1)
+                web_config=(
+                  -s enabled=true -s protocol=openid-connect -s publicClient=false
+                  -s standardFlowEnabled=true -s directAccessGrantsEnabled=false
+                  -s implicitFlowEnabled=false -s serviceAccountsEnabled=false
+                  -s "secret=$WEB_AUTH_CLIENT_SECRET"
+                  -s "redirectUris=[\"${WEB_AUTH_ORIGIN%/}/auth/oidc/callback\"]"
+                  -s 'attributes={"pkce.code.challenge.method":"S256"}'
+                )
+                if [[ -z "$web_client_id" ]]; then
+                  web_client_id=$("$kc" create clients -r illamhelp -i -s clientId=illamhelp-member-web "${web_config[@]}")
+                else
+                  "$kc" update "clients/$web_client_id" -r illamhelp "${web_config[@]}"
+                fi
+                mapper_path="clients/$web_client_id/protocol-mappers/models"
+                mapper_id=$("$kc" get "$mapper_path" -r illamhelp --fields id,name --format csv --noquotes |
+                  sed -n 's/,illamhelp-api-audience$//p')
+                mapper_config=(
+                  -s name=illamhelp-api-audience -s protocol=openid-connect -s protocolMapper=oidc-audience-mapper
+                  -s 'config={"included.client.audience":"illamhelp-api","access.token.claim":"true","id.token.claim":"false"}'
+                )
+                if [[ -z "$mapper_id" ]]; then
+                  "$kc" create "$mapper_path" -r illamhelp "${mapper_config[@]}"
+                else
+                  "$kc" update "$mapper_path/$mapper_id" -r illamhelp "${mapper_config[@]}"
+                fi
+                if [[ -n "${KEYCLOAK_SMTP_CONFIG:-}" ]]; then
+                  "$kc" update realms/illamhelp -s "smtpServer=$KEYCLOAK_SMTP_CONFIG" -s resetPasswordAllowed=true
+                fi
+              fi

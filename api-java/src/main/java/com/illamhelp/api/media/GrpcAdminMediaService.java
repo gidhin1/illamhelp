@@ -1,6 +1,7 @@
 package com.illamhelp.api.media;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.illamhelp.api.auth.MemberOnboarding;
 import com.illamhelp.api.common.AuthenticatedUser;
 import com.illamhelp.api.proto.media.v1.GetModerationDetailsRequest;
 import com.illamhelp.api.proto.media.v1.ListModerationQueueRequest;
@@ -20,7 +21,10 @@ public class GrpcAdminMediaService extends com.illamhelp.api.proto.media.v1.Admi
   private final MediaModerationService moderationService;
   private final ObjectMapper objectMapper;
 
-  public GrpcAdminMediaService(MediaModerationService moderationService, ObjectMapper objectMapper) {
+  private final MemberOnboarding onboarding;
+
+  public GrpcAdminMediaService(MediaModerationService moderationService, ObjectMapper objectMapper, MemberOnboarding onboarding) {
+    this.onboarding = onboarding;
     this.moderationService = moderationService;
     this.objectMapper = objectMapper;
   }
@@ -28,7 +32,7 @@ public class GrpcAdminMediaService extends com.illamhelp.api.proto.media.v1.Admi
   @Override
   public void listModerationQueue(ListModerationQueueRequest request, StreamObserver<ModerationQueuePage> responseObserver) {
     try {
-      GrpcAuth.requireStaff(GrpcAuth.currentUser());
+      GrpcAuth.requireStaff(GrpcAuth.currentUser(onboarding));
       responseObserver.onNext(ModerationQueuePage.newBuilder()
           .addAllItems(moderationService.listModerationQueue(blankToNull(request.getStage()), blankToNull(request.getStatus()),
               request.getLimit() == 0 ? 50 : request.getLimit(), request.getQuery(), request.getNewestFirst()).stream().map(this::queueItem).toList())
@@ -42,7 +46,7 @@ public class GrpcAdminMediaService extends com.illamhelp.api.proto.media.v1.Admi
   @Override
   public void getModerationDetails(GetModerationDetailsRequest request, StreamObserver<ModerationDetails> responseObserver) {
     try {
-      GrpcAuth.requireStaff(GrpcAuth.currentUser());
+      GrpcAuth.requireStaff(GrpcAuth.currentUser(onboarding));
       MediaModerationService.ModerationDetails details = moderationService.getModerationDetails(request.getMediaId());
       responseObserver.onNext(ModerationDetails.newBuilder()
           .setMedia(moderationMedia(details.media()))
@@ -57,7 +61,7 @@ public class GrpcAdminMediaService extends com.illamhelp.api.proto.media.v1.Admi
   @Override
   public void processModerationJobs(ProcessModerationJobsRequest request, StreamObserver<ProcessModerationJobsResponse> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       GrpcAuth.requireStaff(user);
       MediaModerationService.ProcessModerationResult result = moderationService.processPendingJobs(user.userId(),
           new MediaModerationService.ProcessModerationInput(request.getLimit() == 0 ? null : request.getLimit()));
@@ -78,7 +82,7 @@ public class GrpcAdminMediaService extends com.illamhelp.api.proto.media.v1.Admi
   @Override
   public void reviewMedia(ReviewMediaRequest request, StreamObserver<com.illamhelp.api.proto.media.v1.MediaAsset> responseObserver) {
     try {
-      AuthenticatedUser user = GrpcAuth.currentUser();
+      AuthenticatedUser user = GrpcAuth.currentUser(onboarding);
       GrpcAuth.requireStaff(user);
       responseObserver.onNext(GrpcMediaMappers.mediaAsset(moderationService.reviewMedia(user.userId(), request.getMediaId(),
           new MediaModerationService.ReviewMediaInput(request.getDecision(), blankToNull(request.getReasonCode()),

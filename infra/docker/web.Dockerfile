@@ -31,7 +31,7 @@ RUN addgroup -S -g 10001 nodejs && adduser -S -u 10001 nextjs -G nodejs
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 COPY --from=build /workspace/web/.next/standalone /app
 COPY --from=build /workspace/web/.next/static /app/web/.next/static
-RUN mkdir -p /app/web/public
+COPY --from=build /workspace/web/public /app/web/public
 USER 10001:10001
 EXPOSE 3000
 CMD ["node", "server.js"]

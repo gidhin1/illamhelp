@@ -46,9 +46,19 @@ nats:
     limits: { cpu: 250m, memory: 256Mi }
 keycloak:
   replicas: 1
+  publicUrl: ""
+  memberWebSecretName: ""
+  persistence:
+    enabled: false
+    size: 1Gi
   resources:
     requests: { cpu: 100m, memory: 384Mi }
     limits: { cpu: "1", memory: 768Mi }
+# Private local-stage mail capture. Hosted staging uses its managed SMTP relay.
+mailpit:
+  enabled: false
+  image: axllent/mailpit:v1.29.3@sha256:fdaf09bd71dc0829ce8b62e4bfb5180bc5c0674c3e444283fc90681853f5a3c0
+
 opa:
   replicas: 1
   resources:

@@ -73,7 +73,8 @@ public class AuthController {
   public AuthenticatedUser me(@AuthenticationPrincipal Jwt jwt) {
     AuthenticatedUser user = CurrentUser.fromJwt(jwt, properties.keycloakClientId());
     String analyticsUserId = authUserService.getAnalyticsUserIdByUserId(user.userId()).orElse(null);
-    return new AuthenticatedUser(user.userId(), user.publicUserId(), analyticsUserId, user.roles(), user.userType(),
+    String publicUserId = authUserService.getUsernameByUserId(user.userId()).orElse(user.publicUserId());
+    return new AuthenticatedUser(user.userId(), publicUserId, analyticsUserId, user.roles(), user.userType(),
         user.tokenSubject());
   }
 

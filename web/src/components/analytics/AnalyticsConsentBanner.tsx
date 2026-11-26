@@ -20,7 +20,7 @@ function consentBannerVisibleSnapshot(): boolean {
 export function AnalyticsConsentBanner({ inline = false }: { inline?: boolean }): JSX.Element | null {
   const pathname = usePathname();
   const { user } = useSession();
-  const isGuestLanding = pathname === "/" && !user;
+  const isInlinePage = (pathname === "/" && !user) || pathname === "/auth/onboarding";
   const shouldShowBanner = useSyncExternalStore(
     subscribeAnalyticsConsent,
     consentBannerVisibleSnapshot,
@@ -29,7 +29,7 @@ export function AnalyticsConsentBanner({ inline = false }: { inline?: boolean })
   const [dismissed, setDismissed] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  if (inline !== isGuestLanding || !shouldShowBanner || dismissed) {
+  if (inline !== isInlinePage || !shouldShowBanner || dismissed) {
     return null;
   }
 

@@ -19,6 +19,8 @@ import {
   refreshSession
 } from "@/lib/api";
 
+import { WEB_SESSION, WEB_SESSION_MARKER } from "@/lib/member-session";
+
 import {
   clearAccessToken,
   clearRefreshToken,
@@ -90,6 +92,20 @@ export function SessionProvider({
   const refreshUser = useCallback(async (): Promise<void> => {
     const token = readAccessToken();
     if (!token) {
+      if (document.cookie.split(";").some((entry) => entry.trim() === `${WEB_SESSION_MARKER}=1`)) {
+        try {
+          const response = await fetch("/api/member/auth/me", { cache: "no-store" });
+          if (response.ok) {
+            setUser(await response.json() as AuthenticatedUser);
+            setAccessToken(WEB_SESSION);
+            setError(null);
+            setLoading(false);
+            return;
+          }
+        } catch {
+          // Visitors can still use signed-out pages when authentication is unavailable.
+        }
+      }
       clearSession();
       setError(null);
       setLoading(false);
@@ -149,6 +165,14 @@ export function SessionProvider({
   );
 
   const signOut = useCallback(() => {
+    if (accessToken === WEB_SESSION) {
+      void fetch("/api/member/logout", { method: "POST" }).then((response) => {
+        if (!response.ok) throw new Error();
+        clearSession();
+        setError(null);
+      }).catch(() => setError("We couldn’t sign you out. Try again."));
+      return;
+    }
     const refresh = readRefreshToken();
     clearSession();
     setError(null);
@@ -158,7 +182,7 @@ export function SessionProvider({
         // Best effort — local state is already cleared
       });
     }
-  }, [clearSession]);
+  }, [accessToken, clearSession]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

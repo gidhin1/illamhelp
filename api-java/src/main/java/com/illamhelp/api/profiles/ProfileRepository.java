@@ -11,6 +11,8 @@ import org.springframework.data.repository.query.Param;
 public interface ProfileRepository extends JpaRepository<ProfileEntity, UUID> {
   Optional<ProfileEntity> findByUserId(UUID userId);
 
+  boolean existsByUserId(UUID userId);
+
   @Query(value = """
       SELECT
         (SELECT count(*)::int FROM jobs WHERE seeker_user_id = cast(:userId as uuid)) AS "totalJobs",

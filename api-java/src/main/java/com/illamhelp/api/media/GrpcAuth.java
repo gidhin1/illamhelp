@@ -1,5 +1,6 @@
 package com.illamhelp.api.media;
 
+import com.illamhelp.api.auth.MemberOnboarding;
 import com.illamhelp.api.common.AuthenticatedUser;
 import com.illamhelp.api.common.CurrentUser;
 import io.grpc.Status;
@@ -11,10 +12,13 @@ final class GrpcAuth {
   private GrpcAuth() {
   }
 
-  static AuthenticatedUser currentUser() {
+  static AuthenticatedUser currentUser(MemberOnboarding onboarding) {
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication == null || !(authentication.getPrincipal() instanceof Jwt jwt)) {
       throw Status.UNAUTHENTICATED.withDescription("Authentication required").asRuntimeException();
+    }
+    if (!onboarding.allowsApiAccess(jwt)) {
+      throw Status.PERMISSION_DENIED.withDescription("Complete member onboarding before accessing media").asRuntimeException();
     }
     return CurrentUser.fromJwt(jwt);
   }

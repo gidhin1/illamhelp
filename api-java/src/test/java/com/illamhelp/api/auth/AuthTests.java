@@ -105,10 +105,11 @@ class AuthTests {
   }
 
   @Test
-  void keycloakLoginSynchronizesOnlyApplicationClientRolesFromReturnedToken() {
+  void keycloakEmailLoginPreservesPublicUsernameAndUsesOnlyApplicationClientRoles() {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     AuthUserService users = mock(AuthUserService.class);
+    when(users.getUsernameByUserId("user-1")).thenReturn(Optional.of("provider.name"));
     when(users.getAnalyticsUserIdByUserId("user-1")).thenReturn(Optional.of("analytics-user-1"));
     KeycloakAuthService service = new KeycloakAuthService(properties(), users, builder, new ObjectMapper());
     String payload = Base64.getUrlEncoder().withoutPadding().encodeToString("""
@@ -121,10 +122,11 @@ class AuthTests {
             {"access_token":"%s","refresh_token":"refresh","expires_in":300,"refresh_expires_in":600}
             """.formatted(token), MediaType.APPLICATION_JSON));
 
-    KeycloakAuthService.AuthSession session = service.login("provider.name", "secret");
+    KeycloakAuthService.AuthSession session = service.login("provider@example.test", "secret");
 
     assertThat(session.userId()).isEqualTo("user-1");
     assertThat(session.analyticsUserId()).isEqualTo("analytics-user-1");
+    assertThat(session.publicUserId()).isEqualTo("provider.name");
     assertThat(session.userType()).isEqualTo("provider");
     assertThat(session.roles()).isEqualTo(List.of("provider"));
     verify(users).syncUserFromToken("user-1", List.of("provider"), "provider.name");

@@ -7,6 +7,9 @@ const nextConfig = {
   outputFileTracingRoot: path.join(import.meta.dirname, ".."),
   reactStrictMode: true,
   poweredByHeader: false,
+  logging: {
+    incomingRequests: { ignore: [/^\/auth\/oidc\/callback(?:[/?]|$)/] }
+  },
   async headers() {
     return [
       {

@@ -51,6 +51,61 @@ data:
                       - name: envoy.filters.http.router
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+        {{- if .Values.envoy.memberHttps.tlsSecretName }}
+        - name: member_https
+          address:
+            socket_address:
+              address: 0.0.0.0
+              port_value: {{ .Values.envoy.memberHttps.port }}
+          filter_chains:
+            - transport_socket:
+                name: envoy.transport_sockets.tls
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+                  common_tls_context:
+                    tls_certificates:
+                      - certificate_chain:
+                          filename: /etc/envoy/member-tls/tls.crt
+                        private_key:
+                          filename: /etc/envoy/member-tls/tls.key
+              filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: member_https
+                    codec_type: AUTO
+                    route_config:
+                      name: member_https_routes
+                      virtual_hosts:
+                        - name: member_https
+                          domains: [{{ .Values.envoy.memberHttps.authority | quote }}]
+                          request_headers_to_remove: ["forwarded", "x-forwarded-host", "x-forwarded-port", "x-forwarded-prefix"]
+                          routes:
+                            - match:
+                                path_separated_prefix: {{ printf "/realms/%s" .Values.config.keycloakRealm | quote }}
+                              route:
+                                cluster: member_keycloak
+                            - match:
+                                path_separated_prefix: /resources
+                              route:
+                                cluster: member_keycloak
+                            - match:
+                                path_separated_prefix: /api/v1
+                              route:
+                                cluster: member_api
+                            - match:
+                                path_separated_prefix: /media.v1.MediaService
+                              route:
+                                cluster: member_grpc_web
+                            - match:
+                                prefix: /
+                              route:
+                                cluster: member_web
+                    http_filters:
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+        {{- end }}
       clusters:
         - name: media_grpc
           connect_timeout: 2s
@@ -71,6 +126,29 @@ data:
                         socket_address:
                           address: {{ include "illamhelp-app.fullname" . }}-api
                           port_value: {{ .Values.api.grpcPort }}
+        {{- if .Values.envoy.memberHttps.tlsSecretName }}
+        {{- $app := include "illamhelp-app.fullname" . }}
+        {{- range $cluster, $endpoint := dict
+              "member_web" (list (printf "%s-web" $app) .Values.web.port)
+              "member_api" (list (printf "%s-api" $app) .Values.api.httpPort)
+              "member_grpc_web" (list (printf "%s-envoy" $app) .Values.envoy.port)
+              "member_keycloak" (list .Values.ingress.keycloakServiceName 8080) }}
+        - name: {{ $cluster }}
+          connect_timeout: 2s
+          type: STRICT_DNS
+          dns_lookup_family: V4_ONLY
+          load_assignment:
+            cluster_name: {{ $cluster }}
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: {{ index $endpoint 0 }}
+                          port_value: {{ index $endpoint 1 }}
+        {{- end }}
+        {{- end }}
+
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -108,6 +186,10 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.envoy.port }}
+            {{- if .Values.envoy.memberHttps.tlsSecretName }}
+            - name: member-https
+              containerPort: {{ .Values.envoy.memberHttps.port }}
+            {{- end }}
           readinessProbe:
             tcpSocket:
               port: http
@@ -125,9 +207,19 @@ spec:
               mountPath: /etc/envoy/envoy.yaml
               subPath: envoy.yaml
               readOnly: true
+            {{- if .Values.envoy.memberHttps.tlsSecretName }}
+            - name: member-tls
+              mountPath: /etc/envoy/member-tls
+              readOnly: true
+            {{- end }}
             - name: tmp
               mountPath: /tmp
       volumes:
+        {{- if .Values.envoy.memberHttps.tlsSecretName }}
+        - name: member-tls
+          secret:
+            secretName: {{ .Values.envoy.memberHttps.tlsSecretName | quote }}
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "illamhelp-app.fullname" . }}-envoy
@@ -149,3 +241,9 @@ spec:
     - name: http
       port: {{ .Values.envoy.port }}
       targetPort: http
+
+    {{- if .Values.envoy.memberHttps.tlsSecretName }}
+    - name: member-https
+      port: {{ .Values.envoy.memberHttps.port }}
+      targetPort: member-https
+    {{- end }}
