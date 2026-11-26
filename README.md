@@ -1,6 +1,8 @@
 # IllamHelp
 
-Enterprise-grade mobile marketplace connecting households with verified domestic workers across Kerala and Tamil Nadu. Built with security-first architecture and free/open-source tooling.
+Enterprise-grade mobile marketplace connecting households with verified domestic workers across India. Built with security-first architecture and free/open-source tooling.
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/gidhin1/illamhelp)
 
 ## Monorepo
 

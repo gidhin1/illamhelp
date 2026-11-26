@@ -51,13 +51,13 @@
     "@types/react": "~19.0.10",
     "@typescript-eslint/eslint-plugin": "^8.24.0",
     "@typescript-eslint/parser": "^8.24.0",
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.12",
     "babel-preset-expo": "~13.2.5",
     "eslint": "^9.20.0",
     "expo-modules-autolinking": "2.1.15",
     "globals": "^15.14.0",
     "typescript": "^5.8.2",
-    "vite": "^7.2.7",
-    "vitest": "^4.1.8"
+    "vite": "^7.3.7",
+    "vitest": "^4.1.12"
   }
 }

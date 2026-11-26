@@ -548,7 +548,7 @@ export function JobsWorkspace({
                         required
                       />
                     </Field>
-                    <Field label="Location" hint="e.g. Kakkanad, Kochi">
+                    <Field label="Location" hint="Enter your area and city, town or village.">
                       <TextInput
                         value={form.locationText}
                         onChange={(e) => setForm((prev) => ({ ...prev, locationText: e.target.value }))}

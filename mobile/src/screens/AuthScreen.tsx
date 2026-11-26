@@ -181,7 +181,7 @@ export function AuthScreen({
             Find help at home.{"\n"}
             <Text style={localStyles.displayAccent}>Find work nearby.</Text>
           </Text>
-          <Text style={localStyles.body}>Post a household job or apply for work in Kerala and Tamil Nadu.</Text>
+          <Text style={localStyles.body}>Post a household job or apply for work anywhere in India.</Text>
         </View>
 
         <View style={styles.modeSwitch}>

@@ -651,7 +651,7 @@ export function ProfileScreen({
             label="Address"
             value={form.fullAddress}
             onChangeText={(value) => setForm((previous) => (previous ? { ...previous, fullAddress: value } : previous))}
-            placeholder="Flat 10B, Green Meadows, Kakkanad, Kochi"
+            placeholder="House or flat number, street, area, city"
             multiline
             testID="profile-full-address"
           />

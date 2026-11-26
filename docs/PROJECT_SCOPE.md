@@ -11,7 +11,7 @@ Build a trusted, secure, mobile-first marketplace for household services where:
 - Homeowners can quickly find verified help.
 - Service providers can discover jobs and grow income.
 - Both sides can transact safely with transparent pricing and ratings.
-- Initial regional focus is Kerala and Tamil Nadu, with expansion-ready architecture.
+- Households and service providers can use the marketplace anywhere in India.
 
 ## User Roles
 

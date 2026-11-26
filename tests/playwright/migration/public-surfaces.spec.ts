@@ -37,7 +37,10 @@ for (const mode of ['light', 'dark'] as const) {
             path: testInfo.outputPath(`${label}-${mode}-${width}.png`),
             fullPage: true,
           });
-          if (route === '/') await declineMemberAnalytics(page);
+          if (route === '/') {
+            await expect(page.getByText('Post a household job or apply for work anywhere in India.')).toBeVisible();
+            await declineMemberAnalytics(page);
+          }
           if (route === '/auth/login') {
             await expect(page.getByLabel('Username or email', { exact: true })).toBeVisible();
             await expect(page.getByLabel('Password', { exact: true })).toHaveAttribute('required', '');

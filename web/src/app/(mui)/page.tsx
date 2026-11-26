@@ -122,7 +122,7 @@ export default function HomePage(): JSX.Element {
               Find help at home. <span>Find work nearby.</span>
             </h1>
             <p className="member-intro">
-              Post a household job or apply for work in Kerala and Tamil Nadu.
+              Post a household job or apply for work anywhere in India.
               Review profiles and choose when to share contact details.
             </p>
             <div className="member-hero-actions">
@@ -140,14 +140,14 @@ export default function HomePage(): JSX.Element {
               <BriefcaseBusiness size={21} aria-hidden="true" />
               <div>
                 <p className="member-preview-title">Fix a kitchen leak</p>
-                <p>Example job in Kakkanad</p>
+                <p>Example job</p>
               </div>
             </div>
             <div className="member-preview-item">
               <UserRound size={21} aria-hidden="true" />
               <div>
                 <p className="member-preview-title">Arun M. applies</p>
-                <p>Example applicant · Plumber in Kakkanad</p>
+                <p>Example applicant · Plumber</p>
               </div>
             </div>
             <div className="member-preview-privacy">
